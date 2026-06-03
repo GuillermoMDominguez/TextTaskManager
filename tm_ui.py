@@ -41,12 +41,14 @@ def _format_tags_suffix(text: str) -> str:
 
 
 def _format_task_meta_suffix(task) -> str:
-    """Render compact due/priority badges for a task."""
+    """Render compact due/priority/recurrence badges for a task."""
     chunks = []
     if getattr(task, "priority", None):
         chunks.append(f"[P:{task.priority}]")
     if getattr(task, "due_date", None):
         chunks.append(f"[DUE:{task.due_date.strftime('%d/%m/%Y')}]")
+    if getattr(task, "recurrence", None):
+        chunks.append(f"[↻{task.recurrence}]")
     return f" {' '.join(chunks)}" if chunks else ""
 
 
@@ -256,10 +258,13 @@ def display_tasks(
                 subtask_id_display = _format_id_column(subtask.task_id, id_width)
                 subtask_title_display = _title_without_tags(subtask.title)
                 subtask_title_cell = _format_title_cell(subtask_title_display, TITLE_COLUMN_WIDTH)
+                subtask_due = ""
+                if getattr(subtask, "due_date", None):
+                    subtask_due = f" [DUE:{subtask.due_date.strftime('%d/%m/%Y')}]"
                 print(
                     f"{continuation_prefix}{Colors.SUBTASK}+ {Colors.RESET}{subtask_id_display} {subtask_state_display} "
                     f"{Colors.SUBTASK}{subtask_title_cell}{Colors.RESET}"
-                    f"{Colors.DIM}{_format_tags_suffix(subtask.title)}{Colors.RESET}"
+                    f"{Colors.DIM}{subtask_due}{_format_tags_suffix(subtask.title)}{Colors.RESET}"
                 )
 
             for note_idx, comment in enumerate(task.comments, start=1):
@@ -331,6 +336,12 @@ def print_help() -> None:
         ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
         ("md / meta <id|id.n|id:n#> [--due ...] [--priority ...] [--tags ...]", "Edit due/priority/tags (task/subtask/note)"),
         ("ag / agenda [days]", "Show due-date agenda (default 7 days)"),
+        ("kb / kanban", "Show kanban board view"),
+        ("pj / project [#tag]", "Show project/tag view (list tags or filter)"),
+        ("sort <field> [asc|desc]", "Sort tasks (priority/due_date/state/none)"),
+        ("export <json|csv|md> [path]", "Export tasks to file"),
+        ("import <path>", "Import tasks from JSON file"),
+        ("wr / weekly [days]", "Show weekly report"),
         ("ck / check", "Lint journal structure and metadata"),
         ("u / undo", "Undo last journal mutation in this session"),
         ("f / find <text|#tag|priority:...|due:...>", "Filter by text, tag, priority or due"),

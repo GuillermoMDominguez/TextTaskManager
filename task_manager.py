@@ -10,6 +10,7 @@ from tm_config import APP_VERSION, BANNER_INNER_WIDTH
 from tm_email import load_email_config
 from tm_journal import JournalError, parse_journal
 from tm_logic import assign_task_ids
+from tm_settings import load_settings
 from tm_ui import (
     Colors,
     display_tasks,
@@ -177,6 +178,15 @@ def main() -> None:
     journals_dir = script_dir / "journals"
     cache_path = script_dir / ".last_journal"
     history_path = script_dir / ".task_manager_history"
+
+    # Load user settings (create default config if missing)
+    settings = load_settings(script_dir)
+    config_path = script_dir / ".ttm_config"
+    if not config_path.exists():
+        from tm_settings import DEFAULT_SETTINGS, save_settings
+        save_settings(DEFAULT_SETTINGS, script_dir)
+        print(f"{Colors.DIM}Created default config: {config_path}{Colors.RESET}")
+
     email_config = load_email_config([
         script_dir / ".task_manager_email.json",
         Path.home() / ".task_manager_email.json",
@@ -243,13 +253,17 @@ def main() -> None:
         print(f"{Colors.ERROR}{exc}{Colors.RESET}")
         sys.exit(1)
 
-    view_state = ViewState()
+    view_state = ViewState(
+        sort_by=settings.get("sort_by", "none"),
+        sort_direction=settings.get("sort_direction", "asc"),
+    )
     display_tasks(tasks_by_date, view_state.show_done)
     command_context = CommandContext(
         journal_path=journal_path,
         email_config=email_config,
         refresh_tasks=refresh_tasks,
         undo_stack=[],
+        max_undo=settings.get("max_undo", 20),
     )
 
     while True:

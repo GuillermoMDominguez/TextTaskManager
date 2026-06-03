@@ -1,0 +1,56 @@
+{
+  "states": [
+    "BACKLOG",
+    "IN PROGRESS",
+    "WAITING",
+    "TESTING",
+    "DONE",
+    "CANCELLED"
+  ],
+  "finished_states": [
+    "DONE",
+    "CANCELLED"
+  ],
+  "state_aliases": {
+    "IN TESTING": "TESTING"
+  },
+  "priorities": [
+    "LOW",
+    "MEDIUM",
+    "HIGH",
+    "URGENT"
+  ],
+  "priority_aliases": {
+    "L": "LOW",
+    "M": "MEDIUM",
+    "H": "HIGH",
+    "U": "URGENT"
+  },
+  "default_state": "BACKLOG",
+  "kanban_columns": [
+    "BACKLOG",
+    "IN PROGRESS",
+    "WAITING",
+    "TESTING",
+    "DONE",
+    "CANCELLED"
+  ],
+  "date_format": "%d/%m/%Y",
+  "default_priority": null,
+  "agenda_days": 7,
+  "sort_by": "none",
+  "sort_direction": "asc",
+  "show_done_default": false,
+  "weekly_report_days": 7,
+  "email": {
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_password": "",
+    "from_address": "",
+    "default_recipient": "",
+    "subject_prefix": "[TaskManager]"
+  },
+  "colors_enabled": true,
+  "max_undo": 20
+}

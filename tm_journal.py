@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_STATES
+from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
 from tm_models import Subtask, Task
 
 
@@ -48,6 +48,13 @@ def _parse_due_value(raw: str) -> Optional[datetime]:
         return None
 
 
+def _parse_recurrence_value(raw: str) -> Optional[str]:
+    normalized = raw.strip().lower()
+    if normalized in VALID_RECURRENCES:
+        return normalized
+    return RECURRENCE_ALIASES.get(normalized.upper())
+
+
 def _apply_task_metadata(task: Task, chunk: str) -> bool:
     due_match = re.match(r"^(?:due|d)\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", chunk, re.IGNORECASE)
     if due_match:
@@ -65,6 +72,14 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
             return True
         return False
 
+    recur_match = re.match(r"^(?:recur|recurrence)\s*[:=]\s*([A-Za-z]+)$", chunk, re.IGNORECASE)
+    if recur_match:
+        recurrence = _parse_recurrence_value(recur_match.group(1))
+        if recurrence is not None:
+            task.recurrence = recurrence
+            return True
+        return False
+
     return False
 
 
@@ -74,12 +89,15 @@ def _render_task_line(
     due_date: Optional[datetime],
     priority: Optional[str],
     indent: str = "",
+    recurrence: Optional[str] = None,
 ) -> str:
     parts = [f"{indent}- {title} -- {state}"]
     if due_date is not None:
         parts.append(f"due:{due_date.strftime('%d/%m/%Y')}")
     if priority:
         parts.append(f"priority:{priority}")
+    if recurrence:
+        parts.append(f"recur:{recurrence}")
     return " -- ".join(parts) + "\n"
 
 
@@ -151,7 +169,7 @@ def parse_task_line(line: str) -> Optional[Task]:
 
 
 def parse_subtask_line(line: str) -> Optional[Subtask]:
-    """Parse a single subtask line and extract title and state."""
+    """Parse a single subtask line and extract title, state, and due date."""
     stripped = line.strip()
     if not stripped.startswith("+"):
         return None
@@ -171,6 +189,12 @@ def parse_subtask_line(line: str) -> Optional[Subtask]:
     for part in parts[1:]:
         part = part.strip()
         if not part:
+            continue
+
+        # Check for due date in subtask metadata
+        due_match = re.match(r"^(?:due|d)\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", part, re.IGNORECASE)
+        if due_match:
+            subtask.due_date = _parse_due_value(due_match.group(1))
             continue
 
         for alias, canonical in STATE_ALIASES.items():
@@ -322,6 +346,7 @@ def _render_task_block(task: Task, state_override: Optional[str] = None) -> List
             state=state_override or task.state,
             due_date=task.due_date,
             priority=task.priority,
+            recurrence=task.recurrence,
         )
     ]
     lines.extend(f": {comment}\n" for comment in task.comments)
@@ -381,7 +406,7 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
         original_line = lines[line_index]
         indent = _task_line_indent(original_line, "-")
 
-        new_line = _render_task_line(task.title, new_state, task.due_date, task.priority, indent)
+        new_line = _render_task_line(task.title, new_state, task.due_date, task.priority, indent, task.recurrence)
 
         lines[line_index] = new_line
 
@@ -444,7 +469,10 @@ def update_subtask_state_in_file(filepath: str, subtask: Subtask, new_state: str
         original_line = lines[line_index]
         indent = _task_line_indent(original_line, "+")
 
-        lines[line_index] = f"{indent}+ {subtask.title} -- {new_state}\n"
+        parts = [f"{indent}+ {subtask.title} -- {new_state}"]
+        if subtask.due_date is not None:
+            parts.append(f"due:{subtask.due_date.strftime('%d/%m/%Y')}")
+        lines[line_index] = " -- ".join(parts) + "\n"
 
         _write_lines(filepath, lines)
 
@@ -460,6 +488,7 @@ def add_task_to_file(
     target_date: Optional[datetime] = None,
     due_date: Optional[datetime] = None,
     priority: Optional[str] = None,
+    recurrence: Optional[str] = None,
 ) -> bool:
     """Append a new task into the selected date section in the journal file."""
     clean_title = title.strip()
@@ -471,7 +500,7 @@ def add_task_to_file(
     try:
         lines = _read_lines(filepath)
 
-        new_task_line = _render_task_line(clean_title, state, due_date, priority)
+        new_task_line = _render_task_line(clean_title, state, due_date, priority, recurrence=recurrence)
         lines = _insert_task_block(lines, [new_task_line], selected_date)
         _write_lines(filepath, lines)
 
@@ -492,7 +521,7 @@ def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent)
+        lines[line_index] = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence)
         _write_lines(filepath, lines)
         return True
     except Exception:
@@ -516,7 +545,7 @@ def update_task_metadata_in_file(
             return False
 
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent)
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, task.recurrence)
         _write_lines(filepath, lines)
         return True
     except Exception:
