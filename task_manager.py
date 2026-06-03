@@ -47,6 +47,8 @@ STATE_ALIASES = {
 # States that are considered "finished" (hidden by default)
 FINISHED_STATES = ["DONE", "CANCELLED"]
 DEFAULT_STATE = "BACKLOG"
+APP_VERSION = "1.1"
+BANNER_INNER_WIDTH = 46
 
 # ANSI color codes for terminal output
 class Colors:
@@ -379,20 +381,26 @@ def main():
         journal_path = sys.argv[1]
     else:
         journal_path = str(default_journal)
+
+    def refresh_tasks() -> dict:
+        """Reload tasks from journal file."""
+        return parse_journal(journal_path)
     
     print(f"{Colors.HEADER}{Colors.BOLD}")
-    print("╔════════════════════════════════════════════════╗")
-    print("║           📋 Task Manager v1.0                 ║")
-    print("╚════════════════════════════════════════════════╝")
+    title = f"Task Manager v{APP_VERSION}"
+    print(f"╔{'═' * BANNER_INNER_WIDTH}╗")
+    print(f"║{title.center(BANNER_INNER_WIDTH)}║")
+    print(f"╚{'═' * BANNER_INNER_WIDTH}╝")
     print(f"{Colors.RESET}")
     print(f"  Loading: {journal_path}")
     
     # Parse the journal
-    tasks_by_date = parse_journal(journal_path)
+    tasks_by_date = refresh_tasks()
     
     # Initial display - pending tasks only
     show_done = False
     only_in_progress = False
+    only_testing = False
     display_tasks(tasks_by_date, show_done)
     
     # Interactive loop
@@ -407,6 +415,7 @@ def main():
                 break
             
             elif command in ('a', 'all'):
+                tasks_by_date = refresh_tasks()
                 show_done = True
                 only_in_progress = False
                 only_testing = False
@@ -414,6 +423,7 @@ def main():
                 display_tasks(tasks_by_date, show_done)
             
             elif command in ('p', 'pending'):
+                tasks_by_date = refresh_tasks()
                 show_done = False
                 only_in_progress = False
                 only_testing = False
@@ -421,28 +431,31 @@ def main():
                 display_tasks(tasks_by_date, show_done)
             
             elif command in ('s', 'stats'):
+                tasks_by_date = refresh_tasks()
                 display_stats(tasks_by_date)
             
             elif command in ('r', 'refresh'):
-                tasks_by_date = parse_journal(journal_path)
+                tasks_by_date = refresh_tasks()
                 clear_screen()
                 print(f"{Colors.DIM}Refreshed!{Colors.RESET}")
-                display_tasks(tasks_by_date, show_done,only_in_progress)
+                display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
             
             elif command in ('h', 'help', '?'):
                 print_help()
             elif command in ('i','progress'):
+                tasks_by_date = refresh_tasks()
                 clear_screen()
                 show_done = False
                 only_in_progress = True
                 only_testing = False
-                display_tasks(tasks_by_date,show_done,only_in_progress)
+                display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
             elif command in ('t','testing'):
+                tasks_by_date = refresh_tasks()
                 clear_screen()
                 show_done = False
                 only_in_progress = False
                 only_testing = True
-                display_tasks(tasks_by_date,show_done,only_in_progress,only_testing)
+                display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
             elif command == '':
                 continue
             
