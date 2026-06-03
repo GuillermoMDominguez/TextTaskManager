@@ -31,7 +31,6 @@ from tm_features import (
     format_time_spent,
     extract_time_spent_from_line,
     update_time_in_line,
-    _title_hash,
     add_blocker_metadata,
     add_blocks_metadata,
 )

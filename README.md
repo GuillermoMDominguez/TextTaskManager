@@ -46,7 +46,7 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 ## 02/06/2026
 - Fix login bug -- DONE -- priority:URGENT -- spent:1h30m
 : Root cause was session timeout
-- Write unit tests -- BACKLOG #backend #testing -- blockedby:a3f2c1e0
+- Write unit tests -- BACKLOG #backend #testing -- blockedby:Fix login bug
 ```
 
 ### Syntax
@@ -61,8 +61,8 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 | Priority | `-- priority:LEVEL` | `-- priority:HIGH` |
 | Recurrence | `-- recur:FREQ` | `-- recur:weekly` |
 | Time spent | `-- spent:XhYm` | `-- spent:2h30m` |
-| Blocked by | `-- blockedby:HASH` | `-- blockedby:a3f2c1e0` |
-| Blocks | `-- blocks:HASH` | `-- blocks:b4e1d2f3` |
+| Blocked by | `-- blockedby:Title` | `-- blockedby:Fix login bug` |
+| Blocks | `-- blocks:Title` | `-- blocks:Write unit tests` |
 | Tags | `#tagname` in text | `- Task #frontend #urgent` |
 
 ---
@@ -173,7 +173,7 @@ Mark tasks as blocked by other tasks:
 > block 3 5                    # Task 3 is blocked by task 5
 ```
 
-This writes `-- blockedby:HASH` to the blocked task and `-- blocks:HASH` to the blocker. The hash is derived from the task title for stability across sessions.
+This writes `-- blockedby:Title` to the blocked task and `-- blocks:Title` to the blocker, using the actual task title so the file stays human-readable.
 
 ### Pomodoro Timer
 

@@ -539,55 +539,48 @@ def get_total_time_spent(tasks_by_date: dict) -> int:
 
 # ─── Task Dependencies / Blockers ──────────────────────────────────────────
 
-# Stored as: -- blocks:title_hash or -- blockedby:title_hash
-# title_hash = first 8 chars of a simple hash of the blocker title
-
-def _title_hash(title: str) -> str:
-    """Generate a short stable hash from a task title."""
-    import hashlib
-    return hashlib.md5(title.strip().lower().encode()).hexdigest()[:8]
-
+# Stored as: -- blockedby:Task Title or -- blocks:Task Title
+# Uses the full task title for human readability in the .txt file.
 
 def extract_blockers_from_line(line: str) -> List[str]:
-    """Extract blockedby:hash values from a task line."""
-    return re.findall(r"--\s*blockedby\s*[:=]\s*(\S+)", line, re.IGNORECASE)
+    """Extract blockedby: values (task titles) from a task line."""
+    return re.findall(r"--\s*blockedby\s*[:=]\s*(.+?)(?:\s+--|$)", line, re.IGNORECASE)
 
 
 def extract_blocks_from_line(line: str) -> List[str]:
-    """Extract blocks:hash values from a task line."""
-    return re.findall(r"--\s*blocks\s*[:=]\s*(\S+)", line, re.IGNORECASE)
+    """Extract blocks: values (task titles) from a task line."""
+    return re.findall(r"--\s*blocks\s*[:=]\s*(.+?)(?:\s+--|$)", line, re.IGNORECASE)
 
 
 def add_blocker_metadata(line: str, blocker_title: str) -> str:
-    """Add blockedby:hash to a task line."""
-    h = _title_hash(blocker_title)
-    return line.rstrip() + f" -- blockedby:{h}"
+    """Add blockedby:Title to a task line."""
+    return line.rstrip() + f" -- blockedby:{blocker_title.strip()}"
 
 
 def add_blocks_metadata(line: str, blocked_title: str) -> str:
-    """Add blocks:hash to a task line."""
-    h = _title_hash(blocked_title)
-    return line.rstrip() + f" -- blocks:{h}"
+    """Add blocks:Title to a task line."""
+    return line.rstrip() + f" -- blocks:{blocked_title.strip()}"
 
 
-def find_task_by_title_hash(tasks_by_date: dict, title_hash: str) -> Optional[Task]:
-    """Find a task whose title matches the given hash prefix."""
+def find_task_by_title_match(tasks_by_date: dict, title: str) -> Optional[Task]:
+    """Find a task whose title matches (case-insensitive)."""
+    lower = title.strip().lower()
     for tasks in tasks_by_date.values():
         for task in tasks:
-            if _title_hash(task.title) == title_hash:
+            if task.title.strip().lower() == lower:
                 return task
     return None
 
 
 def is_task_blocked(task: Task, tasks_by_date: dict) -> bool:
-    """Check if a task has unresolved blockers."""
+    """Check if a task has unresolved blockers (by title lookup)."""
     if not hasattr(task, "_raw_line"):
         return False
     blockers = extract_blockers_from_line(getattr(task, "_raw_line", ""))
     if not blockers:
         return False
-    for bh in blockers:
-        blocker = find_task_by_title_hash(tasks_by_date, bh)
+    for blocker_title in blockers:
+        blocker = find_task_by_title_match(tasks_by_date, blocker_title)
         if blocker and not blocker.is_finished():
             return True
     return False
