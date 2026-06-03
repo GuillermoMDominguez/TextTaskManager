@@ -102,6 +102,18 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
     return False
 
 
+def _apply_subtask_metadata(subtask, chunk: str) -> bool:
+    """Apply metadata key:value to a subtask (supports due date)."""
+    due_match = re.match(r"^(?:due|d)\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", chunk, re.IGNORECASE)
+    if due_match:
+        due_date = _parse_due_value(due_match.group(1))
+        if due_date is not None:
+            subtask.due_date = due_date
+            return True
+        return False
+    return False
+
+
 def _render_task_line(
     title: str,
     state: str,
@@ -246,6 +258,7 @@ def parse_journal(filepath: str) -> dict:
     tasks_by_date = {}
     current_date = None
     last_task: Optional[Task] = None
+    last_subtask: Optional[Subtask] = None
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -254,6 +267,7 @@ def parse_journal(filepath: str) -> dict:
                 if date:
                     current_date = date
                     last_task = None
+                    last_subtask = None
                     if current_date not in tasks_by_date:
                         tasks_by_date[current_date] = []
                     continue
@@ -262,29 +276,35 @@ def parse_journal(filepath: str) -> dict:
 
                 # Metadata continuation line: starts with -- (on its own line)
                 if stripped.startswith("--") and not stripped.startswith("---"):
-                    if last_task is not None:
-                        meta_content = stripped[2:].strip()
-                        if meta_content:
+                    meta_content = stripped[2:].strip()
+                    if meta_content:
+                        # Determine target: last subtask or last task
+                        target = last_subtask if last_subtask is not None else last_task
+                        if target is not None:
                             # Try as state first
                             state_applied = False
                             for state in VALID_STATES:
                                 if meta_content.upper() == state:
-                                    last_task.state = state
+                                    target.state = state
                                     state_applied = True
                                     break
                             if not state_applied:
                                 for alias, canonical in STATE_ALIASES.items():
                                     if meta_content.upper() == alias:
-                                        last_task.state = canonical
+                                        target.state = canonical
                                         state_applied = True
                                         break
                             if not state_applied:
-                                _apply_task_metadata(last_task, meta_content)
+                                if last_subtask is not None:
+                                    _apply_subtask_metadata(last_subtask, meta_content)
+                                elif last_task is not None:
+                                    _apply_task_metadata(last_task, meta_content)
                     continue
 
                 if stripped.startswith(":"):
                     if last_task is not None:
                         append_unique_comments(last_task.comments, split_comments(stripped[1:]))
+                    last_subtask = None
                     continue
 
                 if stripped.startswith("+"):
@@ -293,6 +313,7 @@ def parse_journal(filepath: str) -> dict:
                         if subtask and subtask.title:
                             subtask.source_line = line_number
                             last_task.subtasks.append(subtask)
+                            last_subtask = subtask
                     continue
 
                 if stripped.startswith("-") and not stripped.startswith("--"):
@@ -307,12 +328,14 @@ def parse_journal(filepath: str) -> dict:
                                 tasks_by_date[None] = []
                             tasks_by_date[None].append(task)
                         last_task = task
+                        last_subtask = None
                     continue
 
-                # Unrecognized lines within a task block: treat as title continuation
-                # (supports indented tags or wrapped titles from manual editing)
+                # Unrecognized lines within a task block: treat as tag/title continuation
                 if last_task is not None and stripped:
-                    last_task.title = last_task.title.rstrip() + " " + stripped
+                    # Determine target for continuation
+                    target = last_subtask if last_subtask is not None else last_task
+                    target.title = target.title.rstrip() + " " + stripped
 
     except FileNotFoundError as exc:
         raise JournalFileNotFoundError(f"File not found: {filepath}") from exc

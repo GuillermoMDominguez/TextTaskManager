@@ -68,6 +68,13 @@ from tm_models import Subtask, Task, extract_tags_from_text
 from tm_settings import get_setting
 from tm_ui import Colors, clear_screen, display_stats, display_tasks, print_help, prompt_for_state
 
+_TAG_RE = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
+
+
+def _strip_tags(title: str) -> str:
+    """Remove hashtag tokens from a title for use in metadata references."""
+    return " ".join(_TAG_RE.sub("", title).split())
+
 
 COMMAND_HELP = {
     "n": {
@@ -1404,7 +1411,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         updated = False
         for i, line in enumerate(lines):
             if line.strip().startswith("-") and blocked_task.title in line:
-                lines[i] = add_blocker_metadata(line, blocker_task.title)
+                lines[i] = add_blocker_metadata(line, _strip_tags(blocker_task.title))
                 updated = True
                 break
 
@@ -1412,7 +1419,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # Also add blocks: to the blocker task
             for i, line in enumerate(lines):
                 if line.strip().startswith("-") and blocker_task.title in line:
-                    lines[i] = add_blocks_metadata(line, blocked_task.title)
+                    lines[i] = add_blocks_metadata(line, _strip_tags(blocked_task.title))
                     break
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _save_undo_snapshot(context, snapshot)
