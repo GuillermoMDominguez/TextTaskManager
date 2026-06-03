@@ -1,11 +1,12 @@
 """Business logic helpers for commands, IDs, and input normalization."""
 
 import shlex
+import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
-from tm_models import Task
+from tm_models import Subtask, Task
 
 
 def normalize_state_input(state_input: str) -> Optional[str]:
@@ -40,6 +41,9 @@ def assign_task_ids(
 
             task.task_id = id_registry[task_key]
 
+            for idx, subtask in enumerate(task.subtasks, start=1):
+                subtask.task_id = f"{task.task_id}.{idx}"
+
     return next_id
 
 
@@ -49,24 +53,32 @@ def get_id_width(tasks_by_date: dict) -> int:
     return max(1, len(str(total_tasks)))
 
 
-def parse_task_id_input(task_id_input: str) -> Optional[int]:
-    """Normalize task ID input so 1, 01, and 0001 are equivalent."""
-    normalized = task_id_input.strip()
-    if not normalized.isdigit():
+def normalize_task_id_input(task_id_input: str) -> Optional[str]:
+    """Normalize task ID input so 1, 01, 1.2, and 01.02 are equivalent."""
+    match = re.match(r"^\s*0*(\d+)(?:\.0*(\d+))?\s*$", task_id_input)
+    if not match:
         return None
-    return int(normalized)
+
+    parent_id = str(int(match.group(1)))
+    child_id = match.group(2)
+    if child_id is None:
+        return parent_id
+    return f"{parent_id}.{int(child_id)}"
 
 
-def find_task_by_id(tasks_by_date: dict, task_id: str) -> Optional[Task]:
-    """Find a task by assigned ID."""
-    requested_id = parse_task_id_input(task_id)
+def find_task_by_id(tasks_by_date: dict, task_id: str) -> Optional[Union[Task, Subtask]]:
+    """Find a task or subtask by assigned ID."""
+    requested_id = normalize_task_id_input(task_id)
     if requested_id is None:
         return None
 
     for tasks in tasks_by_date.values():
         for task in tasks:
-            if task.task_id and task.task_id.isdigit() and int(task.task_id) == requested_id:
+            if task.task_id == requested_id:
                 return task
+            for subtask in task.subtasks:
+                if subtask.task_id == requested_id:
+                    return subtask
     return None
 
 

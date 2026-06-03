@@ -88,6 +88,7 @@ class Colors:
 
     DATE = "\033[94m"
     TASK = "\033[97m"
+    SUBTASK = "\033[92m"
     COMMENT = "\033[90m"
     HEADER = "\033[96m"
     ERROR = "\033[91m"
@@ -155,6 +156,14 @@ def display_tasks(tasks_by_date: dict, show_done: bool = False, only_in_progress
             task_id_display = task.task_id.zfill(id_width) if task.task_id else "-" * id_width
             print(f"  [{Colors.BOLD}{task_id_display}{Colors.RESET}] [{state_display}] {Colors.TASK}{task.title}{Colors.RESET}")
 
+            for subtask in task.subtasks:
+                subtask_state_display = format_state(subtask.state)
+                subtask_id_display = subtask.task_id if subtask.task_id else f"{task_id_display}.?"
+                print(
+                    f"      {Colors.SUBTASK}+ [{Colors.BOLD}{subtask_id_display}{Colors.RESET}] "
+                    f"[{subtask_state_display}] {Colors.SUBTASK}{subtask.title}{Colors.RESET}"
+                )
+
             for comment in task.comments:
                 print(f"      {Colors.COMMENT}- {comment}{Colors.RESET}")
 
@@ -208,6 +217,7 @@ def print_help() -> None:
         ("n / new", "Create task (default state: BACKLOG, default date: today)"),
         ("cs / change state <id> [state]", "Change task state by ID"),
         ("an / add note <id> <note>", "Add a note to a task by ID"),
+        ("+ <title> -- <state>", "Subtask format in journal (under a task)"),
         ("r / refresh", "Reload file and refresh display"),
         ("h / help", "Show this help message"),
         ("q / quit", "Exit the application"),

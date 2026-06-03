@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
-from tm_journal import add_task_to_file, parse_journal, update_task_state_in_file
+from tm_journal import add_note_to_task_in_file, add_task_to_file, parse_journal, update_subtask_state_in_file, update_task_state_in_file
 from tm_logic import assign_task_ids, find_task_by_id, normalize_state_input, parse_new_command_args
+from tm_models import Subtask
 from tm_ui import (
     Colors,
     clear_screen,
@@ -81,6 +82,14 @@ def migrate_legacy_journals(script_dir: Path, journals_dir: Path) -> None:
     for legacy_file in legacy_files:
         target = journals_dir / legacy_file.name
         if target.exists():
+            try:
+                legacy_stat = legacy_file.stat()
+                target_stat = target.stat()
+                if legacy_stat.st_mtime > target_stat.st_mtime:
+                    target.write_text(legacy_file.read_text(encoding="utf-8"), encoding="utf-8")
+                    print(f"{Colors.DIM}Synced newer legacy journal to {target}.{Colors.RESET}")
+            except OSError as exc:
+                print(f"{Colors.ERROR}Warning: could not sync {legacy_file.name} ({exc}).{Colors.RESET}")
             continue
         try:
             legacy_file.replace(target)
@@ -231,8 +240,6 @@ def main() -> None:
     only_testing = False
     display_tasks(tasks_by_date, show_done)
 
-    print_help()
-
     while True:
         try:
             raw_command = input(f"\n{Colors.BOLD}>{Colors.RESET} ")
@@ -313,7 +320,12 @@ def main() -> None:
                         print(f"{Colors.ERROR}Invalid state: {requested_state}{Colors.RESET}")
                     selected_state = prompt_for_state()
 
-                if update_task_state_in_file(journal_path, target_task, selected_state):
+                if isinstance(target_task, Subtask):
+                    updated = update_subtask_state_in_file(journal_path, target_task, selected_state)
+                else:
+                    updated = update_task_state_in_file(journal_path, target_task, selected_state)
+
+                if updated:
                     tasks_by_date = refresh_tasks()
                     clear_screen()
                     print(f"{Colors.DIM}Task {requested_id} updated to {selected_state}.{Colors.RESET}")
@@ -340,8 +352,11 @@ def main() -> None:
                     print(f"{Colors.ERROR}Task ID {requested_id} not found.{Colors.RESET}")
                     continue
 
-                target_task.comments.append(note_text)
-                if update_task_state_in_file(journal_path, target_task, target_task.state):
+                if isinstance(target_task, Subtask):
+                    print(f"{Colors.ERROR}Add note supports parent task IDs only.{Colors.RESET}")
+                    continue
+
+                if add_note_to_task_in_file(journal_path, target_task, note_text):
                     tasks_by_date = refresh_tasks()
                     clear_screen()
                     print(f"{Colors.DIM}Note added to task {requested_id}.{Colors.RESET}")

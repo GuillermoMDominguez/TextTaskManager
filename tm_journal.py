@@ -6,12 +6,19 @@ from datetime import datetime
 from typing import List, Optional
 
 from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
-from tm_models import Task
+from tm_models import Subtask, Task
 
 
 def split_comments(text: str) -> List[str]:
     """Split a text by ':' into separate comments, filtering empty ones."""
     return [c.strip() for c in text.split(":") if c.strip()]
+
+
+def append_unique_comments(target: List[str], new_comments: List[str]) -> None:
+    """Append comments preserving order while avoiding duplicates."""
+    for comment in new_comments:
+        if comment not in target:
+            target.append(comment)
 
 
 def parse_task_line(line: str) -> Optional[Task]:
@@ -34,7 +41,7 @@ def parse_task_line(line: str) -> Optional[Task]:
     if ":" in title_part:
         idx = title_part.find(":")
         task.title = title_part[:idx].strip()
-        comments.extend(split_comments(title_part[idx + 1 :]))
+        append_unique_comments(comments, split_comments(title_part[idx + 1 :]))
     else:
         task.title = title_part.strip()
 
@@ -63,15 +70,52 @@ def parse_task_line(line: str) -> Optional[Task]:
             current_state = state_found
             remaining = remaining.lstrip()
             if remaining.startswith(":"):
-                comments.extend(split_comments(remaining[1:]))
+                append_unique_comments(comments, split_comments(remaining[1:]))
             elif remaining:
-                comments.extend(split_comments(remaining))
+                append_unique_comments(comments, split_comments(remaining))
         else:
-            comments.extend(split_comments(part))
+            append_unique_comments(comments, split_comments(part))
 
     task.state = current_state
     task.comments = comments
     return task
+
+
+def parse_subtask_line(line: str) -> Optional[Subtask]:
+    """Parse a single subtask line and extract title and state."""
+    stripped = line.strip()
+    if not stripped.startswith("+"):
+        return None
+
+    content = stripped[1:].strip()
+    if not content:
+        return None
+
+    subtask = Subtask(title="")
+    current_state = DEFAULT_STATE
+
+    parts = re.split(r"\s*(?:--|->)\s*", content)
+    subtask.title = parts[0].strip()
+    if not subtask.title:
+        return None
+
+    for part in parts[1:]:
+        part = part.strip()
+        if not part:
+            continue
+
+        for alias, canonical in STATE_ALIASES.items():
+            if part.upper().startswith(alias):
+                current_state = canonical
+                break
+        else:
+            for state in VALID_STATES:
+                if part.upper().startswith(state):
+                    current_state = state
+                    break
+
+    subtask.state = current_state
+    return subtask
 
 
 def parse_date(line: str) -> Optional[datetime]:
@@ -105,7 +149,15 @@ def parse_journal(filepath: str) -> dict:
                 stripped = line.strip()
                 if stripped.startswith(":"):
                     if last_task is not None:
-                        last_task.comments.extend(split_comments(stripped[1:]))
+                        append_unique_comments(last_task.comments, split_comments(stripped[1:]))
+                    continue
+
+                if stripped.startswith("+"):
+                    if last_task is not None:
+                        subtask = parse_subtask_line(line)
+                        if subtask and subtask.title:
+                            subtask.source_line = line_number
+                            last_task.subtasks.append(subtask)
                     continue
 
                 if stripped.startswith("-") and not stripped.startswith("--"):
@@ -148,12 +200,76 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
         indent_match = re.match(r"^(\s*)-\s*", original_line)
         indent = indent_match.group(1) if indent_match else ""
 
-        new_line = f"{indent}- {task.title} -- {new_state}"
-        if task.comments:
-            new_line += " : " + " : ".join(task.comments)
-        new_line += "\n"
+        new_line = f"{indent}- {task.title} -- {new_state}\n"
 
         lines[line_index] = new_line
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        return True
+    except Exception:
+        return False
+
+
+def add_note_to_task_in_file(filepath: str, task: Task, note: str) -> bool:
+    """Persist a note line (': ...') inside a task block."""
+    if task.source_line is None:
+        return False
+
+    clean_note = note.strip()
+    if not clean_note:
+        return False
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        line_index = task.source_line - 1
+        if line_index < 0 or line_index >= len(lines):
+            return False
+
+        task_line = lines[line_index]
+        indent_match = re.match(r"^(\s*)-\s*", task_line)
+        indent = indent_match.group(1) if indent_match else ""
+
+        insert_idx = line_index + 1
+        while insert_idx < len(lines):
+            stripped = lines[insert_idx].strip()
+            if stripped.startswith("##"):
+                break
+            if stripped.startswith("-") and not stripped.startswith("--"):
+                break
+            insert_idx += 1
+
+        lines.insert(insert_idx, f"{indent}: {clean_note}\n")
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        return True
+    except Exception:
+        return False
+
+
+def update_subtask_state_in_file(filepath: str, subtask: Subtask, new_state: str) -> bool:
+    """Persist a subtask state change in the journal file."""
+    if subtask.source_line is None:
+        return False
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        line_index = subtask.source_line - 1
+        if line_index < 0 or line_index >= len(lines):
+            return False
+
+        original_line = lines[line_index]
+        indent_match = re.match(r"^(\s*)\+\s*", original_line)
+        indent = indent_match.group(1) if indent_match else ""
+
+        lines[line_index] = f"{indent}+ {subtask.title} -- {new_state}\n"
 
         with open(filepath, "w", encoding="utf-8") as f:
             f.writelines(lines)
