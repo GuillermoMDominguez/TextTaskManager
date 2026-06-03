@@ -33,9 +33,13 @@ class EmailConfig:
 class EmailResult:
     """Result object returned by email sending operations."""
 
-    success: bool
-    mode: str
+    status: str
     message: str
+
+    @property
+    def success(self) -> bool:
+        """Backward-compatible success signal for non-failed statuses."""
+        return self.status in {"sent", "draft"}
 
 
 def _to_bool(value: object, default: bool) -> bool:
@@ -177,7 +181,7 @@ def send_email_report(recipient: str, subject: str, body: str, config: EmailConf
     if config.smtp_host and (config.smtp_sender or config.smtp_user):
         try:
             _send_via_smtp(config, recipient, subject, body)
-            return EmailResult(True, "smtp", "Email sent via SMTP.")
+            return EmailResult("sent", "Email sent via SMTP.")
         except Exception as exc:
             smtp_error = str(exc)
 
@@ -198,36 +202,31 @@ def send_email_report(recipient: str, subject: str, body: str, config: EmailConf
                 report_path = _write_report_file(body)
                 if report_path:
                     return EmailResult(
-                        True,
-                        "mailto",
+                        "draft",
                         f"SMTP failed ({smtp_error}). Opened draft without body. Report saved at {report_path}.",
                     )
                 return EmailResult(
-                    True,
-                    "mailto",
+                    "draft",
                     f"SMTP failed ({smtp_error}). Opened draft without body (client body-size limit).",
                 )
             return EmailResult(
-                True,
-                "mailto",
+                "draft",
                 f"SMTP failed ({smtp_error}). Opened draft in default mail app instead.",
             )
         if not used_body:
             report_path = _write_report_file(body)
             if report_path:
                 return EmailResult(
-                    True,
-                    "mailto",
+                    "draft",
                     f"Opened draft without body (client body-size limit). Report saved at {report_path}.",
                 )
-            return EmailResult(True, "mailto", "Opened draft without body (client body-size limit).")
-        return EmailResult(True, "mailto", "Opened draft in default mail app.")
+            return EmailResult("draft", "Opened draft without body (client body-size limit).")
+        return EmailResult("draft", "Opened draft in default mail app.")
 
     if smtp_error:
-        return EmailResult(False, "error", f"Could not send email (SMTP error: {smtp_error}).")
+        return EmailResult("failed", f"Could not send email (SMTP error: {smtp_error}).")
 
     return EmailResult(
-        False,
-        "error",
+        "failed",
         "No email transport available. Configure SMTP or set a default mail app for mailto links.",
     )

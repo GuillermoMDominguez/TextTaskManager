@@ -1,12 +1,23 @@
 """Journal parsing and persistence helpers."""
 
 import re
-import sys
 from datetime import datetime
 from typing import List, Optional
 
 from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
 from tm_models import Subtask, Task
+
+
+class JournalError(Exception):
+    """Base error for journal operations."""
+
+
+class JournalFileNotFoundError(JournalError):
+    """Raised when the journal file cannot be found."""
+
+
+class JournalReadError(JournalError):
+    """Raised when the journal file cannot be parsed or read."""
 
 
 def split_comments(text: str) -> List[str]:
@@ -173,12 +184,10 @@ def parse_journal(filepath: str) -> dict:
                             tasks_by_date[None].append(task)
                         last_task = task
 
-    except FileNotFoundError:
-        print(f"Error: File not found: {filepath}")
-        sys.exit(1)
+    except FileNotFoundError as exc:
+        raise JournalFileNotFoundError(f"File not found: {filepath}") from exc
     except Exception as exc:
-        print(f"Error reading file: {exc}")
-        sys.exit(1)
+        raise JournalReadError(f"Error reading file: {exc}") from exc
 
     return tasks_by_date
 

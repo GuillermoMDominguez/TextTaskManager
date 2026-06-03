@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
 """Task Manager CLI entrypoint."""
 
-import re
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
-from tm_email import load_email_config, send_email_report
-from tm_journal import add_note_to_task_in_file, add_task_to_file, parse_journal, update_subtask_state_in_file, update_task_state_in_file
-from tm_logic import assign_task_ids, build_pending_email_body, find_task_by_id, get_pending_tasks, normalize_state_input, parse_new_command_args
-from tm_models import Subtask
+from tm_commands import CommandContext, ViewState, execute_command
+from tm_config import APP_VERSION, BANNER_INNER_WIDTH
+from tm_email import load_email_config
+from tm_journal import JournalError, parse_journal
+from tm_logic import assign_task_ids
 from tm_ui import (
     Colors,
-    clear_screen,
-    display_stats,
     display_tasks,
     enable_command_history,
     enable_windows_ansi,
-    print_help,
-    prompt_for_state,
     remember_command,
     save_command_history,
 )
@@ -220,12 +214,19 @@ def main() -> None:
 
     id_registry: Dict[Tuple[str, str, Tuple[str, ...], int], str] = {}
     next_task_id = 1
+    tasks_cache: Optional[dict] = None
 
     def refresh_tasks() -> dict:
         """Reload tasks from journal file and assign execution IDs."""
-        nonlocal next_task_id
-        tasks = parse_journal(journal_path)
+        nonlocal next_task_id, tasks_cache
+        try:
+            tasks = parse_journal(journal_path)
+        except JournalError:
+            if tasks_cache is None:
+                raise
+            raise
         next_task_id = assign_task_ids(tasks, id_registry, next_task_id)
+        tasks_cache = tasks
         return tasks
 
     print(f"{Colors.HEADER}{Colors.BOLD}")
@@ -238,192 +239,39 @@ def main() -> None:
 
     enable_command_history(str(history_path))
 
-    tasks_by_date = refresh_tasks()
+    try:
+        tasks_by_date = refresh_tasks()
+    except JournalError as exc:
+        print(f"{Colors.ERROR}{exc}{Colors.RESET}")
+        sys.exit(1)
 
-    show_done = False
-    only_in_progress = False
-    only_testing = False
-    display_tasks(tasks_by_date, show_done)
+    view_state = ViewState()
+    display_tasks(tasks_by_date, view_state.show_done)
+    command_context = CommandContext(
+        journal_path=journal_path,
+        email_config=email_config,
+        refresh_tasks=refresh_tasks,
+    )
 
     while True:
         try:
             raw_command = input(f"\n{Colors.BOLD}>{Colors.RESET} ")
             remember_command(raw_command)
             raw_command = raw_command.strip()
-            command = raw_command.lower()
 
-            if command in ("q", "quit", "exit"):
+            try:
+                outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)
+            except JournalError as exc:
+                print(f"{Colors.ERROR}{exc}{Colors.RESET}")
+                continue
+
+            tasks_by_date = outcome.tasks_by_date
+            view_state = outcome.view_state
+
+            if outcome.should_exit:
                 save_command_history(str(history_path))
                 print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
                 break
-
-            elif command in ("a", "all"):
-                tasks_by_date = refresh_tasks()
-                show_done = True
-                only_in_progress = False
-                only_testing = False
-                clear_screen()
-                display_tasks(tasks_by_date, show_done)
-
-            elif command in ("p", "pending"):
-                tasks_by_date = refresh_tasks()
-                show_done = False
-                only_in_progress = False
-                only_testing = False
-                clear_screen()
-                display_tasks(tasks_by_date, show_done)
-
-            elif command in ("s", "stats"):
-                tasks_by_date = refresh_tasks()
-                display_stats(tasks_by_date)
-
-            elif re.match(r"^\s*(?:se|send\s+email)\b", raw_command, re.IGNORECASE):
-                tasks_by_date = refresh_tasks()
-                pending = get_pending_tasks(tasks_by_date)
-                if not pending:
-                    print(f"{Colors.DIM}No pending tasks to send.{Colors.RESET}")
-                    continue
-
-                match = re.match(r"^\s*(?:se|send\s+email)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
-                recipient = match.group(1).strip() if match and match.group(1) else None
-                if not recipient:
-                    recipient = email_config.default_recipient
-                while not recipient:
-                    answer = input(f"{Colors.BOLD}Recipient email: {Colors.RESET}").strip()
-                    if answer:
-                        recipient = answer
-
-                subject = f"{email_config.subject_prefix} Pending tasks {datetime.now().strftime('%d/%m/%Y')}"
-                body = build_pending_email_body(tasks_by_date)
-                result = send_email_report(recipient, subject, body, email_config)
-
-                if result.success:
-                    print(f"{Colors.DIM}{result.message}{Colors.RESET}")
-                else:
-                    print(f"{Colors.ERROR}{result.message}{Colors.RESET}")
-
-            elif re.match(r"^\s*(?:n|new)\b", raw_command, re.IGNORECASE):
-                task_title, task_state, target_date, parse_error = parse_new_command_args(raw_command)
-                if parse_error:
-                    print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
-                    print(f"{Colors.DIM}Usage: n [title] [--state <state>] [--date dd/mm/yyyy]{Colors.RESET}")
-                    continue
-
-                if not task_title:
-                    task_title = input(f"{Colors.BOLD}Task title: {Colors.RESET}").strip()
-
-                if not task_title:
-                    print(f"{Colors.ERROR}Task title cannot be empty.{Colors.RESET}")
-                    continue
-
-                task_state = task_state or DEFAULT_STATE
-
-                if add_task_to_file(journal_path, task_title, task_state, target_date):
-                    tasks_by_date = refresh_tasks()
-                    clear_screen()
-                    created_date = (target_date or datetime.now()).strftime("%d/%m/%Y")
-                    print(f"{Colors.DIM}Task created in {task_state} for {created_date}.{Colors.RESET}")
-                    display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
-                else:
-                    print(f"{Colors.ERROR}Could not create task in file.{Colors.RESET}")
-
-            elif re.match(r"^\s*(?:cs|change\s+state)\b", raw_command, re.IGNORECASE):
-                tasks_by_date = refresh_tasks()
-                match = re.match(r"^\s*(?:cs|change\s+state)\s+(\S+)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
-                if not match:
-                    print(f"{Colors.ERROR}Usage: cs <task_id> [state]{Colors.RESET}")
-                    continue
-
-                requested_id = match.group(1).strip()
-                target_task = find_task_by_id(tasks_by_date, requested_id)
-                if not target_task:
-                    print(f"{Colors.ERROR}Task ID {requested_id} not found.{Colors.RESET}")
-                    continue
-
-                selected_state = None
-                requested_state = match.group(2)
-                if requested_state:
-                    selected_state = normalize_state_input(requested_state)
-
-                if not selected_state:
-                    if requested_state:
-                        print(f"{Colors.ERROR}Invalid state: {requested_state}{Colors.RESET}")
-                    selected_state = prompt_for_state()
-
-                if isinstance(target_task, Subtask):
-                    updated = update_subtask_state_in_file(journal_path, target_task, selected_state)
-                else:
-                    updated = update_task_state_in_file(journal_path, target_task, selected_state)
-
-                if updated:
-                    tasks_by_date = refresh_tasks()
-                    clear_screen()
-                    print(f"{Colors.DIM}Task {requested_id} updated to {selected_state}.{Colors.RESET}")
-                    display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
-                else:
-                    print(f"{Colors.ERROR}Could not update task in file.{Colors.RESET}")
-
-            elif re.match(r"^\s*(?:an|add\s+note)\b", raw_command, re.IGNORECASE):
-                tasks_by_date = refresh_tasks()
-                match = re.match(r"^\s*(?:an|add\s+note)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
-                if not match:
-                    print(f"{Colors.ERROR}Usage: an <task_id> <note>{Colors.RESET}")
-                    continue
-
-                requested_id = match.group(1).strip()
-                note_text = match.group(2).strip()
-
-                if not note_text:
-                    print(f"{Colors.ERROR}Note cannot be empty.{Colors.RESET}")
-                    continue
-
-                target_task = find_task_by_id(tasks_by_date, requested_id)
-                if not target_task:
-                    print(f"{Colors.ERROR}Task ID {requested_id} not found.{Colors.RESET}")
-                    continue
-
-                if isinstance(target_task, Subtask):
-                    print(f"{Colors.ERROR}Add note supports parent task IDs only.{Colors.RESET}")
-                    continue
-
-                if add_note_to_task_in_file(journal_path, target_task, note_text):
-                    tasks_by_date = refresh_tasks()
-                    clear_screen()
-                    print(f"{Colors.DIM}Note added to task {requested_id}.{Colors.RESET}")
-                    display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
-                else:
-                    print(f"{Colors.ERROR}Could not add note in file.{Colors.RESET}")
-
-            elif command in ("r", "refresh"):
-                tasks_by_date = refresh_tasks()
-                clear_screen()
-                print(f"{Colors.DIM}Refreshed!{Colors.RESET}")
-                display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
-
-            elif command in ("h", "help", "?"):
-                print_help()
-
-            elif command in ("i", "progress"):
-                tasks_by_date = refresh_tasks()
-                clear_screen()
-                show_done = False
-                only_in_progress = True
-                only_testing = False
-                display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
-
-            elif command in ("t", "testing"):
-                tasks_by_date = refresh_tasks()
-                clear_screen()
-                show_done = False
-                only_in_progress = False
-                only_testing = True
-                display_tasks(tasks_by_date, show_done, only_in_progress, only_testing)
-
-            elif command == "":
-                continue
-
-            else:
-                print(f"{Colors.ERROR}Unknown command. Type 'help' for available commands.{Colors.RESET}")
 
         except KeyboardInterrupt:
             save_command_history(str(history_path))
