@@ -89,6 +89,7 @@ def parse_journal(filepath: str) -> dict:
     """Parse the journal file and extract all tasks grouped by date."""
     tasks_by_date = {}
     current_date = None
+    last_task: Optional[Task] = None
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -96,11 +97,17 @@ def parse_journal(filepath: str) -> dict:
                 date = parse_date(line)
                 if date:
                     current_date = date
+                    last_task = None
                     if current_date not in tasks_by_date:
                         tasks_by_date[current_date] = []
                     continue
 
                 stripped = line.strip()
+                if stripped.startswith(":"):
+                    if last_task is not None:
+                        last_task.comments.extend(split_comments(stripped[1:]))
+                    continue
+
                 if stripped.startswith("-") and not stripped.startswith("--"):
                     task = parse_task_line(line)
                     if task and task.title:
@@ -112,6 +119,7 @@ def parse_journal(filepath: str) -> dict:
                             if None not in tasks_by_date:
                                 tasks_by_date[None] = []
                             tasks_by_date[None].append(task)
+                        last_task = task
 
     except FileNotFoundError:
         print(f"Error: File not found: {filepath}")

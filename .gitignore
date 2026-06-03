@@ -2,4 +2,6 @@
 .venv
 Javier_Journal.txt
 .task_manager_history
+.last_journal
+journals/*.txt
 __pycache__/

@@ -198,24 +198,32 @@ def display_stats(tasks_by_date: dict) -> None:
 
 def print_help() -> None:
     """Print help message."""
+    command_width = 30
+    rows = [
+        ("a / all", "Show all tasks (including done)"),
+        ("p / pending", "Show pending tasks only (default)"),
+        ("i / progress", "Show in progress or testing tasks only"),
+        ("t / testing", "Show in testing tasks only"),
+        ("s / stats", "Show task statistics"),
+        ("n / new", "Create task (default state: BACKLOG, default date: today)"),
+        ("cs / change state <id> [state]", "Change task state by ID"),
+        ("an / add note <id> <note>", "Add a note to a task by ID"),
+        ("r / refresh", "Reload file and refresh display"),
+        ("h / help", "Show this help message"),
+        ("q / quit", "Exit the application"),
+    ]
+
+    print(f"\n{Colors.HEADER}{Colors.BOLD}Task Manager - Commands{Colors.RESET}")
+    print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
+    for command_text, description in rows:
+        print(f"  {Colors.BOLD}{command_text.ljust(command_width)}{Colors.RESET} {description}")
+
     print(
-        f"""
-{Colors.HEADER}{Colors.BOLD}Task Manager - Commands{Colors.RESET}
-{Colors.HEADER}{'─' * 40}{Colors.RESET}
-  {Colors.BOLD}a{Colors.RESET} / {Colors.BOLD}all{Colors.RESET}          Show all tasks (including done)
-  {Colors.BOLD}p{Colors.RESET} / {Colors.BOLD}pending{Colors.RESET}      Show pending tasks only (default)
-  {Colors.BOLD}i{Colors.RESET} / {Colors.BOLD}in progress{Colors.RESET}  Show in progress or testing tasks only
-  {Colors.BOLD}t{Colors.RESET} / {Colors.BOLD}in testing{Colors.RESET}   Show in testing tasks only
-  {Colors.BOLD}s{Colors.RESET} / {Colors.BOLD}stats{Colors.RESET}        Show task statistics
-  {Colors.BOLD}n{Colors.RESET} / {Colors.BOLD}new{Colors.RESET} [title] [--state <state>] [--date dd/mm/yyyy]
-                    Create task (default state: BACKLOG, default date: today)
-  {Colors.BOLD}cs{Colors.RESET} / {Colors.BOLD}change state{Colors.RESET} <id> [state]  Change task state by ID
-  {Colors.BOLD}r{Colors.RESET} / {Colors.BOLD}refresh{Colors.RESET}      Reload file and refresh display
-  {Colors.BOLD}h{Colors.RESET} / {Colors.BOLD}help{Colors.RESET}         Show this help message
-  {Colors.BOLD}q{Colors.RESET} / {Colors.BOLD}quit{Colors.RESET}         Exit the application
-{Colors.HEADER}{'─' * 40}{Colors.RESET}
-"""
+        " "
+        f"\n  {Colors.DIM}Usage for new:{Colors.RESET} "
+        f"{Colors.BOLD}n [title] [--state <state>] [--date dd/mm/yyyy]{Colors.RESET}"
     )
+    print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
 
 
 def prompt_for_state() -> str:
