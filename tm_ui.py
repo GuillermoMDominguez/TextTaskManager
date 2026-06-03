@@ -1,6 +1,7 @@
 """Terminal UI rendering and interaction helpers."""
 
 import os
+import re
 from typing import Optional
 
 try:
@@ -9,7 +10,75 @@ except ImportError:  # pragma: no cover - readline is unavailable on some platfo
     readline = None
 
 from tm_config import VALID_STATES
-from tm_logic import get_id_width, normalize_state_input
+from tm_logic import build_note_id, get_id_width, normalize_state_input, task_matches_search
+from tm_models import extract_tags_from_text
+
+
+TAG_CLEAN_PATTERN = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
+STATE_COLUMN_WIDTH = max(len(state) for state in VALID_STATES)
+TITLE_COLUMN_WIDTH = 56
+
+
+def _title_without_tags(text: str) -> str:
+    """Return title text with hashtag tokens removed for cleaner aligned display."""
+    cleaned = TAG_CLEAN_PATTERN.sub("", text)
+    return " ".join(cleaned.split())
+
+
+def _format_title_cell(text: str, width: int) -> str:
+    """Return a title cell trimmed to max width without right padding."""
+    if len(text) > width:
+        return text[: max(0, width - 1)] + "~"
+    return text
+
+
+def _format_tags_suffix(text: str) -> str:
+    """Return tags as a compact suffix with no internal padding."""
+    tags = extract_tags_from_text(text)
+    if not tags:
+        return ""
+    return f" [{' '.join(f'#{tag}' for tag in tags)}]"
+
+
+def _max_id_length(tasks_by_date: dict) -> int:
+    """Return the maximum ID length considering both tasks and subtasks."""
+    max_len = 1
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            if task.task_id:
+                max_len = max(max_len, len(task.task_id))
+            for subtask in task.subtasks:
+                if subtask.task_id:
+                    max_len = max(max_len, len(subtask.task_id))
+    return max_len
+
+
+def _format_id_column(task_id: Optional[str], width: int, zero_fill_numeric: bool = False) -> str:
+    """Render [ID] with alignment padding outside brackets."""
+    value = task_id or "?"
+    if zero_fill_numeric and value.isdigit():
+        value = value.zfill(width)
+    padding = " " * max(0, width - len(value))
+    return f"[{Colors.BOLD}{value}{Colors.RESET}]{padding}"
+
+
+def _format_state_column(state: str) -> str:
+    """Render [STATE] with alignment padding outside brackets."""
+    color = get_state_color(state)
+    padding = " " * max(0, STATE_COLUMN_WIDTH - len(state))
+    return f"[{color}{state}{Colors.RESET}]{padding}"
+
+
+def _task_row_prefix(id_column: str, state_column: str) -> str:
+    """Return the common prefix used by parent task rows before the title column."""
+    return f"  {'  '} {id_column} {state_column} "
+
+
+def _title_continuation_prefix(id_width: int) -> str:
+    """Return a blank prefix that lands exactly at the parent title column."""
+    id_placeholder = " " * (id_width + 2)
+    state_placeholder = " " * (STATE_COLUMN_WIDTH + 2)
+    return f"  {'  '} {id_placeholder} {state_placeholder} "
 
 
 def enable_command_history(history_file: Optional[str] = None, max_items: int = 300) -> None:
@@ -110,12 +179,18 @@ def get_state_color(state: str) -> str:
 def format_state(state: str) -> str:
     """Format a state with color and padding."""
     color = get_state_color(state)
-    return f"{color}{state:12}{Colors.RESET}"
+    return f"{color}{state}{Colors.RESET}"
 
 
-def display_tasks(tasks_by_date: dict, show_done: bool = False, only_in_progress: bool = False, only_testing: bool = False) -> None:
+def display_tasks(
+    tasks_by_date: dict,
+    show_done: bool = False,
+    only_in_progress: bool = False,
+    only_testing: bool = False,
+    search_query: Optional[str] = None,
+) -> None:
     """Display tasks grouped by date in descending order."""
-    id_width = get_id_width(tasks_by_date)
+    id_width = max(get_id_width(tasks_by_date), _max_id_length(tasks_by_date))
 
     sorted_dates = sorted([d for d in tasks_by_date.keys() if d is not None], reverse=True)
     if None in tasks_by_date:
@@ -138,6 +213,8 @@ def display_tasks(tasks_by_date: dict, show_done: bool = False, only_in_progress
         else:
             visible_tasks = tasks
 
+        visible_tasks = [task for task in visible_tasks if task_matches_search(task, search_query)]
+
         if not visible_tasks:
             continue
 
@@ -152,26 +229,44 @@ def display_tasks(tasks_by_date: dict, show_done: bool = False, only_in_progress
             if not task.is_finished():
                 total_pending += 1
 
-            state_display = format_state(task.state)
-            task_id_display = task.task_id.zfill(id_width) if task.task_id else "-" * id_width
-            print(f"  [{Colors.BOLD}{task_id_display}{Colors.RESET}] [{state_display}] {Colors.TASK}{task.title}{Colors.RESET}")
+            state_display = _format_state_column(task.state)
+            task_id_display = _format_id_column(task.task_id, id_width, zero_fill_numeric=True)
+            task_title_display = _title_without_tags(task.title)
+            task_title_cell = _format_title_cell(task_title_display, TITLE_COLUMN_WIDTH)
+            task_prefix = _task_row_prefix(task_id_display, state_display)
+            continuation_prefix = _title_continuation_prefix(id_width)
+            print(
+                f"{task_prefix}"
+                f"{Colors.TASK}{task_title_cell}{Colors.RESET}{Colors.DIM}{_format_tags_suffix(task.title)}{Colors.RESET}"
+            )
 
             for subtask in task.subtasks:
-                subtask_state_display = format_state(subtask.state)
-                subtask_id_display = subtask.task_id if subtask.task_id else f"{task_id_display}.?"
+                subtask_state_display = _format_state_column(subtask.state)
+                subtask_id_display = _format_id_column(subtask.task_id, id_width)
+                subtask_title_display = _title_without_tags(subtask.title)
+                subtask_title_cell = _format_title_cell(subtask_title_display, TITLE_COLUMN_WIDTH)
                 print(
-                    f"      {Colors.SUBTASK}+ [{Colors.BOLD}{subtask_id_display}{Colors.RESET}] "
-                    f"[{subtask_state_display}] {Colors.SUBTASK}{subtask.title}{Colors.RESET}"
+                    f"{continuation_prefix}{Colors.SUBTASK}+ {Colors.RESET}{subtask_id_display} {subtask_state_display} "
+                    f"{Colors.SUBTASK}{subtask_title_cell}{Colors.RESET}"
+                    f"{Colors.DIM}{_format_tags_suffix(subtask.title)}{Colors.RESET}"
                 )
 
-            for comment in task.comments:
-                print(f"      {Colors.COMMENT}- {comment}{Colors.RESET}")
+            for note_idx, comment in enumerate(task.comments, start=1):
+                note_id = build_note_id(task.task_id or "?", note_idx)
+                note_text_display = _title_without_tags(comment)
+                note_title_cell = _format_title_cell(note_text_display, TITLE_COLUMN_WIDTH)
+                print(
+                    f"{continuation_prefix}{Colors.COMMENT}: [{note_id}] {note_title_cell}{Colors.RESET}"
+                    f"{Colors.DIM}{_format_tags_suffix(comment)}{Colors.RESET}"
+                )
 
     print(f"\n{Colors.HEADER}{'─' * 50}{Colors.RESET}")
     if show_done:
         print(f"{Colors.HEADER}  Total: {total_tasks} tasks ({total_pending} pending){Colors.RESET}")
     else:
         print(f"{Colors.HEADER}  Showing: {total_pending} pending tasks{Colors.RESET}")
+    if search_query:
+        print(f"{Colors.HEADER}  Search: {search_query}{Colors.RESET}")
     print(f"{Colors.HEADER}{'─' * 50}{Colors.RESET}")
 
 
@@ -218,6 +313,14 @@ def print_help() -> None:
         ("n / new", "Create task (default state: BACKLOG, default date: today)"),
         ("cs / change state <id> [state]", "Change task state by ID"),
         ("an / add note <id> <note>", "Add a note to a task by ID"),
+        ("e / edit <id|id:n#> <new text>", "Edit task, subtask, or note"),
+        ("del / delete <id|id:n#>", "Delete task, subtask, or note"),
+        ("mv / move <id> <dd/mm/yyyy>", "Move task to another date section"),
+        ("dup / duplicate <id> [dd/mm/yyyy]", "Clone task with notes/subtasks"),
+        ("das / done all subtasks <id>", "Set all subtasks to DONE and auto-close parent"),
+        ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
+        ("f / find <text|#tag>", "Filter visible tasks by text or tag"),
+        ("fc / find clear", "Clear active search filter"),
         ("r / refresh", "Reload file and refresh display"),
         ("h / help", "Show this help message"),
         ("q / quit", "Exit the application"),

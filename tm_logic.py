@@ -67,6 +67,51 @@ def find_task_by_id(tasks_by_date: dict, task_id: str) -> Optional[Union[Task, S
     return None
 
 
+def normalize_note_id_input(note_id_input: str) -> Optional[Tuple[str, int]]:
+    """Normalize note IDs like 1:n1 or 01:n02."""
+    match = re.match(r"^\s*0*(\d+):n0*(\d+)\s*$", note_id_input, re.IGNORECASE)
+    if not match:
+        return None
+    return str(int(match.group(1))), int(match.group(2))
+
+
+def build_note_id(task_id: str, note_index: int) -> str:
+    """Build a display ID for a task note."""
+    return f"{task_id}:n{note_index}"
+
+
+def find_note_by_id(tasks_by_date: dict, note_id: str) -> Optional[Tuple[Task, int, str]]:
+    """Find a note by session ID, returning task, zero-based index, and text."""
+    normalized = normalize_note_id_input(note_id)
+    if normalized is None:
+        return None
+
+    requested_task_id, requested_note_index = normalized
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            if task.task_id == requested_task_id and 1 <= requested_note_index <= len(task.comments):
+                note_index = requested_note_index - 1
+                return task, note_index, task.comments[note_index]
+    return None
+
+
+def task_matches_search(task: Task, query: Optional[str]) -> bool:
+    """Return whether a task matches a free-text or hashtag query."""
+    if not query:
+        return True
+
+    normalized = query.strip().lower()
+    if not normalized:
+        return True
+
+    haystacks = [task.title, *task.comments]
+    haystacks.extend(subtask.title for subtask in task.subtasks)
+    haystacks.extend(f"#{tag}" for tag in task.get_tags())
+    haystacks.extend(f"#{tag}" for subtask in task.subtasks for tag in subtask.get_tags())
+
+    return any(normalized in chunk.lower() for chunk in haystacks)
+
+
 def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[str], Optional[datetime], Optional[str]]:
     """Parse new-task command arguments.
 

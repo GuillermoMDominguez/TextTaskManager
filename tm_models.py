@@ -1,10 +1,26 @@
 """Domain models for Task Manager."""
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
 from tm_config import DEFAULT_STATE, FINISHED_STATES
+
+
+TAG_PATTERN = re.compile(r"(?<!\w)#([A-Za-z0-9_-]+)")
+
+
+def extract_tags_from_text(text: str) -> List[str]:
+    """Return normalized hashtag tags found in a text."""
+    seen = set()
+    tags: List[str] = []
+    for match in TAG_PATTERN.findall(text or ""):
+        normalized = match.lower()
+        if normalized not in seen:
+            seen.add(normalized)
+            tags.append(normalized)
+    return tags
 
 
 @dataclass
@@ -27,6 +43,10 @@ class Subtask:
     def is_in_testing(self) -> bool:
         """Check if subtask is in testing."""
         return self.state in ("TESTING", "IN TESTING")
+
+    def get_tags(self) -> List[str]:
+        """Return tags found in the subtask title."""
+        return extract_tags_from_text(self.title)
 
 
 @dataclass
@@ -52,3 +72,15 @@ class Task:
     def is_in_testing(self) -> bool:
         """Check if task is in testing."""
         return self.state in ("TESTING", "IN TESTING")
+
+    def get_tags(self) -> List[str]:
+        """Return tags found in the task title and notes."""
+        combined = [self.title, *self.comments]
+        seen = set()
+        tags: List[str] = []
+        for chunk in combined:
+            for tag in extract_tags_from_text(chunk):
+                if tag not in seen:
+                    seen.add(tag)
+                    tags.append(tag)
+        return tags
