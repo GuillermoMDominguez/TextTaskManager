@@ -1,2 +1,5 @@
 .vscode
 .venv
+Javier_Journal.txt
+.task_manager_history
+__pycache__/

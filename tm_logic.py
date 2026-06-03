@@ -1,0 +1,138 @@
+"""Business logic helpers for commands, IDs, and input normalization."""
+
+import shlex
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+
+from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
+from tm_models import Task
+
+
+def normalize_state_input(state_input: str) -> Optional[str]:
+    """Normalize user-provided state to canonical state name."""
+    normalized = state_input.strip().upper().replace("_", " ")
+    if normalized in VALID_STATES:
+        return normalized
+    if normalized in STATE_ALIASES:
+        return STATE_ALIASES[normalized]
+    return None
+
+
+def assign_task_ids(
+    tasks_by_date: dict,
+    id_registry: Dict[Tuple[str, str, Tuple[str, ...], int], str],
+    next_id: int,
+) -> int:
+    """Assign stable per-run IDs to tasks."""
+    seen_counts: Dict[Tuple[str, str, Tuple[str, ...]], int] = {}
+
+    for date, tasks in tasks_by_date.items():
+        date_key = date.strftime("%d/%m/%Y") if date else "NO_DATE"
+        for task in tasks:
+            base_key = (date_key, task.title, tuple(task.comments))
+            occurrence = seen_counts.get(base_key, 0)
+            seen_counts[base_key] = occurrence + 1
+
+            task_key = (date_key, task.title, tuple(task.comments), occurrence)
+            if task_key not in id_registry:
+                id_registry[task_key] = str(next_id)
+                next_id += 1
+
+            task.task_id = id_registry[task_key]
+
+    return next_id
+
+
+def get_id_width(tasks_by_date: dict) -> int:
+    """Return dynamic ID width based on total tasks currently loaded."""
+    total_tasks = sum(len(tasks) for tasks in tasks_by_date.values())
+    return max(1, len(str(total_tasks)))
+
+
+def parse_task_id_input(task_id_input: str) -> Optional[int]:
+    """Normalize task ID input so 1, 01, and 0001 are equivalent."""
+    normalized = task_id_input.strip()
+    if not normalized.isdigit():
+        return None
+    return int(normalized)
+
+
+def find_task_by_id(tasks_by_date: dict, task_id: str) -> Optional[Task]:
+    """Find a task by assigned ID."""
+    requested_id = parse_task_id_input(task_id)
+    if requested_id is None:
+        return None
+
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            if task.task_id and task.task_id.isdigit() and int(task.task_id) == requested_id:
+                return task
+    return None
+
+
+def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[str], Optional[datetime], Optional[str]]:
+    """Parse new-task command arguments.
+
+    Supported syntax:
+    - n <title>
+    - n <title> --state <state>
+    - n <title> --date dd/mm/yyyy
+    - n <title> --state <state> --date dd/mm/yyyy
+    """
+    try:
+        tokens = shlex.split(raw_command)
+    except ValueError as exc:
+        return None, None, None, f"Invalid command syntax: {exc}"
+
+    if not tokens or tokens[0].lower() not in ("n", "new"):
+        return None, None, None, "Usage: n [title] [--state <state>] [--date dd/mm/yyyy]"
+
+    args = tokens[1:]
+    title_tokens: List[str] = []
+    state_input: Optional[str] = None
+    date_input: Optional[str] = None
+
+    i = 0
+    while i < len(args):
+        token = args[i]
+        token_lower = token.lower()
+
+        if token_lower in ("--state", "-s"):
+            i += 1
+            state_tokens: List[str] = []
+            while i < len(args) and args[i].lower() not in ("--state", "-s", "--date", "-d"):
+                state_tokens.append(args[i])
+                i += 1
+            if not state_tokens:
+                return None, None, None, "Missing value for --state"
+            state_input = " ".join(state_tokens)
+            continue
+
+        if token_lower in ("--date", "-d"):
+            i += 1
+            if i >= len(args):
+                return None, None, None, "Missing value for --date"
+            date_input = args[i]
+            i += 1
+            continue
+
+        title_tokens.append(token)
+        i += 1
+
+    title = " ".join(title_tokens).strip()
+
+    state = DEFAULT_STATE
+    if state_input:
+        normalized_state = normalize_state_input(state_input)
+        if not normalized_state:
+            return title, None, None, f"Invalid state: {state_input}"
+        state = normalized_state
+
+    target_date = None
+    if date_input:
+        try:
+            target_date = datetime.strptime(date_input, "%d/%m/%Y")
+        except ValueError:
+            return title, None, None, f"Invalid date: {date_input} (use dd/mm/yyyy)"
+
+    return title, state, target_date, None
