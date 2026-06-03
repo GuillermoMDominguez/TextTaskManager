@@ -62,6 +62,9 @@ class Task:
     due_date: Optional[datetime] = None
     priority: Optional[str] = None
     recurrence: Optional[str] = None
+    time_spent: Optional[int] = None  # minutes
+    blocked_by: List[str] = field(default_factory=list)  # task titles
+    blocks: List[str] = field(default_factory=list)  # task titles
     task_id: Optional[str] = None
     source_line: Optional[int] = None
 

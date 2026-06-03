@@ -61,7 +61,7 @@ def _format_tags_suffix(text: str) -> str:
 
 
 def _format_task_meta_suffix(task) -> str:
-    """Render compact due/priority/recurrence badges for a task."""
+    """Render compact due/priority/recurrence/time/blocker badges for a task."""
     chunks = []
     if getattr(task, "priority", None):
         chunks.append(f"[P:{task.priority}]")
@@ -69,6 +69,15 @@ def _format_task_meta_suffix(task) -> str:
         chunks.append(f"[DUE:{task.due_date.strftime('%d/%m/%Y')}]")
     if getattr(task, "recurrence", None):
         chunks.append(f"[↻{task.recurrence}]")
+    if getattr(task, "time_spent", None):
+        from tm_features import format_time_spent
+        chunks.append(f"[⏱{format_time_spent(task.time_spent)}]")
+    if getattr(task, "blocked_by", None):
+        for b in task.blocked_by:
+            chunks.append(f"[⛔ {b}]")
+    if getattr(task, "blocks", None):
+        for b in task.blocks:
+            chunks.append(f"[→ {b}]")
     return f" {' '.join(chunks)}" if chunks else ""
 
 

@@ -131,7 +131,19 @@ def check_and_fix_journal(filepath: str, *, auto_fix: bool = False) -> Tuple[Lis
             fixed_lines.append(line)
             continue
 
+        # ─── Metadata continuation lines (-- key:value) ───────────────
+        if stripped.startswith("--") and not stripped.startswith("---"):
+            if not has_parent_in_section:
+                issues.append(f"Line {line_num}: metadata line without parent task.")
+            fixed_lines.append(line)
+            continue
+
         # ─── Unrecognized ─────────────────────────────────────────────
+        # If inside a task block, treat as title continuation (tags, wrapped text)
+        if has_parent_in_section:
+            fixed_lines.append(line)
+            continue
+
         issues.append(f"Line {line_num}: unrecognized line format.")
         fixed_lines.append(line)
 

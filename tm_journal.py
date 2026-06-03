@@ -72,13 +72,32 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
             return True
         return False
 
-    recur_match = re.match(r"^(?:recur|recurrence)\s*[:=]\s*([A-Za-z]+)$", chunk, re.IGNORECASE)
+    recur_match = re.match(r"^(?:recur|recurrence|rec|r)\s*[:=]\s*([A-Za-z]+)$", chunk, re.IGNORECASE)
     if recur_match:
         recurrence = _parse_recurrence_value(recur_match.group(1))
         if recurrence is not None:
             task.recurrence = recurrence
             return True
         return False
+
+    spent_match = re.match(r"^(?:spent|time)\s*[:=]\s*(\S+)$", chunk, re.IGNORECASE)
+    if spent_match:
+        from tm_features import parse_time_spent
+        minutes = parse_time_spent(spent_match.group(1))
+        if minutes is not None:
+            task.time_spent = (task.time_spent or 0) + minutes
+            return True
+        return False
+
+    blockedby_match = re.match(r"^blockedby\s*[:=]\s*(.+)$", chunk, re.IGNORECASE)
+    if blockedby_match:
+        task.blocked_by.append(blockedby_match.group(1).strip())
+        return True
+
+    blocks_match = re.match(r"^blocks\s*[:=]\s*(.+)$", chunk, re.IGNORECASE)
+    if blocks_match:
+        task.blocks.append(blocks_match.group(1).strip())
+        return True
 
     return False
 
@@ -240,6 +259,29 @@ def parse_journal(filepath: str) -> dict:
                     continue
 
                 stripped = line.strip()
+
+                # Metadata continuation line: starts with -- (on its own line)
+                if stripped.startswith("--") and not stripped.startswith("---"):
+                    if last_task is not None:
+                        meta_content = stripped[2:].strip()
+                        if meta_content:
+                            # Try as state first
+                            state_applied = False
+                            for state in VALID_STATES:
+                                if meta_content.upper() == state:
+                                    last_task.state = state
+                                    state_applied = True
+                                    break
+                            if not state_applied:
+                                for alias, canonical in STATE_ALIASES.items():
+                                    if meta_content.upper() == alias:
+                                        last_task.state = canonical
+                                        state_applied = True
+                                        break
+                            if not state_applied:
+                                _apply_task_metadata(last_task, meta_content)
+                    continue
+
                 if stripped.startswith(":"):
                     if last_task is not None:
                         append_unique_comments(last_task.comments, split_comments(stripped[1:]))
@@ -265,6 +307,12 @@ def parse_journal(filepath: str) -> dict:
                                 tasks_by_date[None] = []
                             tasks_by_date[None].append(task)
                         last_task = task
+                    continue
+
+                # Unrecognized lines within a task block: treat as title continuation
+                # (supports indented tags or wrapped titles from manual editing)
+                if last_task is not None and stripped:
+                    last_task.title = last_task.title.rstrip() + " " + stripped
 
     except FileNotFoundError as exc:
         raise JournalFileNotFoundError(f"File not found: {filepath}") from exc
