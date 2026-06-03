@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
+from tm_email import load_email_config, send_email_report
 from tm_journal import add_note_to_task_in_file, add_task_to_file, parse_journal, update_subtask_state_in_file, update_task_state_in_file
-from tm_logic import assign_task_ids, find_task_by_id, normalize_state_input, parse_new_command_args
+from tm_logic import assign_task_ids, build_pending_email_body, find_task_by_id, get_pending_tasks, normalize_state_input, parse_new_command_args
 from tm_models import Subtask
 from tm_ui import (
     Colors,
@@ -182,6 +183,10 @@ def main() -> None:
     journals_dir = script_dir / "journals"
     cache_path = script_dir / ".last_journal"
     history_path = script_dir / ".task_manager_history"
+    email_config = load_email_config([
+        script_dir / ".task_manager_email.json",
+        Path.home() / ".task_manager_email.json",
+    ])
 
     try:
         journals_dir.mkdir(parents=True, exist_ok=True)
@@ -271,6 +276,31 @@ def main() -> None:
             elif command in ("s", "stats"):
                 tasks_by_date = refresh_tasks()
                 display_stats(tasks_by_date)
+
+            elif re.match(r"^\s*(?:se|send\s+email)\b", raw_command, re.IGNORECASE):
+                tasks_by_date = refresh_tasks()
+                pending = get_pending_tasks(tasks_by_date)
+                if not pending:
+                    print(f"{Colors.DIM}No pending tasks to send.{Colors.RESET}")
+                    continue
+
+                match = re.match(r"^\s*(?:se|send\s+email)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
+                recipient = match.group(1).strip() if match and match.group(1) else None
+                if not recipient:
+                    recipient = email_config.default_recipient
+                while not recipient:
+                    answer = input(f"{Colors.BOLD}Recipient email: {Colors.RESET}").strip()
+                    if answer:
+                        recipient = answer
+
+                subject = f"{email_config.subject_prefix} Pending tasks {datetime.now().strftime('%d/%m/%Y')}"
+                body = build_pending_email_body(tasks_by_date)
+                result = send_email_report(recipient, subject, body, email_config)
+
+                if result.success:
+                    print(f"{Colors.DIM}{result.message}{Colors.RESET}")
+                else:
+                    print(f"{Colors.ERROR}{result.message}{Colors.RESET}")
 
             elif re.match(r"^\s*(?:n|new)\b", raw_command, re.IGNORECASE):
                 task_title, task_state, target_date, parse_error = parse_new_command_args(raw_command)

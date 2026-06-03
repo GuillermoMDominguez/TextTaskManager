@@ -148,3 +148,51 @@ def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[st
             return title, None, None, f"Invalid date: {date_input} (use dd/mm/yyyy)"
 
     return title, state, target_date, None
+
+
+def get_pending_tasks(tasks_by_date: dict) -> List[Task]:
+    """Return all parent tasks that are not in finished states."""
+    pending: List[Task] = []
+    for tasks in tasks_by_date.values():
+        pending.extend([task for task in tasks if not task.is_finished()])
+    return pending
+
+
+def build_pending_email_body(tasks_by_date: dict) -> str:
+    """Build an email-ready text report for pending tasks and subtasks."""
+    lines: List[str] = ["Pending tasks report", ""]
+
+    sorted_dates = sorted([d for d in tasks_by_date.keys() if d is not None], reverse=True)
+    if None in tasks_by_date:
+        sorted_dates.append(None)
+
+    has_content = False
+
+    for date in sorted_dates:
+        tasks = [task for task in tasks_by_date[date] if not task.is_finished()]
+        if not tasks:
+            continue
+
+        has_content = True
+        date_label = date.strftime("%A, %d/%m/%Y") if date else "No Date"
+        lines.append(date_label)
+
+        for task in tasks:
+            task_id = task.task_id or "?"
+            lines.append(f"- [{task_id}] {task.title} ({task.state})")
+
+            for subtask in task.subtasks:
+                if subtask.is_finished():
+                    continue
+                subtask_id = subtask.task_id or f"{task_id}.?"
+                lines.append(f"  + [{subtask_id}] {subtask.title} ({subtask.state})")
+
+            for comment in task.comments:
+                lines.append(f"  : {comment}")
+
+        lines.append("")
+
+    if not has_content:
+        lines.append("No pending tasks.")
+
+    return "\n".join(lines).strip() + "\n"
