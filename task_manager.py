@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Task Manager CLI entrypoint."""
 
+import argparse
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -8,8 +9,8 @@ from typing import List, Optional
 from tm_commands import CommandContext, ViewState, execute_command
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH
 from tm_email import load_email_config
-from tm_journal import JournalError, parse_journal
-from tm_logic import assign_task_ids
+from tm_journal import JournalError, parse_journal, add_task_to_file
+from tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
 from tm_settings import load_settings
 from tm_ui import (
     Colors,
@@ -170,6 +171,45 @@ def resolve_journal_from_arg(arg_value: str, journals_dir: Path) -> Optional[Pat
     return journals_dir / normalized
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build CLI argument parser for quick-add and other non-interactive operations."""
+    parser = argparse.ArgumentParser(
+        prog="task_manager",
+        description="Task Manager CLI - manage tasks in plain text journals.",
+        add_help=False,
+    )
+    parser.add_argument("journal", nargs="?", default=None, help="Journal filename to open")
+    parser.add_argument("--add", "-a", dest="quick_add", help="Quick-add a task without entering interactive mode")
+    parser.add_argument("--state", "-s", dest="quick_state", default=None, help="State for quick-add (default: BACKLOG)")
+    parser.add_argument("--due", dest="quick_due", default=None, help="Due date for quick-add (dd/mm/yyyy)")
+    parser.add_argument("--priority", "-p", dest="quick_priority", default=None, help="Priority for quick-add")
+    parser.add_argument("--recur", dest="quick_recur", default=None, help="Recurrence for quick-add")
+    parser.add_argument("--date", "-d", dest="quick_date", default=None, help="Target date section for quick-add (dd/mm/yyyy)")
+    parser.add_argument("--check", action="store_true", help="Run integrity check and exit")
+    parser.add_argument("--fix", action="store_true", help="Run integrity check with auto-fix and exit")
+    parser.add_argument("--help", "-h", action="store_true", help="Show help")
+    return parser
+
+
+def _resolve_journal_for_quick_ops(journals_dir: Path, cache_path: Path, journal_arg: Optional[str]) -> Optional[Path]:
+    """Resolve journal path for non-interactive operations."""
+    if journal_arg:
+        normalized = normalize_journal_name(journal_arg)
+        if normalized:
+            path = journals_dir / normalized
+            if path.exists():
+                return path
+    # Fall back to cached
+    cached = load_cached_journal(cache_path)
+    if cached:
+        path = journals_dir / cached
+        if path.exists():
+            return path
+    # Fall back to first journal
+    journals = list_journals(journals_dir)
+    return journals[0] if journals else None
+
+
 def main() -> None:
     """Main entry point for the task manager."""
     enable_windows_ansi()
@@ -200,8 +240,88 @@ def main() -> None:
 
     migrate_legacy_journals(script_dir, journals_dir)
 
-    if len(sys.argv) > 1:
-        selected_journal = resolve_journal_from_arg(sys.argv[1], journals_dir)
+    # Parse CLI arguments
+    parser = _build_arg_parser()
+    args = parser.parse_args()
+
+    if args.help:
+        parser.print_help()
+        sys.exit(0)
+
+    # ─── Quick-add mode (non-interactive) ──────────────────────────────
+    if args.quick_add:
+        journal_path = _resolve_journal_for_quick_ops(journals_dir, cache_path, args.journal)
+        if journal_path is None or not journal_path.exists():
+            print(f"{Colors.ERROR}No journal found. Run interactively first to create one.{Colors.RESET}")
+            sys.exit(1)
+
+        # Parse optional flags
+        state = None
+        if args.quick_state:
+            state = normalize_state_input(args.quick_state)
+            if not state:
+                print(f"{Colors.ERROR}Invalid state: {args.quick_state}{Colors.RESET}")
+                sys.exit(1)
+
+        due_date = None
+        if args.quick_due:
+            due_date = parse_date_input(args.quick_due)
+            if not due_date:
+                print(f"{Colors.ERROR}Invalid due date: {args.quick_due} (use dd/mm/yyyy){Colors.RESET}")
+                sys.exit(1)
+
+        priority = None
+        if args.quick_priority:
+            priority = normalize_priority_input(args.quick_priority)
+            if not priority:
+                print(f"{Colors.ERROR}Invalid priority: {args.quick_priority}{Colors.RESET}")
+                sys.exit(1)
+
+        target_date = None
+        if args.quick_date:
+            target_date = parse_date_input(args.quick_date)
+            if not target_date:
+                print(f"{Colors.ERROR}Invalid date: {args.quick_date} (use dd/mm/yyyy){Colors.RESET}")
+                sys.exit(1)
+
+        recurrence = None
+        if args.quick_recur:
+            from tm_logic import normalize_recurrence_input
+            recurrence = normalize_recurrence_input(args.quick_recur)
+            if not recurrence:
+                print(f"{Colors.ERROR}Invalid recurrence: {args.quick_recur}{Colors.RESET}")
+                sys.exit(1)
+
+        if add_task_to_file(str(journal_path), args.quick_add, state or "BACKLOG", target_date, due_date, priority, recurrence):
+            print(f"{Colors.DIM}Task added to {journal_path.name}: \"{args.quick_add}\"{Colors.RESET}")
+            sys.exit(0)
+        else:
+            print(f"{Colors.ERROR}Could not add task.{Colors.RESET}")
+            sys.exit(1)
+
+    # ─── Check / Fix mode (non-interactive) ────────────────────────────
+    if args.check or args.fix:
+        from tm_integrity import check_and_fix_journal
+        journal_path = _resolve_journal_for_quick_ops(journals_dir, cache_path, args.journal)
+        if journal_path is None or not journal_path.exists():
+            print(f"{Colors.ERROR}No journal found.{Colors.RESET}")
+            sys.exit(1)
+
+        issues, fixed = check_and_fix_journal(str(journal_path), auto_fix=args.fix)
+        if not issues:
+            print(f"{Colors.DIM}Journal integrity check passed. No issues found.{Colors.RESET}")
+        else:
+            for issue in issues:
+                print(f"  {issue}")
+            if args.fix:
+                print(f"\n{Colors.DIM}Fixed {fixed} issue(s).{Colors.RESET}")
+            else:
+                print(f"\n{Colors.HEADER}Found {len(issues)} issue(s). Run with --fix to auto-repair.{Colors.RESET}")
+        sys.exit(0 if not issues or args.fix else 1)
+
+    # ─── Interactive mode ──────────────────────────────────────────────
+    if args.journal:
+        selected_journal = resolve_journal_from_arg(args.journal, journals_dir)
         if selected_journal is None or not selected_journal.exists():
             print(f"{Colors.ERROR}Journal not found. Select one from journals folder or create a new one.{Colors.RESET}")
             selected_journal = choose_journal(journals_dir, load_cached_journal(cache_path))
@@ -221,6 +341,14 @@ def main() -> None:
 
     journal_path = str(selected_journal)
     save_cached_journal(cache_path, selected_journal.name)
+
+    # ─── Integrity check on load ──────────────────────────────────────
+    from tm_integrity import check_and_fix_journal
+    issues, fixed = check_and_fix_journal(journal_path, auto_fix=True)
+    if fixed > 0:
+        print(f"{Colors.HEADER}Auto-fixed {fixed} issue(s) in journal:{Colors.RESET}")
+        for issue in issues:
+            print(f"  {Colors.DIM}{issue}{Colors.RESET}")
 
     tasks_cache: Optional[dict] = None
 
