@@ -200,7 +200,7 @@ def display_tasks(
     search_query: Optional[str] = None,
 ) -> None:
     """Display tasks grouped by date in descending order."""
-    id_width = max(get_id_width(tasks_by_date), _max_id_length(tasks_by_date))
+    id_width = get_id_width(tasks_by_date)
 
     sorted_dates = sorted([d for d in tasks_by_date.keys() if d is not None], reverse=True)
     if None in tasks_by_date:
@@ -267,7 +267,7 @@ def display_tasks(
                 note_text_display = _title_without_tags(comment)
                 note_title_cell = _format_title_cell(note_text_display, TITLE_COLUMN_WIDTH)
                 print(
-                    f"{continuation_prefix}{Colors.COMMENT}: [{note_id}] {note_title_cell}{Colors.RESET}"
+                    f"{continuation_prefix}{Colors.COMMENT}- [{note_id}] {note_title_cell}{Colors.RESET}"
                     f"{Colors.DIM}{_format_tags_suffix(comment)}{Colors.RESET}"
                 )
 
@@ -329,7 +329,7 @@ def print_help() -> None:
         ("dup / duplicate <id> [dd/mm/yyyy]", "Clone task with notes/subtasks"),
         ("das / done all subtasks <id>", "Set all subtasks to DONE and auto-close parent"),
         ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
-        ("md / meta <id> [--due ...] [--priority ...]", "Set/clear due and priority for task"),
+        ("md / meta <id|id.n|id:n#> [--due ...] [--priority ...] [--tags ...]", "Edit due/priority/tags (task/subtask/note)"),
         ("ag / agenda [days]", "Show due-date agenda (default 7 days)"),
         ("ck / check", "Lint journal structure and metadata"),
         ("u / undo", "Undo last journal mutation in this session"),

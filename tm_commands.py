@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
-from tm_config import DEFAULT_STATE
+from tm_config import DEFAULT_STATE, VALID_PRIORITIES
 from tm_email import EmailConfig, EmailResult, send_email_report
 from tm_journal import (
     add_note_to_task_in_file,
@@ -39,8 +39,127 @@ from tm_logic import (
     parse_date_input,
     parse_new_command_args,
 )
-from tm_models import Subtask, Task
+from tm_models import Subtask, Task, extract_tags_from_text
 from tm_ui import Colors, clear_screen, display_stats, display_tasks, print_help, prompt_for_state
+
+
+COMMAND_HELP = {
+    "n": {
+        "syntax": "n <title> [--state <state>] [--date dd/mm/yyyy] [--due dd/mm/yyyy] [--priority <level>]",
+        "description": "Create a new parent task.",
+        "examples": [
+            "n Prepare release notes --state backlog --due 10/06/2026 --priority high",
+            "n Follow up customer issue --date 04/06/2026",
+        ],
+    },
+    "cs": {
+        "syntax": "cs <id> [state]",
+        "description": "Change the state of a task or subtask.",
+        "examples": ["cs 3 DONE", "cs 4.1"],
+    },
+    "an": {
+        "syntax": "an <id> <note>",
+        "description": "Add a note to a parent task.",
+        "examples": ["an 3 Review blocker with #backend"],
+    },
+    "e": {
+        "syntax": "e <id|id:n#> <new text>",
+        "description": "Edit task, subtask, or note text.",
+        "examples": ["e 3 Update task title", "e 3:n1 New note text"],
+    },
+    "del": {
+        "syntax": "del <id|id:n#>",
+        "description": "Delete task, subtask, or note (asks confirmation).",
+        "examples": ["del 3", "del 3:n2"],
+    },
+    "mv": {
+        "syntax": "mv <id> <dd/mm/yyyy>",
+        "description": "Move a parent task to another date section (asks confirmation).",
+        "examples": ["mv 3 10/06/2026"],
+    },
+    "dup": {
+        "syntax": "dup <id> [dd/mm/yyyy]",
+        "description": "Duplicate a parent task with notes and subtasks.",
+        "examples": ["dup 3", "dup 3 12/06/2026"],
+    },
+    "das": {
+        "syntax": "das <id>",
+        "description": "Mark all subtasks as DONE and auto-close parent when applicable.",
+        "examples": ["das 3"],
+    },
+    "ar": {
+        "syntax": "ar [dd/mm/yyyy]",
+        "description": "Archive finished tasks up to optional date (asks confirmation).",
+        "examples": ["ar", "ar 10/06/2026"],
+    },
+    "md": {
+        "syntax": "md <id|id.n|id:n#> [--due dd/mm/yyyy|none] [--priority <level>|none] [--tags <list>|none]",
+        "description": "Edit due/priority/tags on tasks; for subtasks/notes due-priority are stored inline.",
+        "examples": [
+            "md 3 --due 10/06/2026 --priority urgent",
+            "md 3 --tags backend,qr",
+            "md 3.1 --due 11/06/2026 --priority high --tags qa",
+            "md 3:n1 --priority low --tags none",
+        ],
+    },
+    "ag": {
+        "syntax": "ag [days]",
+        "description": "Show due-date agenda for next N days (default 7).",
+        "examples": ["ag", "ag 14"],
+    },
+    "ck": {
+        "syntax": "ck",
+        "description": "Run journal linter and show format/metadata issues.",
+        "examples": ["ck"],
+    },
+    "u": {
+        "syntax": "u",
+        "description": "Undo last mutation in current session.",
+        "examples": ["u"],
+    },
+    "f": {
+        "syntax": "f <text|#tag|priority:...|due:...>",
+        "description": "Filter visible tasks by query.",
+        "examples": [
+            "f #backend",
+            "f priority:high",
+            "f due:overdue",
+            "f due:today",
+            "f due:10/06/2026",
+            "fc",
+        ],
+    },
+    "fc": {
+        "syntax": "fc",
+        "description": "Clear current active filter.",
+        "examples": ["fc"],
+    },
+    "se": {
+        "syntax": "se [recipient]",
+        "description": "Send pending tasks by email.",
+        "examples": ["se", "se team@example.com"],
+    },
+}
+
+
+ALIAS_TO_HELP_KEY = {
+    "new": "n",
+    "change": "cs",
+    "add": "an",
+    "edit": "e",
+    "delete": "del",
+    "move": "mv",
+    "reschedule": "mv",
+    "duplicate": "dup",
+    "done": "das",
+    "archive": "ar",
+    "meta": "md",
+    "agenda": "ag",
+    "check": "ck",
+    "undo": "u",
+    "find": "f",
+    "send": "se",
+}
 
 
 @dataclass
@@ -125,21 +244,47 @@ def _save_undo_snapshot(context: CommandContext, snapshot: Optional[str]) -> Non
 
 def _parse_meta_command(
     raw_command: str,
-) -> tuple[Optional[str], bool, Optional[datetime], bool, Optional[str], Optional[str]]:
-    """Parse metadata command and return task_id, due flag/value, priority flag/value, and error."""
+) -> tuple[Optional[str], bool, Optional[datetime], bool, Optional[str], bool, Optional[list[str]], Optional[str]]:
+    """Parse metadata command and return id, due/priority/tags flags-values, and error."""
     try:
         tokens = shlex.split(raw_command)
     except ValueError as exc:
-        return None, False, None, False, None, f"Invalid command syntax: {exc}"
+        return None, False, None, False, None, False, None, f"Invalid command syntax: {exc}"
 
     if len(tokens) < 2:
-        return None, False, None, False, None, "Usage: md <task_id> [--due dd/mm/yyyy|none] [--priority <level>|none]"
+        return (
+            None,
+            False,
+            None,
+            False,
+            None,
+            False,
+            None,
+            "Usage: md <id|id.n|id:n#> [--due dd/mm/yyyy|none] [--priority <level>|none] [--tags <list>|none]",
+        )
 
     task_id = tokens[1]
     due_date: Optional[datetime] = None
     priority: Optional[str] = None
+    tags: Optional[list[str]] = None
     has_due = False
     has_priority = False
+    has_tags = False
+
+    def _parse_tags(raw_tags: str) -> Optional[list[str]]:
+        if raw_tags.lower() == "none":
+            return []
+        chunks = [chunk for chunk in re.split(r"[,\s]+", raw_tags.strip()) if chunk]
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for chunk in chunks:
+            token = chunk.lstrip("#").strip().lower()
+            if not token or not re.fullmatch(r"[a-z0-9_-]+", token):
+                return None
+            if token not in seen:
+                seen.add(token)
+                normalized.append(token)
+        return normalized if normalized else None
 
     idx = 2
     while idx < len(tokens):
@@ -147,35 +292,133 @@ def _parse_meta_command(
         if token == "--due":
             idx += 1
             if idx >= len(tokens):
-                return None, False, None, False, None, "Missing value for --due"
+                return None, False, None, False, None, False, None, "Missing value for --due"
             has_due = True
             raw_due = tokens[idx]
             if raw_due.lower() != "none":
                 due_date = _try_parse_date(raw_due)
                 if due_date is None:
-                    return None, False, None, False, None, f"Invalid due date: {raw_due}"
+                    return None, False, None, False, None, False, None, f"Invalid due date: {raw_due}"
             idx += 1
             continue
 
         if token in ("--priority", "-p"):
             idx += 1
             if idx >= len(tokens):
-                return None, False, None, False, None, "Missing value for --priority"
+                return None, False, None, False, None, False, None, "Missing value for --priority"
             has_priority = True
             raw_priority = tokens[idx]
             if raw_priority.lower() != "none":
                 priority = normalize_priority_input(raw_priority)
                 if priority is None:
-                    return None, False, None, False, None, f"Invalid priority: {raw_priority}"
+                    valid = ", ".join(priority.lower() for priority in VALID_PRIORITIES)
+                    return (
+                        None,
+                        False,
+                        None,
+                        False,
+                        None,
+                        False,
+                        None,
+                        f"Invalid priority: {raw_priority}. Valid priorities: {valid}.",
+                    )
             idx += 1
             continue
 
-        return None, False, None, False, None, f"Unknown option: {tokens[idx]}"
+        if token in ("--tags", "-t"):
+            idx += 1
+            if idx >= len(tokens):
+                return None, False, None, False, None, False, None, "Missing value for --tags"
+            has_tags = True
+            parsed_tags = _parse_tags(tokens[idx])
+            if parsed_tags is None:
+                return (
+                    None,
+                    False,
+                    None,
+                    False,
+                    None,
+                    False,
+                    None,
+                    "Invalid tags. Use comma/space-separated tokens like backend,qr or 'none'.",
+                )
+            tags = parsed_tags
+            idx += 1
+            continue
 
-    if not has_due and not has_priority:
-        return None, False, None, False, None, "Usage: md <task_id> [--due dd/mm/yyyy|none] [--priority <level>|none]"
+        return None, False, None, False, None, False, None, f"Unknown option: {tokens[idx]}"
 
-    return task_id, has_due, due_date, has_priority, priority, None
+    if not has_due and not has_priority and not has_tags:
+        return (
+            None,
+            False,
+            None,
+            False,
+            None,
+            False,
+            None,
+            "Usage: md <id|id.n|id:n#> [--due dd/mm/yyyy|none] [--priority <level>|none] [--tags <list>|none]",
+        )
+
+    if has_tags and tags is None:
+        return None, False, None, False, None, False, None, "Invalid tags. Use comma/space-separated tokens or 'none'."
+
+    return task_id, has_due, due_date, has_priority, priority, has_tags, tags, None
+
+
+def _strip_inline_tags(text: str) -> str:
+    """Remove hashtag tokens and normalize internal spacing."""
+    return " ".join(re.sub(r"(?<!\w)#[A-Za-z0-9_-]+", "", text or "").split())
+
+
+def _apply_tags_to_text(text: str, tags: list[str]) -> str:
+    """Replace tags in a text while preserving non-tag content."""
+    base_text = _strip_inline_tags(text)
+    suffix = " ".join(f"#{tag}" for tag in tags)
+    if base_text and suffix:
+        return f"{base_text} {suffix}"
+    if suffix:
+        return suffix
+    return base_text
+
+
+def _extract_inline_meta(text: str) -> tuple[str, list[str], Optional[datetime], Optional[str]]:
+    """Extract base text plus inline tags/due/priority from a free text field."""
+    tags = extract_tags_from_text(text)
+
+    due_matches = re.findall(r"\[\s*due\s*=\s*(\d{1,2}/\d{1,2}/\d{4})\s*\]", text or "", flags=re.IGNORECASE)
+    due_date: Optional[datetime] = None
+    if due_matches:
+        due_date = parse_date_input(due_matches[-1])
+
+    priority_matches = re.findall(r"\[\s*priority\s*=\s*([A-Za-z]+)\s*\]", text or "", flags=re.IGNORECASE)
+    parsed_priority: Optional[str] = None
+    if priority_matches:
+        parsed_priority = normalize_priority_input(priority_matches[-1])
+
+    without_due = re.sub(r"\[\s*due\s*=\s*\d{1,2}/\d{1,2}/\d{4}\s*\]", "", text or "", flags=re.IGNORECASE)
+    without_meta = re.sub(r"\[\s*priority\s*=\s*[A-Za-z]+\s*\]", "", without_due, flags=re.IGNORECASE)
+    base_text = _strip_inline_tags(without_meta)
+
+    return base_text, tags, due_date, parsed_priority
+
+
+def _render_inline_meta_text(
+    base_text: str,
+    tags: list[str],
+    due_date: Optional[datetime],
+    priority: Optional[str],
+) -> str:
+    """Render text with normalized inline tags and optional due/priority markers."""
+    parts: list[str] = []
+    if base_text:
+        parts.append(base_text)
+    parts.extend(f"#{tag}" for tag in tags)
+    if due_date is not None:
+        parts.append(f"[due={due_date.strftime('%d/%m/%Y')}]")
+    if priority:
+        parts.append(f"[priority={priority}]")
+    return " ".join(parts).strip()
 
 
 def _maybe_autoclose_parent(context: CommandContext, parent_id: str, view_state: ViewState) -> Optional[dict]:
@@ -247,9 +490,56 @@ def _confirm_action(message: str) -> bool:
     return answer in {"y", "yes"}
 
 
+def _resolve_help_key(raw_command_name: str) -> Optional[str]:
+    """Resolve aliases to canonical command key used in COMMAND_HELP."""
+    command = raw_command_name.strip().lower()
+    if command in COMMAND_HELP:
+        return command
+    return ALIAS_TO_HELP_KEY.get(command)
+
+
+def _extract_help_request(raw_command: str) -> Optional[str]:
+    """Return command name if user requested inline command help with -h/--help."""
+    try:
+        tokens = shlex.split(raw_command)
+    except ValueError:
+        return None
+
+    if len(tokens) != 2:
+        return None
+
+    if tokens[1] not in ("-h", "--help"):
+        return None
+
+    return tokens[0]
+
+
+def _print_command_help(help_key: str) -> None:
+    """Print detailed help for a specific command."""
+    info = COMMAND_HELP.get(help_key)
+    if not info:
+        print(f"{Colors.ERROR}No help available for that command.{Colors.RESET}")
+        return
+
+    print(f"\n{Colors.HEADER}{Colors.BOLD}Command Help: {help_key}{Colors.RESET}")
+    print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
+    print(f"{Colors.BOLD}Syntax:{Colors.RESET} {info['syntax']}")
+    print(f"{Colors.BOLD}Description:{Colors.RESET} {info['description']}")
+    print(f"{Colors.BOLD}Examples:{Colors.RESET}")
+    for example in info["examples"]:
+        print(f"  {example}")
+
+
 def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState, context: CommandContext) -> CommandOutcome:
     """Execute a single user command and return updated state."""
     command = raw_command.lower()
+
+    requested_help = _extract_help_request(raw_command)
+    if requested_help:
+        help_key = _resolve_help_key(requested_help)
+        if help_key:
+            _print_command_help(help_key)
+            return CommandOutcome(tasks_by_date, view_state)
 
     if command == "fc":
         next_view = ViewState(
@@ -689,19 +979,69 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if re.match(r"^\s*(?:md|meta)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
-        requested_id, has_due, due_date, has_priority, priority, parse_error = _parse_meta_command(raw_command)
+        requested_id, has_due, due_date, has_priority, priority, has_tags, tags, parse_error = _parse_meta_command(raw_command)
         if parse_error:
             print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
+        note_target = find_note_by_id(updated_tasks, requested_id or "")
+        if note_target is not None:
+            task, note_index, note_text = note_target
+            base_text, existing_tags, existing_due, existing_priority = _extract_inline_meta(note_text)
+            next_tags = tags or [] if has_tags else existing_tags
+            next_due = due_date if has_due else existing_due
+            next_priority = priority if has_priority else existing_priority
+            next_text = _render_inline_meta_text(base_text, next_tags, next_due, next_priority)
+            snapshot = read_journal_snapshot(context.journal_path)
+            if edit_note_in_file(context.journal_path, task, note_index, next_text):
+                _save_undo_snapshot(context, snapshot)
+                refreshed = context.refresh_tasks()
+                clear_screen()
+                print(f"{Colors.DIM}Updated metadata for {requested_id}.{Colors.RESET}")
+                _render(refreshed, view_state)
+                return CommandOutcome(refreshed, view_state)
+
+            print(f"{Colors.ERROR}Could not update note metadata in file.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
         target = find_task_by_id(updated_tasks, requested_id or "")
-        if target is None or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Metadata update supports parent task IDs only.{Colors.RESET}")
+        if target is None:
+            print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
+        if isinstance(target, Subtask):
+            base_title, existing_tags, existing_due, existing_priority = _extract_inline_meta(target.title)
+            next_tags = tags or [] if has_tags else existing_tags
+            next_due = due_date if has_due else existing_due
+            next_priority = priority if has_priority else existing_priority
+            next_title = _render_inline_meta_text(base_title, next_tags, next_due, next_priority)
+            snapshot = read_journal_snapshot(context.journal_path)
+            if edit_subtask_title_in_file(context.journal_path, target, next_title):
+                _save_undo_snapshot(context, snapshot)
+                refreshed = context.refresh_tasks()
+                clear_screen()
+                print(f"{Colors.DIM}Updated metadata for {requested_id}.{Colors.RESET}")
+                _render(refreshed, view_state)
+                return CommandOutcome(refreshed, view_state)
+
+            print(f"{Colors.ERROR}Could not update subtask metadata in file.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
         next_due = due_date if has_due else target.due_date
         next_priority = priority if has_priority else target.priority
         snapshot = read_journal_snapshot(context.journal_path)
+
+        if has_tags:
+            next_title = _apply_tags_to_text(target.title, tags or [])
+            if not edit_task_title_in_file(context.journal_path, target, next_title):
+                print(f"{Colors.ERROR}Could not update task tags in file.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+            updated_tasks = context.refresh_tasks()
+            refreshed_target = find_task_by_id(updated_tasks, requested_id or "")
+            if isinstance(refreshed_target, Task):
+                target = refreshed_target
+                next_due = due_date if has_due else target.due_date
+                next_priority = priority if has_priority else target.priority
 
         if update_task_metadata_in_file(context.journal_path, target, next_due, next_priority):
             _save_undo_snapshot(context, snapshot)
@@ -709,7 +1049,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             clear_screen()
             due_label = next_due.strftime("%d/%m/%Y") if next_due else "none"
             priority_label = next_priority or "none"
-            print(f"{Colors.DIM}Updated metadata for {requested_id}: due={due_label}, priority={priority_label}.{Colors.RESET}")
+            print(
+                f"{Colors.DIM}Updated metadata for {requested_id}: due={due_label}, "
+                f"priority={priority_label}, tags={'updated' if has_tags else 'unchanged'}.{Colors.RESET}"
+            )
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
