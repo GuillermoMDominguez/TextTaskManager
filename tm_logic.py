@@ -3,7 +3,7 @@
 import shlex
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
 from tm_models import Subtask, Task
@@ -19,32 +19,17 @@ def normalize_state_input(state_input: str) -> Optional[str]:
     return None
 
 
-def assign_task_ids(
-    tasks_by_date: dict,
-    id_registry: Dict[Tuple[str, str, Tuple[str, ...], int], str],
-    next_id: int,
-) -> int:
-    """Assign stable per-run IDs to tasks."""
-    seen_counts: Dict[Tuple[str, str, Tuple[str, ...]], int] = {}
+def assign_task_ids(tasks_by_date: dict) -> None:
+    """Assign session-only IDs based on current journal order."""
+    next_id = 1
 
-    for date, tasks in tasks_by_date.items():
-        date_key = date.strftime("%d/%m/%Y") if date else "NO_DATE"
+    for tasks in tasks_by_date.values():
         for task in tasks:
-            base_key = (date_key, task.title, tuple(task.comments))
-            occurrence = seen_counts.get(base_key, 0)
-            seen_counts[base_key] = occurrence + 1
-
-            task_key = (date_key, task.title, tuple(task.comments), occurrence)
-            if task_key not in id_registry:
-                id_registry[task_key] = str(next_id)
-                next_id += 1
-
-            task.task_id = id_registry[task_key]
+            task.task_id = str(next_id)
+            next_id += 1
 
             for idx, subtask in enumerate(task.subtasks, start=1):
                 subtask.task_id = f"{task.task_id}.{idx}"
-
-    return next_id
 
 
 def get_id_width(tasks_by_date: dict) -> int:

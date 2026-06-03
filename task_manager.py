@@ -3,7 +3,7 @@
 
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 from tm_commands import CommandContext, ViewState, execute_command
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH
@@ -212,20 +212,18 @@ def main() -> None:
     journal_path = str(selected_journal)
     save_cached_journal(cache_path, selected_journal.name)
 
-    id_registry: Dict[Tuple[str, str, Tuple[str, ...], int], str] = {}
-    next_task_id = 1
     tasks_cache: Optional[dict] = None
 
     def refresh_tasks() -> dict:
-        """Reload tasks from journal file and assign execution IDs."""
-        nonlocal next_task_id, tasks_cache
+        """Reload tasks from journal file and assign session IDs."""
+        nonlocal tasks_cache
         try:
             tasks = parse_journal(journal_path)
         except JournalError:
             if tasks_cache is None:
                 raise
             raise
-        next_task_id = assign_task_ids(tasks, id_registry, next_task_id)
+        assign_task_ids(tasks)
         tasks_cache = tasks
         return tasks
 

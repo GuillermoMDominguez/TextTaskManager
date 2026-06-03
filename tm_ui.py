@@ -233,6 +233,7 @@ def print_help() -> None:
         f"\n  {Colors.DIM}Usage for new:{Colors.RESET} "
         f"{Colors.BOLD}n [title] [--state <state>] [--date dd/mm/yyyy]{Colors.RESET}"
     )
+    print(f"  {Colors.DIM}Note:{Colors.RESET} task IDs are generated per session and can change after refresh/restart.")
     print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
 
 
