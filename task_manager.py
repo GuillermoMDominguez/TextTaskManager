@@ -367,9 +367,11 @@ def main() -> None:
 
     print(f"{Colors.HEADER}{Colors.BOLD}")
     title = f"Task Manager v{APP_VERSION}"
-    print(f"╔{'═' * BANNER_INNER_WIDTH}╗")
-    print(f"║{title.center(BANNER_INNER_WIDTH)}║")
-    print(f"╚{'═' * BANNER_INNER_WIDTH}╝")
+    from tm_ui import _term_width
+    bw = min(_term_width() - 4, 60)
+    print(f"╔{'═' * bw}╗")
+    print(f"║{title.center(bw)}║")
+    print(f"╚{'═' * bw}╝")
     print(f"{Colors.RESET}")
     print(f"  Loading: {journal_path}")
 

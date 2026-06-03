@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import shutil
 import os
 import re
 from collections import OrderedDict
@@ -340,12 +341,13 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
             elif task.due_date and task.due_date.date() <= today + timedelta(days=7):
                 upcoming.append(task)
 
+    tw = shutil.get_terminal_size((80, 24)).columns
     lines: List[str] = []
     lines.append(f"Weekly Report ({period_start.strftime('%d/%m/%Y')} - {today.strftime('%d/%m/%Y')})")
-    lines.append("=" * 60)
+    lines.append("=" * tw)
 
     lines.append(f"\n✓ COMPLETED ({len(completed)})")
-    lines.append("-" * 40)
+    lines.append("-" * tw)
     if completed:
         for task in completed:
             priority = f" [{task.priority}]" if task.priority else ""
@@ -354,7 +356,7 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
         lines.append("  (none)")
 
     lines.append(f"\n⚡ IN PROGRESS ({len(in_progress)})")
-    lines.append("-" * 40)
+    lines.append("-" * tw)
     if in_progress:
         for task in in_progress:
             due = f" (due: {task.due_date.strftime('%d/%m/%Y')})" if task.due_date else ""
@@ -363,7 +365,7 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
         lines.append("  (none)")
 
     lines.append(f"\n📅 UPCOMING DUE ({len(upcoming)})")
-    lines.append("-" * 40)
+    lines.append("-" * tw)
     if upcoming:
         upcoming_sorted = sorted(upcoming, key=lambda t: t.due_date or datetime.max)
         for task in upcoming_sorted:
@@ -376,7 +378,7 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
     total = sum(len(tasks) for tasks in tasks_by_date.values())
     total_done = sum(1 for tasks in tasks_by_date.values() for t in tasks if t.is_finished())
     total_pending = total - total_done
-    lines.append(f"\n{'─' * 60}")
+    lines.append(f"\n{'─' * tw}")
     lines.append(f"Summary: {total} total | {total_done} done | {total_pending} pending")
 
     return "\n".join(lines)

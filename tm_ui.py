@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 from typing import Optional
 
 try:
@@ -17,6 +18,25 @@ from tm_models import extract_tags_from_text
 TAG_CLEAN_PATTERN = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
 STATE_COLUMN_WIDTH = max(len(state) for state in VALID_STATES)
 TITLE_COLUMN_WIDTH = 56
+
+
+def _term_width() -> int:
+    """Get current terminal width, with a sane minimum."""
+    try:
+        return max(shutil.get_terminal_size((80, 24)).columns, 40)
+    except Exception:
+        return 80
+
+
+def _hr(fraction: float = 1.0) -> str:
+    """Return a horizontal rule string scaled to terminal width."""
+    return "─" * int(_term_width() * fraction)
+
+
+def _dynamic_title_width() -> int:
+    """Compute title column width based on terminal size."""
+    # Reserve ~24 chars for ID + state + spacing + meta
+    return max(_term_width() - 24, 20)
 
 
 def _title_without_tags(text: str) -> str:
@@ -232,9 +252,9 @@ def display_tasks(
 
         date_str = date.strftime("%A, %d/%m/%Y") if date else "No Date"
 
-        print(f"\n{Colors.DATE}{Colors.BOLD}{'─' * 50}{Colors.RESET}")
+        print(f"\n{Colors.DATE}{Colors.BOLD}{_hr()}{Colors.RESET}")
         print(f"{Colors.DATE}{Colors.BOLD}  {date_str}{Colors.RESET}")
-        print(f"{Colors.DATE}{'─' * 50}{Colors.RESET}")
+        print(f"{Colors.DATE}{_hr()}{Colors.RESET}")
 
         for task in visible_tasks:
             total_tasks += 1
@@ -244,7 +264,7 @@ def display_tasks(
             state_display = _format_state_column(task.state)
             task_id_display = _format_id_column(task.task_id, id_width, zero_fill_numeric=True)
             task_title_display = _title_without_tags(task.title)
-            task_title_cell = _format_title_cell(task_title_display, TITLE_COLUMN_WIDTH)
+            task_title_cell = _format_title_cell(task_title_display, _dynamic_title_width())
             task_prefix = _task_row_prefix(task_id_display, state_display)
             continuation_prefix = _title_continuation_prefix(id_width)
             print(
@@ -257,7 +277,7 @@ def display_tasks(
                 subtask_state_display = _format_state_column(subtask.state)
                 subtask_id_display = _format_id_column(subtask.task_id, id_width)
                 subtask_title_display = _title_without_tags(subtask.title)
-                subtask_title_cell = _format_title_cell(subtask_title_display, TITLE_COLUMN_WIDTH)
+                subtask_title_cell = _format_title_cell(subtask_title_display, _dynamic_title_width())
                 subtask_due = ""
                 if getattr(subtask, "due_date", None):
                     subtask_due = f" [DUE:{subtask.due_date.strftime('%d/%m/%Y')}]"
@@ -270,20 +290,20 @@ def display_tasks(
             for note_idx, comment in enumerate(task.comments, start=1):
                 note_id = build_note_id(task.task_id or "?", note_idx)
                 note_text_display = _title_without_tags(comment)
-                note_title_cell = _format_title_cell(note_text_display, TITLE_COLUMN_WIDTH)
+                note_title_cell = _format_title_cell(note_text_display, _dynamic_title_width())
                 print(
                     f"{continuation_prefix}{Colors.COMMENT}- [{note_id}] {note_title_cell}{Colors.RESET}"
                     f"{Colors.DIM}{_format_tags_suffix(comment)}{Colors.RESET}"
                 )
 
-    print(f"\n{Colors.HEADER}{'─' * 50}{Colors.RESET}")
+    print(f"\n{Colors.HEADER}{_hr()}{Colors.RESET}")
     if show_done:
         print(f"{Colors.HEADER}  Total: {total_tasks} tasks ({total_pending} pending){Colors.RESET}")
     else:
         print(f"{Colors.HEADER}  Showing: {total_pending} pending tasks{Colors.RESET}")
     if search_query:
         print(f"{Colors.HEADER}  Search: {search_query}{Colors.RESET}")
-    print(f"{Colors.HEADER}{'─' * 50}{Colors.RESET}")
+    print(f"{Colors.HEADER}{_hr()}{Colors.RESET}")
 
 
 def get_stats(tasks_by_date: dict) -> dict:
@@ -304,7 +324,7 @@ def display_stats(tasks_by_date: dict) -> None:
     stats = get_stats(tasks_by_date)
 
     print(f"\n{Colors.HEADER}{Colors.BOLD}Task Statistics{Colors.RESET}")
-    print(f"{Colors.HEADER}{'─' * 30}{Colors.RESET}")
+    print(f"{Colors.HEADER}{_hr(0.4)}{Colors.RESET}")
 
     for state in VALID_STATES:
         count = stats["by_state"].get(state, 0)
@@ -312,7 +332,7 @@ def display_stats(tasks_by_date: dict) -> None:
         bar = "█" * count
         print(f"  {color}{state:12}{Colors.RESET} {count:3} {color}{bar}{Colors.RESET}")
 
-    print(f"{Colors.HEADER}{'─' * 30}{Colors.RESET}")
+    print(f"{Colors.HEADER}{_hr(0.4)}{Colors.RESET}")
     print(f"  {'Total':12} {stats['total']:3}")
 
 
@@ -353,7 +373,7 @@ def print_help() -> None:
     command_width = max(len(command_text) for command_text, _ in rows) + 2
 
     print(f"\n{Colors.HEADER}{Colors.BOLD}Task Manager - Commands{Colors.RESET}")
-    print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
+    print(f"{Colors.HEADER}{_hr()}{Colors.RESET}")
     for command_text, description in rows:
         print(f"  {Colors.BOLD}{command_text.ljust(command_width)}{Colors.RESET} {description}")
 
@@ -368,7 +388,7 @@ def print_help() -> None:
     print(f"    {Colors.BOLD}f priority:urgent{Colors.RESET}")
     print(f"    {Colors.BOLD}f due:overdue{Colors.RESET}")
     print(f"  {Colors.DIM}Note:{Colors.RESET} task IDs are generated per session and can change after refresh/restart.")
-    print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
+    print(f"{Colors.HEADER}{_hr()}{Colors.RESET}")
 
 
 def prompt_for_state() -> str:
