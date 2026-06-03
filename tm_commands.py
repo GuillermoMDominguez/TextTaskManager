@@ -1,8 +1,9 @@
 """Command dispatch and use-case handlers for the Task Manager CLI."""
 
 import re
+import shlex
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -19,8 +20,12 @@ from tm_journal import (
     edit_note_in_file,
     edit_subtask_title_in_file,
     edit_task_title_in_file,
+    lint_journal,
     mark_all_subtasks_done_in_file,
     move_task_to_date_in_file,
+    read_journal_snapshot,
+    restore_journal_snapshot,
+    update_task_metadata_in_file,
     update_subtask_state_in_file,
     update_task_state_in_file,
 )
@@ -29,7 +34,9 @@ from tm_logic import (
     find_note_by_id,
     find_task_by_id,
     get_pending_tasks,
+    normalize_priority_input,
     normalize_state_input,
+    parse_date_input,
     parse_new_command_args,
 )
 from tm_models import Subtask, Task
@@ -53,6 +60,8 @@ class CommandContext:
     journal_path: str
     email_config: EmailConfig
     refresh_tasks: Callable[[], dict]
+    undo_stack: list[str]
+    max_undo: int = 20
 
 
 @dataclass
@@ -101,10 +110,72 @@ def _default_archive_path(journal_path: str) -> str:
 
 def _try_parse_date(raw: str) -> Optional[datetime]:
     """Parse a dd/mm/yyyy date string safely."""
+    return parse_date_input(raw)
+
+
+def _save_undo_snapshot(context: CommandContext, snapshot: Optional[str]) -> None:
+    """Push a snapshot onto undo stack, respecting max depth."""
+    if snapshot is None:
+        return
+    context.undo_stack.append(snapshot)
+    overflow = len(context.undo_stack) - context.max_undo
+    if overflow > 0:
+        del context.undo_stack[:overflow]
+
+
+def _parse_meta_command(
+    raw_command: str,
+) -> tuple[Optional[str], bool, Optional[datetime], bool, Optional[str], Optional[str]]:
+    """Parse metadata command and return task_id, due flag/value, priority flag/value, and error."""
     try:
-        return datetime.strptime(raw.strip(), "%d/%m/%Y")
-    except ValueError:
-        return None
+        tokens = shlex.split(raw_command)
+    except ValueError as exc:
+        return None, False, None, False, None, f"Invalid command syntax: {exc}"
+
+    if len(tokens) < 2:
+        return None, False, None, False, None, "Usage: md <task_id> [--due dd/mm/yyyy|none] [--priority <level>|none]"
+
+    task_id = tokens[1]
+    due_date: Optional[datetime] = None
+    priority: Optional[str] = None
+    has_due = False
+    has_priority = False
+
+    idx = 2
+    while idx < len(tokens):
+        token = tokens[idx].lower()
+        if token == "--due":
+            idx += 1
+            if idx >= len(tokens):
+                return None, False, None, False, None, "Missing value for --due"
+            has_due = True
+            raw_due = tokens[idx]
+            if raw_due.lower() != "none":
+                due_date = _try_parse_date(raw_due)
+                if due_date is None:
+                    return None, False, None, False, None, f"Invalid due date: {raw_due}"
+            idx += 1
+            continue
+
+        if token in ("--priority", "-p"):
+            idx += 1
+            if idx >= len(tokens):
+                return None, False, None, False, None, "Missing value for --priority"
+            has_priority = True
+            raw_priority = tokens[idx]
+            if raw_priority.lower() != "none":
+                priority = normalize_priority_input(raw_priority)
+                if priority is None:
+                    return None, False, None, False, None, f"Invalid priority: {raw_priority}"
+            idx += 1
+            continue
+
+        return None, False, None, False, None, f"Unknown option: {tokens[idx]}"
+
+    if not has_due and not has_priority:
+        return None, False, None, False, None, "Usage: md <task_id> [--due dd/mm/yyyy|none] [--priority <level>|none]"
+
+    return task_id, has_due, due_date, has_priority, priority, None
 
 
 def _maybe_autoclose_parent(context: CommandContext, parent_id: str, view_state: ViewState) -> Optional[dict]:
@@ -120,13 +191,54 @@ def _maybe_autoclose_parent(context: CommandContext, parent_id: str, view_state:
     if parent.is_finished() or not all(subtask.is_finished() for subtask in parent.subtasks):
         return None
 
+    snapshot = read_journal_snapshot(context.journal_path)
     if update_task_state_in_file(context.journal_path, parent, "DONE"):
+        _save_undo_snapshot(context, snapshot)
         latest = context.refresh_tasks()
         clear_screen()
         print(f"{Colors.DIM}All subtasks are DONE. Parent task {parent_id} closed automatically.{Colors.RESET}")
         _render(latest, view_state)
         return latest
     return None
+
+
+def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
+    """Print due-date agenda grouped by urgency."""
+    today = datetime.now().date()
+    week_limit = today + timedelta(days=days_ahead)
+
+    overdue: list[Task] = []
+    due_today: list[Task] = []
+    due_soon: list[Task] = []
+
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            if task.is_finished() or task.due_date is None:
+                continue
+            due = task.due_date.date()
+            if due < today:
+                overdue.append(task)
+            elif due == today:
+                due_today.append(task)
+            elif due <= week_limit:
+                due_soon.append(task)
+
+    def _print_group(title: str, items: list[Task]) -> None:
+        print(f"\n{Colors.HEADER}{title}{Colors.RESET}")
+        if not items:
+            print(f"  {Colors.DIM}(none){Colors.RESET}")
+            return
+        ordered = sorted(items, key=lambda item: item.due_date or datetime.max)
+        for task in ordered:
+            task_id = task.task_id or "?"
+            due = task.due_date.strftime("%d/%m/%Y") if task.due_date else "-"
+            priority = task.priority or "-"
+            print(f"  [{task_id}] {task.title} | due {due} | priority {priority} | {task.state}")
+
+    print(f"\n{Colors.HEADER}{Colors.BOLD}Agenda{Colors.RESET}")
+    _print_group("Overdue", overdue)
+    _print_group("Due Today", due_today)
+    _print_group(f"Due Next {days_ahead} Days", due_soon)
 
 
 def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState, context: CommandContext) -> CommandOutcome:
@@ -142,6 +254,38 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         )
         updated_tasks = _refresh_and_render(context, next_view)
         return CommandOutcome(updated_tasks, next_view)
+
+    if command in ("u", "undo"):
+        if not context.undo_stack:
+            print(f"{Colors.DIM}Nothing to undo.{Colors.RESET}")
+            return CommandOutcome(tasks_by_date, view_state)
+
+        snapshot = context.undo_stack.pop()
+        if restore_journal_snapshot(context.journal_path, snapshot):
+            refreshed = context.refresh_tasks()
+            clear_screen()
+            print(f"{Colors.DIM}Undid last change.{Colors.RESET}")
+            _render(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state)
+
+        print(f"{Colors.ERROR}Could not restore undo snapshot.{Colors.RESET}")
+        return CommandOutcome(tasks_by_date, view_state)
+
+    if command in ("ag", "agenda"):
+        refreshed = context.refresh_tasks()
+        _print_agenda(refreshed)
+        return CommandOutcome(refreshed, view_state)
+
+    if command in ("ck", "check"):
+        findings = lint_journal(context.journal_path)
+        if findings:
+            print(f"\n{Colors.ERROR}{Colors.BOLD}Journal check found issues:{Colors.RESET}")
+            for finding in findings:
+                print(f"  - {finding}")
+        else:
+            print(f"{Colors.DIM}Journal check passed. No issues found.{Colors.RESET}")
+        refreshed = context.refresh_tasks()
+        return CommandOutcome(refreshed, view_state)
 
     if command in ("q", "quit", "exit"):
         return CommandOutcome(tasks_by_date, view_state, should_exit=True)
@@ -184,10 +328,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:n|new)\b", raw_command, re.IGNORECASE):
-        task_title, task_state, target_date, parse_error = parse_new_command_args(raw_command)
+        task_title, task_state, target_date, due_date, priority, parse_error = parse_new_command_args(raw_command)
         if parse_error:
             print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
-            print(f"{Colors.DIM}Usage: n [title] [--state <state>] [--date dd/mm/yyyy]{Colors.RESET}")
+            print(
+                f"{Colors.DIM}Usage: n [title] [--state <state>] [--date dd/mm/yyyy] "
+                f"[--due dd/mm/yyyy] [--priority <level>]{Colors.RESET}"
+            )
             return CommandOutcome(tasks_by_date, view_state)
 
         if not task_title:
@@ -198,12 +345,20 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(tasks_by_date, view_state)
 
         task_state = task_state or DEFAULT_STATE
+        snapshot = read_journal_snapshot(context.journal_path)
 
-        if add_task_to_file(context.journal_path, task_title, task_state, target_date):
+        if add_task_to_file(context.journal_path, task_title, task_state, target_date, due_date, priority):
+            _save_undo_snapshot(context, snapshot)
             updated_tasks = context.refresh_tasks()
             clear_screen()
             created_date = (target_date or datetime.now()).strftime("%d/%m/%Y")
-            print(f"{Colors.DIM}Task created in {task_state} for {created_date}.{Colors.RESET}")
+            extra = []
+            if due_date:
+                extra.append(f"due {due_date.strftime('%d/%m/%Y')}")
+            if priority:
+                extra.append(f"priority {priority}")
+            suffix = f" ({', '.join(extra)})" if extra else ""
+            print(f"{Colors.DIM}Task created in {task_state} for {created_date}{suffix}.{Colors.RESET}")
             _render(updated_tasks, view_state)
             return CommandOutcome(updated_tasks, view_state)
 
@@ -236,11 +391,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         parent_id = None
         if isinstance(target_task, Subtask):
             parent_id = requested_id.split(".", 1)[0]
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = update_subtask_state_in_file(context.journal_path, target_task, selected_state)
         else:
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = update_task_state_in_file(context.journal_path, target_task, selected_state)
 
         if persisted:
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}Task {requested_id} updated to {selected_state}.{Colors.RESET}")
@@ -277,7 +435,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             print(f"{Colors.ERROR}Add note supports parent task IDs only.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
+        snapshot = read_journal_snapshot(context.journal_path)
         if add_note_to_task_in_file(context.journal_path, target_task, note_text):
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}Note added to task {requested_id}.{Colors.RESET}")
@@ -303,8 +463,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         note_target = find_note_by_id(updated_tasks, requested_id)
         if note_target is not None:
             task, note_index, _ = note_target
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = edit_note_in_file(context.journal_path, task, note_index, new_title)
             if persisted:
+                _save_undo_snapshot(context, snapshot)
                 refreshed = context.refresh_tasks()
                 clear_screen()
                 print(f"{Colors.DIM}Updated note {requested_id}.{Colors.RESET}")
@@ -320,11 +482,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(updated_tasks, view_state)
 
         if isinstance(target, Subtask):
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = edit_subtask_title_in_file(context.journal_path, target, new_title)
         else:
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = edit_task_title_in_file(context.journal_path, target, new_title)
 
         if persisted:
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}Updated title for {requested_id}.{Colors.RESET}")
@@ -345,8 +510,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         note_target = find_note_by_id(updated_tasks, requested_id)
         if note_target is not None:
             task, note_index, _ = note_target
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = delete_note_in_file(context.journal_path, task, note_index)
             if persisted:
+                _save_undo_snapshot(context, snapshot)
                 refreshed = context.refresh_tasks()
                 clear_screen()
                 print(f"{Colors.DIM}Deleted note {requested_id}.{Colors.RESET}")
@@ -361,11 +528,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(updated_tasks, view_state)
 
         if isinstance(target, Subtask):
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = delete_subtask_in_file(context.journal_path, target)
         else:
+            snapshot = read_journal_snapshot(context.journal_path)
             persisted = delete_task_in_file(context.journal_path, target)
 
         if persisted:
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}Deleted {requested_id}.{Colors.RESET}")
@@ -393,7 +563,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             print(f"{Colors.ERROR}Move supports parent task IDs only.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
+        snapshot = read_journal_snapshot(context.journal_path)
         if move_task_to_date_in_file(context.journal_path, target, target_date):
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}Moved task {requested_id} to {target_date.strftime('%d/%m/%Y')}.{Colors.RESET}")
@@ -425,7 +597,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             print(f"{Colors.ERROR}Invalid date. Use dd/mm/yyyy.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
+        snapshot = read_journal_snapshot(context.journal_path)
         if duplicate_task_in_file(context.journal_path, target, target_date):
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}Duplicated task {requested_id}.{Colors.RESET}")
@@ -452,7 +626,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             print(f"{Colors.ERROR}Task {requested_id} has no subtasks.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
+        snapshot = read_journal_snapshot(context.journal_path)
         if mark_all_subtasks_done_in_file(context.journal_path, target):
+            _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
             print(f"{Colors.DIM}All subtasks in {requested_id} updated to DONE.{Colors.RESET}")
@@ -477,12 +653,44 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(tasks_by_date, view_state)
 
         archive_path = _default_archive_path(context.journal_path)
+        snapshot = read_journal_snapshot(context.journal_path)
         moved = archive_finished_tasks_in_file(context.journal_path, archive_path, before_date)
+        if moved > 0:
+            _save_undo_snapshot(context, snapshot)
         refreshed = context.refresh_tasks()
         clear_screen()
         print(f"{Colors.DIM}Archived {moved} finished task(s) to {archive_path}.{Colors.RESET}")
         _render(refreshed, view_state)
         return CommandOutcome(refreshed, view_state)
+
+    if re.match(r"^\s*(?:md|meta)\b", raw_command, re.IGNORECASE):
+        updated_tasks = context.refresh_tasks()
+        requested_id, has_due, due_date, has_priority, priority, parse_error = _parse_meta_command(raw_command)
+        if parse_error:
+            print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
+        target = find_task_by_id(updated_tasks, requested_id or "")
+        if target is None or isinstance(target, Subtask):
+            print(f"{Colors.ERROR}Metadata update supports parent task IDs only.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
+        next_due = due_date if has_due else target.due_date
+        next_priority = priority if has_priority else target.priority
+        snapshot = read_journal_snapshot(context.journal_path)
+
+        if update_task_metadata_in_file(context.journal_path, target, next_due, next_priority):
+            _save_undo_snapshot(context, snapshot)
+            refreshed = context.refresh_tasks()
+            clear_screen()
+            due_label = next_due.strftime("%d/%m/%Y") if next_due else "none"
+            priority_label = next_priority or "none"
+            print(f"{Colors.DIM}Updated metadata for {requested_id}: due={due_label}, priority={priority_label}.{Colors.RESET}")
+            _render(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state)
+
+        print(f"{Colors.ERROR}Could not update metadata in file.{Colors.RESET}")
+        return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:f|find)\b", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*(?:f|find)\s*(.*)$", raw_command, re.IGNORECASE)

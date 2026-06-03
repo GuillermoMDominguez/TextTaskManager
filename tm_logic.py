@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import List, Optional, Tuple, Union
 
-from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
+from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_STATES
 from tm_models import Subtask, Task
 
 
@@ -17,6 +17,22 @@ def normalize_state_input(state_input: str) -> Optional[str]:
     if normalized in STATE_ALIASES:
         return STATE_ALIASES[normalized]
     return None
+
+
+def normalize_priority_input(priority_input: str) -> Optional[str]:
+    """Normalize user-provided priority to canonical priority name."""
+    normalized = priority_input.strip().upper()
+    if normalized in VALID_PRIORITIES:
+        return normalized
+    return PRIORITY_ALIASES.get(normalized)
+
+
+def parse_date_input(date_input: str) -> Optional[datetime]:
+    """Parse a date in dd/mm/yyyy format."""
+    try:
+        return datetime.strptime(date_input.strip(), "%d/%m/%Y")
+    except ValueError:
+        return None
 
 
 def assign_task_ids(tasks_by_date: dict) -> None:
@@ -112,7 +128,9 @@ def task_matches_search(task: Task, query: Optional[str]) -> bool:
     return any(normalized in chunk.lower() for chunk in haystacks)
 
 
-def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[str], Optional[datetime], Optional[str]]:
+def parse_new_command_args(
+    raw_command: str,
+) -> Tuple[Optional[str], Optional[str], Optional[datetime], Optional[datetime], Optional[str], Optional[str]]:
     """Parse new-task command arguments.
 
     Supported syntax:
@@ -120,19 +138,22 @@ def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[st
     - n <title> --state <state>
     - n <title> --date dd/mm/yyyy
     - n <title> --state <state> --date dd/mm/yyyy
+    - n <title> --due dd/mm/yyyy --priority <low|medium|high|urgent>
     """
     try:
         tokens = shlex.split(raw_command)
     except ValueError as exc:
-        return None, None, None, f"Invalid command syntax: {exc}"
+        return None, None, None, None, None, f"Invalid command syntax: {exc}"
 
     if not tokens or tokens[0].lower() not in ("n", "new"):
-        return None, None, None, "Usage: n [title] [--state <state>] [--date dd/mm/yyyy]"
+        return None, None, None, None, None, "Usage: n [title] [--state <state>] [--date dd/mm/yyyy] [--due dd/mm/yyyy] [--priority <level>]"
 
     args = tokens[1:]
     title_tokens: List[str] = []
     state_input: Optional[str] = None
     date_input: Optional[str] = None
+    due_input: Optional[str] = None
+    priority_input: Optional[str] = None
 
     i = 0
     while i < len(args):
@@ -142,19 +163,43 @@ def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[st
         if token_lower in ("--state", "-s"):
             i += 1
             state_tokens: List[str] = []
-            while i < len(args) and args[i].lower() not in ("--state", "-s", "--date", "-d"):
+            while i < len(args) and args[i].lower() not in (
+                "--state",
+                "-s",
+                "--date",
+                "-d",
+                "--due",
+                "--priority",
+                "-p",
+            ):
                 state_tokens.append(args[i])
                 i += 1
             if not state_tokens:
-                return None, None, None, "Missing value for --state"
+                return None, None, None, None, None, "Missing value for --state"
             state_input = " ".join(state_tokens)
             continue
 
         if token_lower in ("--date", "-d"):
             i += 1
             if i >= len(args):
-                return None, None, None, "Missing value for --date"
+                return None, None, None, None, None, "Missing value for --date"
             date_input = args[i]
+            i += 1
+            continue
+
+        if token_lower == "--due":
+            i += 1
+            if i >= len(args):
+                return None, None, None, None, None, "Missing value for --due"
+            due_input = args[i]
+            i += 1
+            continue
+
+        if token_lower in ("--priority", "-p"):
+            i += 1
+            if i >= len(args):
+                return None, None, None, None, None, "Missing value for --priority"
+            priority_input = args[i]
             i += 1
             continue
 
@@ -167,17 +212,28 @@ def parse_new_command_args(raw_command: str) -> Tuple[Optional[str], Optional[st
     if state_input:
         normalized_state = normalize_state_input(state_input)
         if not normalized_state:
-            return title, None, None, f"Invalid state: {state_input}"
+            return title, None, None, None, None, f"Invalid state: {state_input}"
         state = normalized_state
 
     target_date = None
     if date_input:
-        try:
-            target_date = datetime.strptime(date_input, "%d/%m/%Y")
-        except ValueError:
-            return title, None, None, f"Invalid date: {date_input} (use dd/mm/yyyy)"
+        target_date = parse_date_input(date_input)
+        if target_date is None:
+            return title, None, None, None, None, f"Invalid date: {date_input} (use dd/mm/yyyy)"
 
-    return title, state, target_date, None
+    due_date = None
+    if due_input:
+        due_date = parse_date_input(due_input)
+        if due_date is None:
+            return title, None, None, None, None, f"Invalid due date: {due_input} (use dd/mm/yyyy)"
+
+    priority = None
+    if priority_input:
+        priority = normalize_priority_input(priority_input)
+        if priority is None:
+            return title, None, None, None, None, f"Invalid priority: {priority_input}"
+
+    return title, state, target_date, due_date, priority, None
 
 
 def get_pending_tasks(tasks_by_date: dict) -> List[Task]:

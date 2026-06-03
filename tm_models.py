@@ -58,6 +58,8 @@ class Task:
     comments: List[str] = field(default_factory=list)
     subtasks: List[Subtask] = field(default_factory=list)
     date: Optional[datetime] = None
+    due_date: Optional[datetime] = None
+    priority: Optional[str] = None
     task_id: Optional[str] = None
     source_line: Optional[int] = None
 

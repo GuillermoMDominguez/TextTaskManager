@@ -40,6 +40,16 @@ def _format_tags_suffix(text: str) -> str:
     return f" [{' '.join(f'#{tag}' for tag in tags)}]"
 
 
+def _format_task_meta_suffix(task) -> str:
+    """Render compact due/priority badges for a task."""
+    chunks = []
+    if getattr(task, "priority", None):
+        chunks.append(f"[P:{task.priority}]")
+    if getattr(task, "due_date", None):
+        chunks.append(f"[DUE:{task.due_date.strftime('%d/%m/%Y')}]")
+    return f" {' '.join(chunks)}" if chunks else ""
+
+
 def _max_id_length(tasks_by_date: dict) -> int:
     """Return the maximum ID length considering both tasks and subtasks."""
     max_len = 1
@@ -237,7 +247,8 @@ def display_tasks(
             continuation_prefix = _title_continuation_prefix(id_width)
             print(
                 f"{task_prefix}"
-                f"{Colors.TASK}{task_title_cell}{Colors.RESET}{Colors.DIM}{_format_tags_suffix(task.title)}{Colors.RESET}"
+                f"{Colors.TASK}{task_title_cell}{Colors.RESET}"
+                f"{Colors.DIM}{_format_task_meta_suffix(task)}{_format_tags_suffix(task.title)}{Colors.RESET}"
             )
 
             for subtask in task.subtasks:
@@ -319,6 +330,10 @@ def print_help() -> None:
         ("dup / duplicate <id> [dd/mm/yyyy]", "Clone task with notes/subtasks"),
         ("das / done all subtasks <id>", "Set all subtasks to DONE and auto-close parent"),
         ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
+        ("md / meta <id> [--due ...] [--priority ...]", "Set/clear due and priority for task"),
+        ("ag / agenda", "Show due-date agenda (overdue/today/next days)"),
+        ("ck / check", "Lint journal structure and metadata"),
+        ("u / undo", "Undo last journal mutation in this session"),
         ("f / find <text|#tag>", "Filter visible tasks by text or tag"),
         ("fc / find clear", "Clear active search filter"),
         ("r / refresh", "Reload file and refresh display"),

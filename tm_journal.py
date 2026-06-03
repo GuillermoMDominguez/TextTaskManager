@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
+from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_STATES
 from tm_models import Subtask, Task
 
 
@@ -32,6 +32,55 @@ def append_unique_comments(target: List[str], new_comments: List[str]) -> None:
     for comment in new_comments:
         if comment not in target:
             target.append(comment)
+
+
+def _parse_priority_value(raw: str) -> Optional[str]:
+    normalized = raw.strip().upper()
+    if normalized in VALID_PRIORITIES:
+        return normalized
+    return PRIORITY_ALIASES.get(normalized)
+
+
+def _parse_due_value(raw: str) -> Optional[datetime]:
+    try:
+        return datetime.strptime(raw.strip(), "%d/%m/%Y")
+    except ValueError:
+        return None
+
+
+def _apply_task_metadata(task: Task, chunk: str) -> bool:
+    due_match = re.match(r"^(?:due|d)\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", chunk, re.IGNORECASE)
+    if due_match:
+        due_date = _parse_due_value(due_match.group(1))
+        if due_date is not None:
+            task.due_date = due_date
+            return True
+        return False
+
+    priority_match = re.match(r"^(?:priority|prio|p)\s*[:=]\s*([A-Za-z]+)$", chunk, re.IGNORECASE)
+    if priority_match:
+        priority = _parse_priority_value(priority_match.group(1))
+        if priority is not None:
+            task.priority = priority
+            return True
+        return False
+
+    return False
+
+
+def _render_task_line(
+    title: str,
+    state: str,
+    due_date: Optional[datetime],
+    priority: Optional[str],
+    indent: str = "",
+) -> str:
+    parts = [f"{indent}- {title} -- {state}"]
+    if due_date is not None:
+        parts.append(f"due:{due_date.strftime('%d/%m/%Y')}")
+    if priority:
+        parts.append(f"priority:{priority}")
+    return " -- ".join(parts) + "\n"
 
 
 def parse_task_line(line: str) -> Optional[Task]:
@@ -63,6 +112,9 @@ def parse_task_line(line: str) -> Optional[Task]:
         if not part:
             continue
 
+        if _apply_task_metadata(task, part):
+            continue
+
         state_found = None
         remaining = part
 
@@ -82,11 +134,15 @@ def parse_task_line(line: str) -> Optional[Task]:
         if state_found:
             current_state = state_found
             remaining = remaining.lstrip()
+            if _apply_task_metadata(task, remaining):
+                continue
             if remaining.startswith(":"):
                 append_unique_comments(comments, split_comments(remaining[1:]))
             elif remaining:
                 append_unique_comments(comments, split_comments(remaining))
         else:
+            if _apply_task_metadata(task, part):
+                continue
             append_unique_comments(comments, split_comments(part))
 
     task.state = current_state
@@ -260,7 +316,14 @@ def _find_note_line_index(lines: List[str], task: Task, note_index: int) -> Opti
 
 
 def _render_task_block(task: Task, state_override: Optional[str] = None) -> List[str]:
-    lines = [f"- {task.title} -- {state_override or task.state}\n"]
+    lines = [
+        _render_task_line(
+            title=task.title,
+            state=state_override or task.state,
+            due_date=task.due_date,
+            priority=task.priority,
+        )
+    ]
     lines.extend(f": {comment}\n" for comment in task.comments)
     lines.extend(f"+ {subtask.title} -- {subtask.state}\n" for subtask in task.subtasks)
     return lines
@@ -318,7 +381,7 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
         original_line = lines[line_index]
         indent = _task_line_indent(original_line, "-")
 
-        new_line = f"{indent}- {task.title} -- {new_state}\n"
+        new_line = _render_task_line(task.title, new_state, task.due_date, task.priority, indent)
 
         lines[line_index] = new_line
 
@@ -390,19 +453,25 @@ def update_subtask_state_in_file(filepath: str, subtask: Subtask, new_state: str
         return False
 
 
-def add_task_to_file(filepath: str, title: str, state: str = DEFAULT_STATE, target_date: Optional[datetime] = None) -> bool:
+def add_task_to_file(
+    filepath: str,
+    title: str,
+    state: str = DEFAULT_STATE,
+    target_date: Optional[datetime] = None,
+    due_date: Optional[datetime] = None,
+    priority: Optional[str] = None,
+) -> bool:
     """Append a new task into the selected date section in the journal file."""
     clean_title = title.strip()
     if not clean_title:
         return False
 
     selected_date = target_date or datetime.now()
-    date_header = f"## {selected_date.strftime('%d/%m/%Y')}"
 
     try:
         lines = _read_lines(filepath)
 
-        new_task_line = f"- {clean_title} -- {state}\n"
+        new_task_line = _render_task_line(clean_title, state, due_date, priority)
         lines = _insert_task_block(lines, [new_task_line], selected_date)
         _write_lines(filepath, lines)
 
@@ -423,7 +492,31 @@ def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = f"{indent}- {clean_title} -- {task.state}\n"
+        lines[line_index] = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent)
+        _write_lines(filepath, lines)
+        return True
+    except Exception:
+        return False
+
+
+def update_task_metadata_in_file(
+    filepath: str,
+    task: Task,
+    due_date: Optional[datetime],
+    priority: Optional[str],
+) -> bool:
+    """Update due date and/or priority metadata for a parent task."""
+    if task.source_line is None:
+        return False
+
+    try:
+        lines = _read_lines(filepath)
+        line_index = task.source_line - 1
+        if line_index < 0 or line_index >= len(lines):
+            return False
+
+        indent = _task_line_indent(lines[line_index], "-")
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent)
         _write_lines(filepath, lines)
         return True
     except Exception:
@@ -622,3 +715,82 @@ def archive_finished_tasks_in_file(
         return len(candidates)
     except Exception:
         return 0
+
+
+def read_journal_snapshot(filepath: str) -> Optional[str]:
+    """Return full journal file text for undo snapshots."""
+    try:
+        return Path(filepath).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def restore_journal_snapshot(filepath: str, snapshot: str) -> bool:
+    """Restore full journal file text from an undo snapshot."""
+    try:
+        Path(filepath).write_text(snapshot, encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def lint_journal(filepath: str) -> List[str]:
+    """Validate journal structure and return human-readable lint findings."""
+    findings: List[str] = []
+
+    try:
+        lines = _read_lines(filepath)
+    except Exception:
+        return [f"Could not read journal: {filepath}"]
+
+    has_parent_in_section = False
+
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("##"):
+            if parse_date(line) is None:
+                findings.append(f"Line {idx}: invalid date header format (expected ## dd/mm/yyyy).")
+            has_parent_in_section = False
+            continue
+
+        if stripped.startswith(":"):
+            if not has_parent_in_section:
+                findings.append(f"Line {idx}: note without parent task.")
+            continue
+
+        if stripped.startswith("+"):
+            if not has_parent_in_section:
+                findings.append(f"Line {idx}: subtask without parent task.")
+                continue
+            subtask = parse_subtask_line(line)
+            if subtask is None:
+                findings.append(f"Line {idx}: invalid subtask format.")
+            continue
+
+        if stripped.startswith("-") and not stripped.startswith("--"):
+            has_parent_in_section = True
+            task = parse_task_line(line)
+            if task is None or not task.title:
+                findings.append(f"Line {idx}: invalid task format.")
+                continue
+
+            if task.state not in VALID_STATES:
+                findings.append(f"Line {idx}: invalid state '{task.state}'.")
+
+            due_meta = re.findall(r"(?:^|\s)--\s*(?:due|d)\s*[:=]\s*([^\s]+)", line, flags=re.IGNORECASE)
+            for raw_due in due_meta:
+                if _parse_due_value(raw_due) is None:
+                    findings.append(f"Line {idx}: invalid due date '{raw_due}' (use dd/mm/yyyy).")
+
+            priority_meta = re.findall(r"(?:^|\s)--\s*(?:priority|prio|p)\s*[:=]\s*([^\s]+)", line, flags=re.IGNORECASE)
+            for raw_priority in priority_meta:
+                if _parse_priority_value(raw_priority) is None:
+                    findings.append(f"Line {idx}: invalid priority '{raw_priority}'.")
+            continue
+
+        findings.append(f"Line {idx}: unrecognized line format.")
+
+    return findings

@@ -249,6 +249,7 @@ def main() -> None:
         journal_path=journal_path,
         email_config=email_config,
         refresh_tasks=refresh_tasks,
+        undo_stack=[],
     )
 
     while True:
