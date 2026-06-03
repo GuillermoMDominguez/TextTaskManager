@@ -2,7 +2,7 @@
 
 import shlex
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Union
 
 from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_STATES
@@ -119,6 +119,35 @@ def task_matches_search(task: Task, query: Optional[str]) -> bool:
     normalized = query.strip().lower()
     if not normalized:
         return True
+
+    if normalized.startswith("priority:"):
+        expected = normalized.split(":", 1)[1].strip()
+        if expected in ("", "any"):
+            return task.priority is not None
+        if expected in ("none", "null"):
+            return task.priority is None
+        return (task.priority or "").lower() == expected
+
+    if normalized.startswith("due:"):
+        expected = normalized.split(":", 1)[1].strip()
+        today = datetime.now().date()
+        due = task.due_date.date() if task.due_date else None
+        if expected in ("", "any"):
+            return due is not None
+        if expected in ("none", "null"):
+            return due is None
+        if due is None:
+            return False
+        if expected == "overdue":
+            return due < today
+        if expected == "today":
+            return due == today
+        if expected in ("week", "thisweek"):
+            return today <= due <= (today + timedelta(days=7))
+        parsed_due = parse_date_input(expected)
+        if parsed_due is not None:
+            return due == parsed_due.date()
+        return False
 
     haystacks = [task.title, *task.comments]
     haystacks.extend(subtask.title for subtask in task.subtasks)

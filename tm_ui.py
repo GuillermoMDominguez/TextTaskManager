@@ -313,7 +313,6 @@ def display_stats(tasks_by_date: dict) -> None:
 
 def print_help() -> None:
     """Print help message."""
-    command_width = 30
     rows = [
         ("a / all", "Show all tasks (including done)"),
         ("p / pending", "Show pending tasks only (default)"),
@@ -331,15 +330,16 @@ def print_help() -> None:
         ("das / done all subtasks <id>", "Set all subtasks to DONE and auto-close parent"),
         ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
         ("md / meta <id> [--due ...] [--priority ...]", "Set/clear due and priority for task"),
-        ("ag / agenda", "Show due-date agenda (overdue/today/next days)"),
+        ("ag / agenda [days]", "Show due-date agenda (default 7 days)"),
         ("ck / check", "Lint journal structure and metadata"),
         ("u / undo", "Undo last journal mutation in this session"),
-        ("f / find <text|#tag>", "Filter visible tasks by text or tag"),
+        ("f / find <text|#tag|priority:...|due:...>", "Filter by text, tag, priority or due"),
         ("fc / find clear", "Clear active search filter"),
         ("r / refresh", "Reload file and refresh display"),
         ("h / help", "Show this help message"),
         ("q / quit", "Exit the application"),
     ]
+    command_width = max(len(command_text) for command_text, _ in rows) + 2
 
     print(f"\n{Colors.HEADER}{Colors.BOLD}Task Manager - Commands{Colors.RESET}")
     print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
@@ -349,8 +349,13 @@ def print_help() -> None:
     print(
         " "
         f"\n  {Colors.DIM}Usage for new:{Colors.RESET} "
-        f"{Colors.BOLD}n [title] [--state <state>] [--date dd/mm/yyyy]{Colors.RESET}"
+        f"{Colors.BOLD}n [title] [--state <state>] [--date dd/mm/yyyy] [--due dd/mm/yyyy] [--priority <level>]{Colors.RESET}"
     )
+    print(f"  {Colors.DIM}Examples:{Colors.RESET}")
+    print(f"    {Colors.BOLD}md 3 --due 10/06/2026 --priority high{Colors.RESET}")
+    print(f"    {Colors.BOLD}ag 14{Colors.RESET}")
+    print(f"    {Colors.BOLD}f priority:urgent{Colors.RESET}")
+    print(f"    {Colors.BOLD}f due:overdue{Colors.RESET}")
     print(f"  {Colors.DIM}Note:{Colors.RESET} task IDs are generated per session and can change after refresh/restart.")
     print(f"{Colors.HEADER}{'─' * 72}{Colors.RESET}")
 

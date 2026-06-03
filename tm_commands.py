@@ -241,6 +241,12 @@ def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
     _print_group(f"Due Next {days_ahead} Days", due_soon)
 
 
+def _confirm_action(message: str) -> bool:
+    """Ask user confirmation for destructive operations."""
+    answer = input(f"{Colors.BOLD}{message} [y/N]: {Colors.RESET}").strip().lower()
+    return answer in {"y", "yes"}
+
+
 def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState, context: CommandContext) -> CommandOutcome:
     """Execute a single user command and return updated state."""
     command = raw_command.lower()
@@ -271,9 +277,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         print(f"{Colors.ERROR}Could not restore undo snapshot.{Colors.RESET}")
         return CommandOutcome(tasks_by_date, view_state)
 
-    if command in ("ag", "agenda"):
+    if re.match(r"^\s*(?:ag|agenda)(?:\s+\d+)?\s*$", raw_command, re.IGNORECASE):
+        match = re.match(r"^\s*(?:ag|agenda)(?:\s+(\d+))?\s*$", raw_command, re.IGNORECASE)
+        days = int(match.group(1)) if match and match.group(1) else 7
+        if days < 1 or days > 90:
+            print(f"{Colors.ERROR}Agenda days must be between 1 and 90.{Colors.RESET}")
+            return CommandOutcome(tasks_by_date, view_state)
         refreshed = context.refresh_tasks()
-        _print_agenda(refreshed)
+        _print_agenda(refreshed, days_ahead=days)
         return CommandOutcome(refreshed, view_state)
 
     if command in ("ck", "check"):
@@ -507,6 +518,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
+        if not _confirm_action(f"Delete {requested_id}?"):
+            print(f"{Colors.DIM}Delete cancelled.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
         note_target = find_note_by_id(updated_tasks, requested_id)
         if note_target is not None:
             task, note_index, _ = note_target
@@ -561,6 +576,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None or isinstance(target, Subtask):
             print(f"{Colors.ERROR}Move supports parent task IDs only.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
+        if not _confirm_action(f"Move task {requested_id} to {target_date.strftime('%d/%m/%Y')}?"):
+            print(f"{Colors.DIM}Move cancelled.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -650,6 +669,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         before_date = _try_parse_date(match.group(1)) if match.group(1) else None
         if match.group(1) and before_date is None:
             print(f"{Colors.ERROR}Invalid date. Use dd/mm/yyyy.{Colors.RESET}")
+            return CommandOutcome(tasks_by_date, view_state)
+
+        date_label = before_date.strftime('%d/%m/%Y') if before_date else 'all dates'
+        if not _confirm_action(f"Archive finished tasks up to {date_label}?"):
+            print(f"{Colors.DIM}Archive cancelled.{Colors.RESET}")
             return CommandOutcome(tasks_by_date, view_state)
 
         archive_path = _default_archive_path(context.journal_path)
