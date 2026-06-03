@@ -28,11 +28,60 @@ def normalize_priority_input(priority_input: str) -> Optional[str]:
 
 
 def parse_date_input(date_input: str) -> Optional[datetime]:
-    """Parse a date in dd/mm/yyyy format."""
+    """Parse a date from dd/mm/yyyy or natural language (tomorrow, friday, +3d, etc.)."""
+    raw = date_input.strip().lower()
+
+    # Standard format
     try:
-        return datetime.strptime(date_input.strip(), "%d/%m/%Y")
+        return datetime.strptime(raw, "%d/%m/%Y")
     except ValueError:
-        return None
+        pass
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Relative: +Nd, +Nw, +Nm
+    rel_match = re.match(r"^\+(\d+)([dwm])$", raw)
+    if rel_match:
+        n = int(rel_match.group(1))
+        unit = rel_match.group(2)
+        if unit == "d":
+            return today + timedelta(days=n)
+        elif unit == "w":
+            return today + timedelta(weeks=n)
+        elif unit == "m":
+            month = today.month + n
+            year = today.year + (month - 1) // 12
+            month = (month - 1) % 12 + 1
+            day = min(today.day, 28)
+            return today.replace(year=year, month=month, day=day)
+
+    # Keywords
+    keywords = {
+        "today": today,
+        "tomorrow": today + timedelta(days=1),
+        "yesterday": today - timedelta(days=1),
+        "next week": today + timedelta(weeks=1),
+        "nextweek": today + timedelta(weeks=1),
+    }
+    if raw in keywords:
+        return keywords[raw]
+
+    # Day of week names
+    day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    day_abbrevs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    target_day = None
+    for i, (name, abbrev) in enumerate(zip(day_names, day_abbrevs)):
+        if raw == name or raw == abbrev:
+            target_day = i
+            break
+    if target_day is not None:
+        current_day = today.weekday()
+        days_ahead = (target_day - current_day) % 7
+        if days_ahead == 0:
+            days_ahead = 7  # next occurrence
+        return today + timedelta(days=days_ahead)
+
+    return None
 
 
 def assign_task_ids(tasks_by_date: dict) -> None:

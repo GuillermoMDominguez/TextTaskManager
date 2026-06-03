@@ -21,7 +21,7 @@ python3 task_manager.py
 python3 task_manager.py MyJournal
 
 # Quick-add a task without entering interactive mode
-python3 task_manager.py --add "Review pull request" --state TODO --due 10/06/2026 --priority high
+python3 task_manager.py --add "Review pull request" --state TODO --due tomorrow --priority high
 
 # Check journal integrity
 python3 task_manager.py --check
@@ -38,15 +38,15 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 
 ```
 ## 03/06/2026
-- Design landing page -- IN PROGRESS -- due:10/06/2026 -- priority:HIGH -- recur:weekly
+- Design landing page -- IN PROGRESS -- due:10/06/2026 -- priority:HIGH -- recur:weekly -- spent:3h30m
 : Mockup approved by stakeholders
 + Header section -- DONE
 + Footer section -- BACKLOG -- due:08/06/2026
 
 ## 02/06/2026
-- Fix login bug -- DONE -- priority:URGENT
+- Fix login bug -- DONE -- priority:URGENT -- spent:1h30m
 : Root cause was session timeout
-- Write unit tests -- BACKLOG #backend #testing
+- Write unit tests -- BACKLOG #backend #testing -- blockedby:a3f2c1e0
 ```
 
 ### Syntax
@@ -60,6 +60,9 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 | Due date | `-- due:dd/mm/yyyy` | `-- due:15/06/2026` |
 | Priority | `-- priority:LEVEL` | `-- priority:HIGH` |
 | Recurrence | `-- recur:FREQ` | `-- recur:weekly` |
+| Time spent | `-- spent:XhYm` | `-- spent:2h30m` |
+| Blocked by | `-- blockedby:HASH` | `-- blockedby:a3f2c1e0` |
+| Blocks | `-- blocks:HASH` | `-- blocks:b4e1d2f3` |
 | Tags | `#tagname` in text | `- Task #frontend #urgent` |
 
 ---
@@ -85,16 +88,133 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 **Examples:**
 
 ```
-> n Deploy new API --state "IN PROGRESS" --due 15/06/2026 --priority high --recur monthly
+> n Deploy new API --state "IN PROGRESS" --due friday --priority high --recur monthly
 > cs 3 done
-> md 2 --due 20/06/2026 --priority urgent
-> mv 5 10/06/2026
-> dup 1 15/06/2026
+> md 2 --due +3d --priority urgent
+> mv 5 next week
+> dup 1 tomorrow
 > an 3 Client confirmed requirements
 > e 2:n1 Updated note text
 > del 4.2
 > das 3
 > ar 01/06/2026
+```
+
+### Natural Language Dates
+
+Anywhere a date is expected, you can use:
+
+| Input | Meaning |
+|-------|---------|
+| `dd/mm/yyyy` | Explicit date |
+| `today` | Today |
+| `tomorrow` | Tomorrow |
+| `yesterday` | Yesterday |
+| `monday` ... `sunday` | Next occurrence of that weekday |
+| `mon` ... `sun` | Same (abbreviated) |
+| `next week` | +7 days |
+| `+3d` | 3 days from now |
+| `+2w` | 2 weeks from now |
+| `+1m` | 1 month from now |
+
+**Examples:**
+
+```
+> n Fix bug --due tomorrow
+> mv 3 friday
+> n Sprint review --date +2w --due +2w
+> md 5 --due +3d
+```
+
+### Templates
+
+Save reusable task blueprints with subtasks:
+
+```
+> tpl                          # List all templates
+> tpl save standup             # Create a new template (interactive)
+> tpl standup                  # Create task from template
+> tpl del standup              # Delete a template
+```
+
+Templates are stored in `.ttm_config` and include: title, state, priority, recurrence, and subtasks.
+
+**Example workflow:**
+
+```
+> tpl save deploy
+  Template title: Deploy to production
+  State [BACKLOG]: IN PROGRESS
+  Priority (optional): high
+  Subtasks (comma-separated): Run tests, Build Docker image, Push to registry, Notify team
+
+> tpl deploy                   # Creates the full task with 4 subtasks
+```
+
+### Time Tracking
+
+Log time spent on tasks:
+
+```
+> tt 3 2h                      # Log 2 hours to task 3
+> tt 3 30m                     # Log 30 minutes (cumulative)
+> tt 3 1h30m                   # Log 1h30m
+> tt 3 start                   # Start a timer
+> tt 3 stop                    # Stop timer and log elapsed time
+```
+
+Time is stored as `-- spent:XhYm` metadata in the journal file. Multiple logs accumulate.
+
+### Task Dependencies
+
+Mark tasks as blocked by other tasks:
+
+```
+> block 3 5                    # Task 3 is blocked by task 5
+```
+
+This writes `-- blockedby:HASH` to the blocked task and `-- blocks:HASH` to the blocker. The hash is derived from the task title for stability across sessions.
+
+### Pomodoro Timer
+
+Built-in focus timer with automatic time logging:
+
+```
+> pom                          # Start 25min pomodoro (no task)
+> pom 3                        # Start 25min pomodoro for task 3
+> pom 3 45                     # Start 45min pomodoro for task 3
+```
+
+- Shows countdown in terminal
+- Press Enter or Ctrl+C to stop early
+- Automatically logs elapsed time to the task
+
+### Burndown Chart
+
+ASCII burndown chart showing progress over time:
+
+```
+> bd                           # 14-day burndown (default)
+> bd 7                         # 7-day burndown
+> bd 30                        # 30-day burndown
+```
+
+Output:
+
+```
+Burndown (14 days) — 24 total tasks
+──────────────────────────────────────
+ 24 │██████████████
+ 20 │██████████████
+ 16 │  ████████████
+ 12 │      ████████
+  8 │          ████
+  4 │            ██
+  0 │
+    └──────────────
+     20/05     27/05     03/06
+
+  Ideal: -1.7/day | Current remaining: 8 | Velocity: 16 done
 ```
 
 ### Views
@@ -110,6 +230,7 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 | `kb` | Kanban board view |
 | `pj [#tag]` | Project/tag view |
 | `wr [days]` | Weekly report |
+| `bd [days]` | Burndown chart |
 
 **Examples:**
 
@@ -119,6 +240,7 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 > pj             # List all tags with counts
 > pj #backend   # Show all tasks tagged #backend
 > wr 30         # Monthly report
+> bd 7           # Week burndown
 ```
 
 ### Search & Filter
@@ -201,21 +323,24 @@ python3 task_manager.py [journal] [options]
 |------|-------|-------------|
 | `--add "title"` | `-a` | Quick-add task and exit |
 | `--state STATE` | `-s` | State for quick-add (default: BACKLOG) |
-| `--due dd/mm/yyyy` | | Due date for quick-add |
+| `--due DATE` | | Due date (dd/mm/yyyy or natural language) |
 | `--priority LEVEL` | `-p` | Priority for quick-add |
 | `--recur FREQ` | | Recurrence for quick-add |
-| `--date dd/mm/yyyy` | `-d` | Target date section for quick-add |
+| `--date DATE` | `-d` | Target date section (dd/mm/yyyy or natural language) |
 | `--check` | | Run integrity check and exit |
 | `--fix` | | Run integrity check with auto-fix and exit |
 
 **Examples:**
 
 ```bash
-# Add a high-priority task for next week
-python3 task_manager.py --add "Release v2.0" --priority urgent --due 10/06/2026
+# Add a high-priority task due next Friday
+python3 task_manager.py --add "Release v2.0" --priority urgent --due friday
 
 # Add a recurring daily standup
 python3 task_manager.py --add "Daily standup" --recur daily --state "IN PROGRESS"
+
+# Add task for next week
+python3 task_manager.py --add "Sprint planning" --date "+1w" --due "+1w"
 
 # Check journal for problems
 python3 task_manager.py --check
@@ -239,8 +364,8 @@ Tasks can repeat automatically. When a recurring task is marked DONE or CANCELLE
 | `yearly` | `Y` | Same date next year |
 
 ```
-> n Review metrics --recur weekly --due 10/06/2026
-> cs 3 done   # Automatically creates next instance for 17/06/2026
+> n Review metrics --recur weekly --due friday
+> cs 3 done   # Automatically creates next instance for next friday
 ```
 
 ---
@@ -293,7 +418,7 @@ Columns are configurable via `kanban_columns` in `.ttm_config`.
 
 ## Configuration
 
-On first run, a `.ttm_config` JSON file is created with sensible defaults. Edit it to customize states, priorities, kanban columns, and more.
+On first run, a `.ttm_config` JSON file is created with sensible defaults. Edit it to customize states, priorities, kanban columns, templates, and more.
 
 ```json
 {
@@ -307,7 +432,21 @@ On first run, a `.ttm_config` JSON file is created with sensible defaults. Edit 
   "sort_direction": "asc",
   "agenda_days": 7,
   "max_undo": 20,
-  "date_format": "%d/%m/%Y"
+  "date_format": "%d/%m/%Y",
+  "templates": {
+    "standup": {
+      "title": "Daily standup",
+      "state": "IN PROGRESS",
+      "recurrence": "daily",
+      "subtasks": ["Review yesterday", "Plan today", "Blockers"]
+    },
+    "deploy": {
+      "title": "Deploy to production",
+      "state": "IN PROGRESS",
+      "priority": "HIGH",
+      "subtasks": ["Run tests", "Build image", "Push to registry", "Notify team"]
+    }
+  }
 }
 ```
 

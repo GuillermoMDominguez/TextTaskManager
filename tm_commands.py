@@ -2,6 +2,7 @@
 
 import re
 import shlex
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,12 +15,25 @@ from tm_features import (
     export_to_csv,
     export_to_json,
     export_to_markdown,
+    generate_burndown,
     generate_weekly_report,
     get_all_tags,
     get_tasks_by_tag,
+    get_template,
+    get_templates,
     import_from_json,
     render_kanban,
+    run_pomodoro,
+    save_template,
+    delete_template,
     sort_tasks,
+    parse_time_spent,
+    format_time_spent,
+    extract_time_spent_from_line,
+    update_time_in_line,
+    _title_hash,
+    add_blocker_metadata,
+    add_blocks_metadata,
 )
 from tm_journal import (
     add_note_to_task_in_file,
@@ -182,6 +196,31 @@ COMMAND_HELP = {
         "description": "Set task sort order for display.",
         "examples": ["sort priority", "sort due_date desc", "sort none"],
     },
+    "tpl": {
+        "syntax": "tpl [name] | tpl save <name> | tpl del <name>",
+        "description": "Use, list, save, or delete task templates.",
+        "examples": ["tpl", "tpl standup", "tpl save standup", "tpl del standup"],
+    },
+    "tt": {
+        "syntax": "tt <id> <time> | tt <id> start | tt <id> stop",
+        "description": "Log time spent on a task (e.g. 2h, 30m, 1h30m).",
+        "examples": ["tt 3 1h30m", "tt 3 start", "tt 3 stop"],
+    },
+    "block": {
+        "syntax": "block <id> <id>",
+        "description": "Mark first task as blocked by second task.",
+        "examples": ["block 3 5"],
+    },
+    "pom": {
+        "syntax": "pom [id] [minutes]",
+        "description": "Start a pomodoro timer (default 25min). Logs time to task on completion.",
+        "examples": ["pom", "pom 3", "pom 3 45"],
+    },
+    "bd": {
+        "syntax": "bd [days]",
+        "description": "Show burndown chart (default 14 days).",
+        "examples": ["bd", "bd 7", "bd 30"],
+    },
 }
 
 
@@ -205,6 +244,11 @@ ALIAS_TO_HELP_KEY = {
     "kanban": "kb",
     "project": "pj",
     "weekly": "wr",
+    "template": "tpl",
+    "time": "tt",
+    "blocker": "block",
+    "pomodoro": "pom",
+    "burndown": "bd",
 }
 
 
@@ -1176,6 +1220,252 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         clear_screen()
         print(f"{Colors.DIM}Refreshed!{Colors.RESET}")
         _render(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state)
+
+    # ─── Templates ──────────────────────────────────────────────────────
+    if re.match(r"^\s*(?:tpl|template)\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*(?:tpl|template)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
+        arg = match.group(1).strip() if match and match.group(1) else None
+
+        if not arg:
+            # List templates
+            templates = get_templates()
+            if not templates:
+                print(f"{Colors.DIM}No templates saved. Use 'tpl save <name>' after creating a task to save it as template.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            print(f"\n{Colors.HEADER}{Colors.BOLD}Templates{Colors.RESET}")
+            for name, data in templates.items():
+                subtask_count = len(data.get("subtasks", []))
+                extra = []
+                if data.get("state"):
+                    extra.append(data["state"])
+                if data.get("priority"):
+                    extra.append(data["priority"])
+                if subtask_count:
+                    extra.append(f"{subtask_count} subtasks")
+                suffix = f" ({', '.join(extra)})" if extra else ""
+                print(f"  {Colors.BOLD}{name}{Colors.RESET}: {data.get('title', '?')}{suffix}")
+            return CommandOutcome(refreshed, view_state)
+
+        # tpl save <name> — save last created task as template
+        save_match = re.match(r"^save\s+(\S+)$", arg, re.IGNORECASE)
+        if save_match:
+            tpl_name = save_match.group(1)
+            # Interactive: ask for template details
+            title = input(f"{Colors.BOLD}Template title: {Colors.RESET}").strip()
+            if not title:
+                print(f"{Colors.ERROR}Title cannot be empty.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            state = input(f"{Colors.BOLD}State [{DEFAULT_STATE}]: {Colors.RESET}").strip() or None
+            priority = input(f"{Colors.BOLD}Priority (optional): {Colors.RESET}").strip() or None
+            subtasks_input = input(f"{Colors.BOLD}Subtasks (comma-separated, optional): {Colors.RESET}").strip()
+            subtasks = [s.strip() for s in subtasks_input.split(",") if s.strip()] if subtasks_input else []
+
+            template_data = {"title": title}
+            if state:
+                normalized_state = normalize_state_input(state)
+                if normalized_state:
+                    template_data["state"] = normalized_state
+            if priority:
+                normalized_priority = normalize_priority_input(priority)
+                if normalized_priority:
+                    template_data["priority"] = normalized_priority
+            if subtasks:
+                template_data["subtasks"] = subtasks
+
+            if save_template(tpl_name, template_data):
+                print(f"{Colors.DIM}Template '{tpl_name}' saved.{Colors.RESET}")
+            else:
+                print(f"{Colors.ERROR}Could not save template.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        # tpl del <name>
+        del_match = re.match(r"^(?:del|delete|rm)\s+(\S+)$", arg, re.IGNORECASE)
+        if del_match:
+            tpl_name = del_match.group(1)
+            if delete_template(tpl_name):
+                print(f"{Colors.DIM}Template '{tpl_name}' deleted.{Colors.RESET}")
+            else:
+                print(f"{Colors.ERROR}Template '{tpl_name}' not found.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        # tpl <name> — use template to create task
+        tpl_data = get_template(arg)
+        if not tpl_data:
+            print(f"{Colors.ERROR}Template '{arg}' not found. Use 'tpl' to list.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        tpl_title = tpl_data.get("title", arg)
+        tpl_state = tpl_data.get("state", DEFAULT_STATE)
+        tpl_priority = tpl_data.get("priority")
+        tpl_recurrence = tpl_data.get("recurrence")
+        snapshot = read_journal_snapshot(context.journal_path)
+
+        if add_task_to_file(context.journal_path, tpl_title, tpl_state, None, None, tpl_priority, tpl_recurrence):
+            _save_undo_snapshot(context, snapshot)
+            # Add subtasks if any
+            tpl_subtasks = tpl_data.get("subtasks", [])
+            if tpl_subtasks:
+                from tm_journal import add_subtask_to_file
+                for sub_title in tpl_subtasks:
+                    add_subtask_to_file(context.journal_path, tpl_title, sub_title, DEFAULT_STATE)
+
+            updated_tasks = context.refresh_tasks()
+            clear_screen()
+            print(f"{Colors.DIM}Task created from template '{arg}'.{Colors.RESET}")
+            _render(updated_tasks, view_state)
+            return CommandOutcome(updated_tasks, view_state)
+
+        print(f"{Colors.ERROR}Could not create task from template.{Colors.RESET}")
+        return CommandOutcome(refreshed, view_state)
+
+    # ─── Time Tracking ─────────────────────────────────────────────────
+    if re.match(r"^\s*(?:tt|time)\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*(?:tt|time)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
+        if not match:
+            print(f"{Colors.ERROR}Usage: tt <id> <time|start|stop>{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        task_id = match.group(1)
+        time_arg = match.group(2).strip().lower()
+        target = find_task_by_id(refreshed, task_id)
+        if not target or isinstance(target, Subtask):
+            print(f"{Colors.ERROR}Task {task_id} not found (must be parent task).{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        if time_arg == "start":
+            # Store start timestamp in memory (session only)
+            if not hasattr(context, '_time_tracking'):
+                context._time_tracking = {}
+            context._time_tracking[task_id] = time.time()
+            print(f"{Colors.DIM}Timer started for task {task_id}.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        if time_arg == "stop":
+            if not hasattr(context, '_time_tracking') or task_id not in context._time_tracking:
+                print(f"{Colors.ERROR}No timer running for task {task_id}. Use 'tt {task_id} start' first.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            elapsed = time.time() - context._time_tracking.pop(task_id)
+            elapsed_minutes = max(1, int(elapsed / 60 + 0.5))
+            time_arg = format_time_spent(elapsed_minutes)
+            print(f"{Colors.DIM}Timer stopped: {time_arg} elapsed.{Colors.RESET}")
+
+        # Parse and add time
+        new_minutes = parse_time_spent(time_arg)
+        if new_minutes is None:
+            print(f"{Colors.ERROR}Invalid time: {time_arg}. Use format like 2h, 30m, 1h30m.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        # Update the journal line
+        snapshot = read_journal_snapshot(context.journal_path)
+        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+        updated = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith("-") and target.title in line:
+                existing = extract_time_spent_from_line(line)
+                total = (existing or 0) + new_minutes
+                lines[i] = update_time_in_line(line, total)
+                updated = True
+                break
+
+        if updated:
+            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+            _save_undo_snapshot(context, snapshot)
+            print(f"{Colors.DIM}Logged {format_time_spent(new_minutes)} to task {task_id} (total: {format_time_spent((existing or 0) + new_minutes)}).{Colors.RESET}")
+        else:
+            print(f"{Colors.ERROR}Could not update time in journal.{Colors.RESET}")
+
+        updated_tasks = context.refresh_tasks()
+        return CommandOutcome(updated_tasks, view_state)
+
+    # ─── Task Dependencies / Blockers ──────────────────────────────────
+    if re.match(r"^\s*(?:block|blocker)\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*(?:block|blocker)\s+(\S+)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+        if not match:
+            print(f"{Colors.ERROR}Usage: block <blocked_id> <blocker_id>{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        blocked_id = match.group(1)
+        blocker_id = match.group(2)
+        blocked_task = find_task_by_id(refreshed, blocked_id)
+        blocker_task = find_task_by_id(refreshed, blocker_id)
+
+        if not blocked_task or isinstance(blocked_task, Subtask):
+            print(f"{Colors.ERROR}Task {blocked_id} not found.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+        if not blocker_task or isinstance(blocker_task, Subtask):
+            print(f"{Colors.ERROR}Task {blocker_id} not found.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        snapshot = read_journal_snapshot(context.journal_path)
+        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+        updated = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith("-") and blocked_task.title in line:
+                lines[i] = add_blocker_metadata(line, blocker_task.title)
+                updated = True
+                break
+
+        if updated:
+            # Also add blocks: to the blocker task
+            for i, line in enumerate(lines):
+                if line.strip().startswith("-") and blocker_task.title in line:
+                    lines[i] = add_blocks_metadata(line, blocked_task.title)
+                    break
+            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+            _save_undo_snapshot(context, snapshot)
+            print(f"{Colors.DIM}Task {blocked_id} is now blocked by task {blocker_id}.{Colors.RESET}")
+        else:
+            print(f"{Colors.ERROR}Could not update dependency.{Colors.RESET}")
+
+        updated_tasks = context.refresh_tasks()
+        return CommandOutcome(updated_tasks, view_state)
+
+    # ─── Pomodoro ──────────────────────────────────────────────────────
+    if re.match(r"^\s*(?:pom|pomodoro)\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*(?:pom|pomodoro)(?:\s+(\S+))?(?:\s+(\d+))?\s*$", raw_command, re.IGNORECASE)
+        task_id = match.group(1) if match and match.group(1) else None
+        minutes = int(match.group(2)) if match and match.group(2) else 25
+
+        target = None
+        task_title = ""
+        if task_id:
+            target = find_task_by_id(refreshed, task_id)
+            if not target:
+                print(f"{Colors.ERROR}Task {task_id} not found.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            task_title = target.title
+
+        elapsed = run_pomodoro(minutes, task_title)
+
+        # Log time to task if specified
+        if target and task_id and not isinstance(target, Subtask):
+            snapshot = read_journal_snapshot(context.journal_path)
+            lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+            for i, line in enumerate(lines):
+                if line.strip().startswith("-") and target.title in line:
+                    existing = extract_time_spent_from_line(line)
+                    total = (existing or 0) + elapsed
+                    lines[i] = update_time_in_line(line, total)
+                    Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+                    _save_undo_snapshot(context, snapshot)
+                    print(f"{Colors.DIM}Logged {format_time_spent(elapsed)} to task {task_id}.{Colors.RESET}")
+                    break
+
+        updated_tasks = context.refresh_tasks()
+        return CommandOutcome(updated_tasks, view_state)
+
+    # ─── Burndown Chart ────────────────────────────────────────────────
+    if re.match(r"^\s*(?:bd|burndown)\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*(?:bd|burndown)(?:\s+(\d+))?\s*$", raw_command, re.IGNORECASE)
+        days = int(match.group(1)) if match and match.group(1) else 14
+        chart = generate_burndown(refreshed, days)
+        print(f"\n{Colors.HEADER}{chart}{Colors.RESET}")
         return CommandOutcome(refreshed, view_state)
 
     # ─── Kanban view ───────────────────────────────────────────────────

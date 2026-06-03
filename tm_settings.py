@@ -31,6 +31,7 @@ DEFAULT_SETTINGS = {
     },
     "colors_enabled": True,
     "max_undo": 20,
+    "templates": {},
 }
 
 

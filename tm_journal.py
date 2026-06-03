@@ -509,6 +509,37 @@ def add_task_to_file(
         return False
 
 
+def add_subtask_to_file(filepath: str, parent_title: str, subtask_title: str, state: str = DEFAULT_STATE) -> bool:
+    """Add a subtask line right after the matching parent task (or its existing subtasks)."""
+    try:
+        lines = _read_lines(filepath)
+        subtask_line = f"+ {subtask_title} -- {state}\n"
+
+        # Find the parent task line
+        insert_idx = None
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("-") and not stripped.startswith("--") and parent_title in line:
+                # Found parent — scan forward past its children
+                insert_idx = i + 1
+                while insert_idx < len(lines):
+                    child = lines[insert_idx].strip()
+                    if child.startswith("+") or child.startswith(":"):
+                        insert_idx += 1
+                    else:
+                        break
+                break
+
+        if insert_idx is None:
+            return False
+
+        lines.insert(insert_idx, subtask_line)
+        _write_lines(filepath, lines)
+        return True
+    except Exception:
+        return False
+
+
 def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
     """Rename a parent task while keeping state and children."""
     clean_title = new_title.strip()
