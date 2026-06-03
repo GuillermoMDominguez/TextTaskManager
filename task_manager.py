@@ -372,7 +372,7 @@ def main():
     """Main entry point for the task manager."""
     # Default journal file path (same directory as script)
     script_dir = Path(__file__).parent
-    default_journal = script_dir / "Journal_2026.txt"
+    default_journal = script_dir / "Journal.txt"
     
     # Allow custom file path via command line argument
     if len(sys.argv) > 1:
