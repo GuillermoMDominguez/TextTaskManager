@@ -417,6 +417,7 @@ def print_help() -> None:
         ("del / delete <id|id:n#>", "Delete task, subtask, or note"),
         ("mv / move <id> <dd/mm/yyyy>", "Move task to another date section"),
         ("dup / duplicate <id> [dd/mm/yyyy]", "Clone task with notes/subtasks"),
+        ("sub <id> <title>", "Add a subtask to a parent task"),
         ("das / done all subtasks <id>", "Set all subtasks to DONE and auto-close parent"),
         ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
         ("md / meta <id|id.n|id:n#> [--due ...] [--priority ...] [--tags ...]", "Edit due/priority/tags (task/subtask/note)"),
