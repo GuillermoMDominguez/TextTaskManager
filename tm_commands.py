@@ -1126,22 +1126,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         note_target = find_note_by_id(updated_tasks, requested_id or "")
         if note_target is not None:
-            task, note_index, note_text = note_target
-            base_text, existing_tags, existing_due, existing_priority = _extract_inline_meta(note_text)
-            next_tags = tags or [] if has_tags else existing_tags
-            next_due = due_date if has_due else existing_due
-            next_priority = priority if has_priority else existing_priority
-            next_text = _render_inline_meta_text(base_text, next_tags, next_due, next_priority)
-            snapshot = read_journal_snapshot(context.journal_path)
-            if edit_note_in_file(context.journal_path, task, note_index, next_text):
-                _save_undo_snapshot(context, snapshot)
-                refreshed = context.refresh_tasks()
-                clear_screen()
-                print(f"{Colors.DIM}Updated metadata for {requested_id}.{Colors.RESET}")
-                _render(refreshed, view_state)
-                return CommandOutcome(refreshed, view_state)
-
-            print(f"{Colors.ERROR}Could not update note metadata in file.{Colors.RESET}")
+            print(f"{Colors.ERROR}Notes don't support metadata. Use 'e {requested_id} <text>' to edit.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
         target = find_task_by_id(updated_tasks, requested_id or "")

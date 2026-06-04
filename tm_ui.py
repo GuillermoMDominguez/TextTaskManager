@@ -295,15 +295,30 @@ def display_tasks(
                     f"{Colors.SUBTASK}{subtask_title_cell}{Colors.RESET}"
                     f"{Colors.DIM}{subtask_due}{_format_tags_suffix(subtask.title)}{Colors.RESET}"
                 )
+                # Subtask notes
+                for sn_idx, sn_comment in enumerate(getattr(subtask, "comments", []), start=1):
+                    sn_id = build_note_id(subtask.task_id or "?", sn_idx)
+                    for sn_line_idx, sn_line in enumerate(sn_comment.split("\n")):
+                        if sn_line_idx == 0:
+                            sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
+                            print(f"{continuation_prefix}  {Colors.DIM}┊ [{sn_id}] {sn_cell}{Colors.RESET}")
+                        else:
+                            sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
+                            print(f"{continuation_prefix}  {Colors.DIM}┊        {sn_cell}{Colors.RESET}")
 
             for note_idx, comment in enumerate(task.comments, start=1):
                 note_id = build_note_id(task.task_id or "?", note_idx)
-                note_text_display = _title_without_tags(comment)
-                note_title_cell = _format_title_cell(note_text_display, _dynamic_title_width())
-                print(
-                    f"{continuation_prefix}{Colors.COMMENT}- [{note_id}] {note_title_cell}{Colors.RESET}"
-                    f"{Colors.DIM}{_format_tags_suffix(comment)}{Colors.RESET}"
-                )
+                for line_idx, note_line in enumerate(comment.split("\n")):
+                    if line_idx == 0:
+                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
+                        print(
+                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {note_cell}{Colors.RESET}"
+                        )
+                    else:
+                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
+                        print(
+                            f"{continuation_prefix}{Colors.DIM}┊        {note_cell}{Colors.RESET}"
+                        )
 
     print(f"\n{Colors.HEADER}{_hr()}{Colors.RESET}")
     if show_done:

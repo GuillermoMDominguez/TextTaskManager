@@ -259,6 +259,7 @@ def parse_journal(filepath: str) -> dict:
     current_date = None
     last_task: Optional[Task] = None
     last_subtask: Optional[Subtask] = None
+    last_element = None  # 'task', 'subtask', 'note', 'subnote' — for continuation lines
 
     try:
         with open(filepath, "r", encoding="utf-8") as f:
@@ -302,9 +303,14 @@ def parse_journal(filepath: str) -> dict:
                     continue
 
                 if stripped.startswith(":"):
-                    if last_task is not None:
-                        append_unique_comments(last_task.comments, split_comments(stripped[1:]))
-                    last_subtask = None
+                    note_text = stripped[1:].strip()
+                    if note_text:
+                        if last_subtask is not None:
+                            last_subtask.comments.append(note_text)
+                            last_element = 'subnote'
+                        elif last_task is not None:
+                            last_task.comments.append(note_text)
+                            last_element = 'note'
                     continue
 
                 if stripped.startswith("+"):
@@ -314,6 +320,7 @@ def parse_journal(filepath: str) -> dict:
                             subtask.source_line = line_number
                             last_task.subtasks.append(subtask)
                             last_subtask = subtask
+                            last_element = 'subtask'
                     continue
 
                 if stripped.startswith("-") and not stripped.startswith("--"):
@@ -329,13 +336,21 @@ def parse_journal(filepath: str) -> dict:
                             tasks_by_date[None].append(task)
                         last_task = task
                         last_subtask = None
+                        last_element = 'task'
                     continue
 
-                # Unrecognized lines within a task block: treat as tag/title continuation
-                if last_task is not None and stripped:
-                    # Determine target for continuation
-                    target = last_subtask if last_subtask is not None else last_task
-                    target.title = target.title.rstrip() + " " + stripped
+                # Unrecognized lines: continuation of previous element
+                if stripped and last_task is not None:
+                    if last_element == 'note' and last_task.comments:
+                        # Multiline note continuation
+                        last_task.comments[-1] += "\n" + stripped
+                    elif last_element == 'subnote' and last_subtask and last_subtask.comments:
+                        last_subtask.comments[-1] += "\n" + stripped
+                    elif last_element == 'subtask' and last_subtask is not None:
+                        last_subtask.title = last_subtask.title.rstrip() + " " + stripped
+                    else:
+                        # Title continuation (tags on separate line, etc.)
+                        last_task.title = last_task.title.rstrip() + " " + stripped
 
     except FileNotFoundError as exc:
         raise JournalFileNotFoundError(f"File not found: {filepath}") from exc
@@ -420,8 +435,19 @@ def _render_task_block(task: Task, state_override: Optional[str] = None) -> List
             recurrence=task.recurrence,
         )
     ]
-    lines.extend(f": {comment}\n" for comment in task.comments)
-    lines.extend(f"+ {subtask.title} -- {subtask.state}\n" for subtask in task.subtasks)
+    for comment in task.comments:
+        # Multiline notes: first line gets :, continuation lines are indented
+        note_lines = comment.split("\n")
+        lines.append(f": {note_lines[0]}\n")
+        for continuation in note_lines[1:]:
+            lines.append(f"  {continuation}\n")
+    for subtask in task.subtasks:
+        lines.append(f"+ {subtask.title} -- {subtask.state}\n")
+        for scomment in getattr(subtask, "comments", []):
+            snote_lines = scomment.split("\n")
+            lines.append(f"    : {snote_lines[0]}\n")
+            for scont in snote_lines[1:]:
+                lines.append(f"      {scont}\n")
     return lines
 
 

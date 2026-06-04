@@ -29,6 +29,7 @@ class Subtask:
 
     title: str
     state: str = DEFAULT_STATE
+    comments: List[str] = field(default_factory=list)
     task_id: Optional[str] = None
     source_line: Optional[int] = None
     due_date: Optional[datetime] = None
@@ -81,13 +82,5 @@ class Task:
         return self.state in ("TESTING", "IN TESTING")
 
     def get_tags(self) -> List[str]:
-        """Return tags found in the task title and notes."""
-        combined = [self.title, *self.comments]
-        seen = set()
-        tags: List[str] = []
-        for chunk in combined:
-            for tag in extract_tags_from_text(chunk):
-                if tag not in seen:
-                    seen.add(tag)
-                    tags.append(tag)
-        return tags
+        """Return tags found in the task title only (notes are plain text)."""
+        return extract_tags_from_text(self.title)
