@@ -371,6 +371,67 @@ def _save_undo_snapshot(context: CommandContext, snapshot: Optional[str]) -> Non
         del context.undo_stack[:overflow]
 
 
+def _log_time_to_task(context: CommandContext, task: "Task", minutes: int) -> bool:
+    """Write spent time to the journal for a task. Returns True on success.
+
+    Uses task.source_line for reliable location. Handles both inline and
+    multiline metadata formats (cross-platform compatible).
+    """
+    if task.source_line is None:
+        return False
+
+    lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+    line_index = task.source_line - 1
+    if line_index >= len(lines):
+        return False
+
+    task_line = lines[line_index]
+
+    # Calculate existing time: check inline first, then continuation lines
+    existing = extract_time_spent_from_line(task_line)
+    if existing is None:
+        # Check continuation lines for spent:
+        for j in range(line_index + 1, len(lines)):
+            cline = lines[j]
+            if not cline or not cline[0].isspace():
+                break
+            if re.search(r"--\s*(?:spent|time)\s*[:=]\s*(\S+)", cline, re.IGNORECASE):
+                existing = extract_time_spent_from_line(cline)
+                # Remove old continuation spent line, we'll re-add updated
+                lines.pop(j)
+                break
+
+    total = (existing or 0) + minutes
+
+    # Determine if task uses multiline metadata (next line is indented --)
+    uses_multiline = False
+    if line_index + 1 < len(lines):
+        next_line = lines[line_index + 1]
+        if re.match(r"^\s+--\s*", next_line) or re.match(r"^\s+#", next_line):
+            uses_multiline = True
+
+    if uses_multiline:
+        # Insert as continuation line after the task line (before other content)
+        indent = "    "
+        from tm_features import format_time_spent
+        spent_line = f"{indent}-- spent:{format_time_spent(total)}"
+        # Find insertion point: after last -- line
+        insert_at = line_index + 1
+        for j in range(line_index + 1, len(lines)):
+            cline = lines[j]
+            if re.match(r"^\s+--\s", cline) or re.match(r"^\s+#", cline):
+                insert_at = j + 1
+            else:
+                break
+        lines.insert(insert_at, spent_line)
+    else:
+        # Inline: append or update on task line
+        lines[line_index] = update_time_in_line(task_line, total)
+
+    Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+    return True
+
+
 def _parse_meta_command(
     raw_command: str,
 ) -> tuple[Optional[str], bool, Optional[datetime], bool, Optional[str], bool, Optional[list[str]], Optional[str]]:
@@ -1393,20 +1454,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         # Update the journal line
         snapshot = read_journal_snapshot(context.journal_path)
-        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
-        updated = False
-        for i, line in enumerate(lines):
-            if line.strip().startswith("-") and target.title in line:
-                existing = extract_time_spent_from_line(line)
-                total = (existing or 0) + new_minutes
-                lines[i] = update_time_in_line(line, total)
-                updated = True
-                break
-
-        if updated:
-            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+        existing_time = target.time_spent or 0
+        if _log_time_to_task(context, target, new_minutes):
             _save_undo_snapshot(context, snapshot)
-            print(f"{Colors.DIM}Logged {format_time_spent(new_minutes)} to task {task_id} (total: {format_time_spent((existing or 0) + new_minutes)}).{Colors.RESET}")
+            print(f"{Colors.DIM}Logged {format_time_spent(new_minutes)} to task {task_id} (total: {format_time_spent(existing_time + new_minutes)}).{Colors.RESET}")
         else:
             print(f"{Colors.ERROR}Could not update time in journal.{Colors.RESET}")
 
@@ -1478,16 +1529,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         # Log time to task if specified
         if target and task_id and not isinstance(target, Subtask):
             snapshot = read_journal_snapshot(context.journal_path)
-            lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
-            for i, line in enumerate(lines):
-                if line.strip().startswith("-") and target.title in line:
-                    existing = extract_time_spent_from_line(line)
-                    total = (existing or 0) + elapsed
-                    lines[i] = update_time_in_line(line, total)
-                    Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
-                    _save_undo_snapshot(context, snapshot)
-                    print(f"{Colors.DIM}Logged {format_time_spent(elapsed)} to task {task_id}.{Colors.RESET}")
-                    break
+            if _log_time_to_task(context, target, elapsed):
+                _save_undo_snapshot(context, snapshot)
+                print(f"{Colors.DIM}Logged {format_time_spent(elapsed)} to task {task_id}.{Colors.RESET}")
 
         updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, view_state)
