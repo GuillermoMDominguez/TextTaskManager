@@ -37,6 +37,7 @@ from tm_features import (
 )
 from tm_journal import (
     add_note_to_task_in_file,
+    add_subtask_to_task,
     add_task_to_file,
     archive_finished_tasks_in_file,
     delete_note_in_file,
@@ -120,6 +121,11 @@ COMMAND_HELP = {
         "syntax": "dup <id> [dd/mm/yyyy]",
         "description": "Duplicate a parent task with notes and subtasks.",
         "examples": ["dup 3", "dup 3 12/06/2026"],
+    },
+    "sub": {
+        "syntax": "sub <id> <title>",
+        "description": "Add a subtask to a parent task.",
+        "examples": ["sub 3 Review the document", "sub 1 Call supplier"],
     },
     "das": {
         "syntax": "das <id>",
@@ -1159,6 +1165,32 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(refreshed, view_state)
 
         print(f"{Colors.ERROR}Could not duplicate task in file.{Colors.RESET}")
+        return CommandOutcome(updated_tasks, view_state)
+
+    # ─── Add Subtask ───────────────────────────────────────────────────
+    if re.match(r"^\s*sub\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*sub\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
+        if not match:
+            print(f"{Colors.ERROR}Usage: sub <id> <subtask title>{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        task_id = match.group(1)
+        sub_title = match.group(2).strip()
+        target = find_task_by_id(refreshed, task_id)
+
+        if not target or isinstance(target, Subtask):
+            print(f"{Colors.ERROR}Task {task_id} not found (must be parent task).{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        snapshot = read_journal_snapshot(context.journal_path)
+        if add_subtask_to_task(context.journal_path, target, sub_title):
+            _save_undo_snapshot(context, snapshot)
+            print(f"{Colors.DIM}Subtask added to task {task_id}.{Colors.RESET}")
+        else:
+            print(f"{Colors.ERROR}Could not add subtask.{Colors.RESET}")
+
+        updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:das|done\s+all\s+subtasks)\b", raw_command, re.IGNORECASE):

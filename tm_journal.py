@@ -717,6 +717,46 @@ def add_subtask_to_file(filepath: str, parent_title: str, subtask_title: str, st
         return False
 
 
+def add_subtask_to_task(filepath: str, task: "Task", subtask_title: str, state: str = DEFAULT_STATE) -> bool:
+    """Add a subtask to a task using source_line for reliable placement."""
+    if task.source_line is None:
+        return False
+    try:
+        lines = _read_lines(filepath)
+        line_index = task.source_line - 1
+        if line_index < 0 or line_index >= len(lines):
+            return False
+
+        # Determine indentation: scan existing content to match style
+        indent = "    "
+        subtask_line = f"{indent}+ {subtask_title} -- {state}\n"
+
+        # Scan forward past all task block content (metadata, notes, subtasks)
+        insert_idx = line_index + 1
+        while insert_idx < len(lines):
+            cline = lines[insert_idx]
+            if not cline or not cline[0].isspace():
+                break
+            cstripped = cline.strip()
+            # Empty indented line — peek ahead
+            if not cstripped:
+                # Check if next non-empty line is still part of block
+                peek = insert_idx + 1
+                while peek < len(lines) and not lines[peek].strip():
+                    peek += 1
+                if peek < len(lines) and lines[peek] and lines[peek][0].isspace():
+                    insert_idx += 1
+                    continue
+                break
+            insert_idx += 1
+
+        lines.insert(insert_idx, subtask_line)
+        _write_lines(filepath, lines)
+        return True
+    except Exception:
+        return False
+
+
 def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
     """Rename a parent task while keeping state and children."""
     clean_title = new_title.strip()
