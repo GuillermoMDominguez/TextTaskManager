@@ -1,8 +1,8 @@
-COMMAND ERROR (cs 4):
+COMMAND ERROR (cs 04):
 Traceback (most recent call last):
   File "/Users/javier/Git/TextTaskManager/task_manager.py", line 415, in main
     outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)
-  File "/Users/javier/Git/TextTaskManager/tm_commands.py", line 968, in execute_command
-    return CommandOutcome(updated_tasks, view_state)
-            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/javier/Git/TextTaskManager/tm_commands.py", line 978, in execute_command
+    persisted = update_task_state_in_file(context.journal_path, target_task, selected_state)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
 UnboundLocalError: cannot access local variable 'update_task_state_in_file' where it is not associated with a value

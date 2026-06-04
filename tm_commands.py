@@ -1076,7 +1076,6 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 # Show interactive edit form for parent task
                 from tm_form import show_form, TextField, SelectField
                 from tm_config import VALID_STATES, VALID_PRIORITIES
-                from tm_journal import edit_task_title_in_file
 
                 # Strip tags from title for the field, show tags separately
                 tags = " ".join(f"#{t}" for t in target.get_tags())
@@ -1127,7 +1126,6 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     edit_task_title_in_file(context.journal_path, target, new_title)
                 # Update state if changed
                 if new_state != target.state:
-                    from tm_journal import update_task_state_in_file
                     target.due_date = new_due
                     target.priority = new_priority
                     update_task_state_in_file(context.journal_path, target, new_state)
