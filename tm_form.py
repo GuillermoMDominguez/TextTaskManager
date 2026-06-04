@@ -148,16 +148,13 @@ class SelectField:
             self.selected = (self.selected + 1) % len(self._options)
 
     def render(self, active: bool) -> str:
-        parts = []
-        for i, opt in enumerate(self._options):
-            if i == self.selected:
-                if active:
-                    parts.append(f"\033[7m\033[97m {opt} \033[27m\033[22m")
-                else:
-                    parts.append(f"\033[1m\033[97m[{opt}]\033[22m")
-            else:
-                parts.append(f"\033[2m {opt} \033[22m")
-        return "".join(parts)
+        opt = self._options[self.selected]
+        if active:
+            left = "◂" if len(self._options) > 1 else " "
+            right = "▸" if len(self._options) > 1 else " "
+            return f"\033[2m{left}\033[22m \033[7m\033[97m {opt} \033[27m\033[22m \033[2m{right}\033[22m"
+        else:
+            return f"\033[97m{opt}\033[22m"
 
     def get_value(self) -> str:
         val = self._options[self.selected]

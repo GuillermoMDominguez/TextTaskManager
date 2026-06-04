@@ -872,7 +872,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 SelectField("State", VALID_STATES, selected=VALID_STATES.index(DEFAULT_STATE) if DEFAULT_STATE in VALID_STATES else 0),
                 TextField("Due date", placeholder="dd/mm/yyyy (optional)"),
                 SelectField("Priority", VALID_PRIORITIES, allow_empty=True),
-                TextField("Tags", placeholder="#tag1 #tag2 (optional)"),
+                TextField("Tags", placeholder="tag1 tag2 (optional)"),
                 TextField("Recurrence", placeholder="daily/weekly/monthly (optional)"),
             ]
 
@@ -1087,10 +1087,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 new_title = result["Title"].strip()
                 if result.get("Tags", "").strip():
                     raw_tags = result["Tags"].strip()
-                    tags = []
-                    for t in raw_tags.split():
-                        tags.append(t if t.startswith("#") else f"#{t}")
-                    new_title += " " + " ".join(tags)
+                    new_tags = " ".join(t if t.startswith("#") else f"#{t}" for t in raw_tags.split())
+                    new_title += " " + new_tags
 
                 new_state = result.get("State") or target.state
                 new_due = parse_date_input(result["Due date"].strip()) if result.get("Due date", "").strip() else None
@@ -1100,7 +1098,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 # Update title
                 target.due_date = new_due
                 target.priority = new_priority
-                if new_title and new_title != title_no_tags + (" " + tags if tags else ""):
+                original_full = title_no_tags + (" " + tags if tags else "")
+                if new_title and new_title != original_full:
                     edit_task_title_in_file(context.journal_path, target, new_title)
                 # Update state if changed
                 if new_state != target.state:
