@@ -417,6 +417,8 @@ def _do_push(verbose: bool = False) -> bool:
     if not _is_active():
         return False
 
+    _print_sync("Syncing...")
+
     branch = _sync_config.get("branch", "main")
 
     # Ensure remote URL is current
