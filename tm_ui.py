@@ -282,6 +282,20 @@ def display_tasks(
                 f"{Colors.DIM}{_format_task_meta_suffix(task)}{_format_tags_suffix(task.title)}{Colors.RESET}"
             )
 
+            for note_idx, comment in enumerate(task.comments, start=1):
+                note_id = build_note_id(task.task_id or "?", note_idx)
+                for line_idx, note_line in enumerate(comment.split("\n")):
+                    if line_idx == 0:
+                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
+                        print(
+                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {note_cell}{Colors.RESET}"
+                        )
+                    else:
+                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
+                        print(
+                            f"{continuation_prefix}{Colors.DIM}┊        {note_cell}{Colors.RESET}"
+                        )
+
             for subtask in task.subtasks:
                 subtask_state_display = _format_state_column(subtask.state)
                 subtask_id_display = _format_id_column(subtask.task_id, id_width)
@@ -305,20 +319,6 @@ def display_tasks(
                         else:
                             sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
                             print(f"{continuation_prefix}  {Colors.DIM}┊        {sn_cell}{Colors.RESET}")
-
-            for note_idx, comment in enumerate(task.comments, start=1):
-                note_id = build_note_id(task.task_id or "?", note_idx)
-                for line_idx, note_line in enumerate(comment.split("\n")):
-                    if line_idx == 0:
-                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
-                        print(
-                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {note_cell}{Colors.RESET}"
-                        )
-                    else:
-                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
-                        print(
-                            f"{continuation_prefix}{Colors.DIM}┊        {note_cell}{Colors.RESET}"
-                        )
 
     print(f"\n{Colors.HEADER}{_hr()}{Colors.RESET}")
     if show_done:
