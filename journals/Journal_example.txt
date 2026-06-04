@@ -1,0 +1,89 @@
+## 04/06/2026
+- Deploy v2.1 to production #deploy #backend
+    -- IN PROGRESS
+    -- due:06/06/2026
+    -- priority:HIGH
+    -- recur:weekly
+    -- spent:3h30m
+    -- blockedby:Fix database migration script
+    : Remember to notify the team on Slack before deploying
+    : Also update the changelog
+      with the new API endpoints documented
+    + Run integration tests
+        -- DONE
+        -- due:04/06/2026
+        : All 47 tests passing
+    + Update Kubernetes manifests
+        -- WAITING
+        -- due:05/06/2026
+    + Smoke test on staging
+        -- TODO
+        -- due:06/06/2026
+        : Check /health, /api/v2/users, /api/v2/devices
+          and also the WebSocket connections
+
+- Fix database migration script #backend #bugs
+    -- IN PROGRESS
+    -- due:05/06/2026
+    -- priority:HIGH
+    -- spent:1h45m
+    -- blocks:Deploy v2.1 to production
+    : The issue is in migration 042 — foreign key constraint
+      on the devices table references a column that was renamed
+      in migration 039
+    + Backup current prod DB
+        -- DONE
+    + Write rollback script
+        -- IN PROGRESS
+        -- due:05/06/2026
+    + Test migration on staging clone
+        -- TODO
+
+- Design new onboarding flow #frontend #ux
+    -- WAITING
+    -- due:10/06/2026
+    -- priority:MEDIUM
+    : Meeting with UX team on Thursday
+    : Check competitor apps for inspiration:
+      Notion, Linear, Todoist
+    + Create wireframes in Figma
+        -- TODO
+        -- due:07/06/2026
+    + User research interviews (3 users)
+        -- WAITING
+        -- due:09/06/2026
+        : Contacted Maria, Juan, and Pedro
+          waiting for confirmation
+    + Write microcopy for tooltips
+        -- TODO
+
+- Weekly team standup notes #meetings
+    -- DONE
+    -- recur:weekly
+    -- spent:45m
+    : Discussed sprint velocity — we're at 85%
+    : Action items assigned to Carlos and Ana
+
+- Review PR #487 — OAuth2 refresh token fix #code-review
+    -- TESTING
+    -- due:04/06/2026
+    -- spent:25m
+    : Looks good overall but needs error handling
+      for expired refresh tokens edge case
+    + Check token rotation logic
+        -- DONE
+        : Verified against RFC 6749 section 6
+    + Verify rate limiting
+        -- TESTING
+
+- Prepare Q2 metrics report #reporting
+    -- TODO
+    -- due:14/06/2026
+    -- priority:LOW
+    + Export data from Grafana
+        -- TODO
+    + Create charts in Sheets
+        -- TODO
+    + Write executive summary
+        -- TODO
+        : Max 1 page, focus on growth KPIs
