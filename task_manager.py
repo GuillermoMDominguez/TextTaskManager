@@ -18,6 +18,7 @@ from tm_ui import (
     display_tasks,
     enable_command_history,
     enable_windows_ansi,
+    init_background_color,
     set_terminal_background,
     reset_terminal_background,
     remember_command,
@@ -216,8 +217,6 @@ def _resolve_journal_for_quick_ops(journals_dir: Path, cache_path: Path, journal
 def main() -> None:
     """Main entry point for the task manager."""
     enable_windows_ansi()
-    set_terminal_background()
-    atexit.register(reset_terminal_background)
 
     script_dir = Path(__file__).parent
     journals_dir = script_dir / "journals"
@@ -231,6 +230,11 @@ def main() -> None:
         from tm_settings import DEFAULT_SETTINGS, save_settings
         save_settings(DEFAULT_SETTINGS, script_dir)
         print(f"{Colors.DIM}Created default config: {config_path}{Colors.RESET}")
+
+    # Apply background color from config and set terminal
+    init_background_color(settings.get("background_color", "0,0,0"))
+    set_terminal_background()
+    atexit.register(reset_terminal_background)
 
     email_config = load_email_config([
         script_dir / ".task_manager_email.json",

@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
         "subject_prefix": "[TaskManager]",
     },
     "colors_enabled": True,
+    "background_color": "0,0,0",
     "max_undo": 20,
     "templates": {},
 }

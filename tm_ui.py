@@ -185,19 +185,35 @@ def enable_windows_ansi() -> None:
 
 
 def set_terminal_background() -> None:
-    """Set terminal background to opaque black. Works on Windows, Linux, macOS."""
+    """Set terminal background to configured color. Works on Windows, Linux, macOS."""
     import sys
-    sys.stdout.write(_BG_BLACK)       # Set BG to black (RGB)
+    sys.stdout.write(_BG_SEQ)         # Set BG color
     sys.stdout.write("\033[2J")       # Clear screen with new BG
     sys.stdout.write("\033[H")        # Move cursor to top-left
     sys.stdout.flush()
 
 
-_BG_BLACK = "\033[48;2;0;0;0m"
+_BG_SEQ = "\033[48;2;0;0;0m"  # Default; overwritten by init_background_color()
+
+
+def init_background_color(rgb_str: str = "0,0,0") -> None:
+    """Configure the background color from an 'R,G,B' string (e.g. '0,0,0').
+
+    Must be called before any output. Updates Colors.RESET to maintain BG.
+    """
+    global _BG_SEQ
+    try:
+        parts = [int(x.strip()) for x in rgb_str.split(",")]
+        if len(parts) == 3 and all(0 <= v <= 255 for v in parts):
+            r, g, b = parts
+            _BG_SEQ = f"\033[48;2;{r};{g};{b}m"
+    except (ValueError, AttributeError):
+        pass  # Keep default black
+    Colors.RESET = "\033[0m" + _BG_SEQ
 
 
 class Colors:
-    RESET = "\033[0m" + _BG_BLACK
+    RESET = "\033[0m" + _BG_SEQ
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
@@ -466,9 +482,9 @@ def prompt_for_state() -> str:
 
 
 def clear_screen() -> None:
-    """Clear the terminal screen, preserving black background."""
+    """Clear the terminal screen, preserving background color."""
     import sys
-    sys.stdout.write(_BG_BLACK + "\033[2J\033[H")
+    sys.stdout.write(_BG_SEQ + "\033[2J\033[H")
     sys.stdout.flush()
 
 
