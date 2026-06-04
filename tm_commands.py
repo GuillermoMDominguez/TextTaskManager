@@ -864,7 +864,35 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(tasks_by_date, view_state)
 
         if not task_title:
-            task_title = input(f"{Colors.BOLD}Task title: {Colors.RESET}").strip()
+            # Show interactive form
+            from tm_form import show_form, TextField, SelectField
+            from tm_config import VALID_STATES, VALID_PRIORITIES
+
+            form_fields = [
+                TextField("Title", placeholder="Task title (required)"),
+                SelectField("State", VALID_STATES, selected=VALID_STATES.index(DEFAULT_STATE) if DEFAULT_STATE in VALID_STATES else 0),
+                TextField("Due date", placeholder="dd/mm/yyyy (optional)"),
+                SelectField("Priority", VALID_PRIORITIES, allow_empty=True),
+                TextField("Tags", placeholder="#tag1 #tag2 (optional)"),
+                TextField("Recurrence", placeholder="daily/weekly/monthly (optional)"),
+            ]
+
+            result = show_form("New Task", form_fields)
+            if result is None:
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(tasks_by_date, view_state)
+
+            task_title = result["Title"].strip()
+            if result.get("Tags", "").strip():
+                task_title += " " + result["Tags"].strip()
+            task_state = result.get("State") or DEFAULT_STATE
+            if result.get("Due date", "").strip():
+                due_date = parse_date_input(result["Due date"].strip())
+            if result.get("Priority", "").strip():
+                priority = normalize_priority_input(result["Priority"])
+            if result.get("Recurrence", "").strip():
+                from tm_logic import normalize_recurrence_input
+                recurrence = normalize_recurrence_input(result["Recurrence"].strip())
 
         if not task_title:
             print(f"{Colors.ERROR}Task title cannot be empty.{Colors.RESET}")
@@ -999,7 +1027,76 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if re.match(r"^\s*(?:e|edit)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
+        # Check if it's "e <id>" without new text → show form
+        match_no_text = re.match(r"^\s*(?:e|edit)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
         match = re.match(r"^\s*(?:e|edit)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
+
+        if match_no_text and not match:
+            requested_id = match_no_text.group(1).strip()
+            target = find_task_by_id(updated_tasks, requested_id)
+            if target and not isinstance(target, Subtask):
+                # Show interactive edit form for parent task
+                from tm_form import show_form, TextField, SelectField
+                from tm_config import VALID_STATES, VALID_PRIORITIES
+                from tm_journal import edit_task_title_in_file
+
+                # Strip tags from title for the field, show tags separately
+                tags = " ".join(f"#{t}" for t in target.get_tags())
+                title_no_tags = _strip_tags(target.title)
+
+                state_idx = VALID_STATES.index(target.state) if target.state in VALID_STATES else 0
+                prio_options = ["(none)"] + VALID_PRIORITIES
+                prio_idx = 0
+                if target.priority and target.priority in VALID_PRIORITIES:
+                    prio_idx = VALID_PRIORITIES.index(target.priority) + 1
+
+                form_fields = [
+                    TextField("Title", value=title_no_tags),
+                    SelectField("State", VALID_STATES, selected=state_idx),
+                    TextField("Due date", value=target.due_date.strftime("%d/%m/%Y") if target.due_date else ""),
+                    SelectField("Priority", VALID_PRIORITIES, selected=prio_idx - 1 if prio_idx > 0 else 0, allow_empty=True),
+                    TextField("Tags", value=tags),
+                ]
+
+                result = show_form(f"Edit Task {requested_id}", form_fields)
+                if result is None:
+                    print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                    return CommandOutcome(updated_tasks, view_state)
+
+                new_title = result["Title"].strip()
+                if result.get("Tags", "").strip():
+                    new_title += " " + result["Tags"].strip()
+
+                new_state = result.get("State") or target.state
+                new_due = parse_date_input(result["Due date"].strip()) if result.get("Due date", "").strip() else None
+                new_priority = normalize_priority_input(result["Priority"]) if result.get("Priority", "").strip() else None
+
+                snapshot = read_journal_snapshot(context.journal_path)
+                # Update title
+                target.due_date = new_due
+                target.priority = new_priority
+                if new_title and new_title != title_no_tags + (" " + tags if tags else ""):
+                    edit_task_title_in_file(context.journal_path, target, new_title)
+                # Update state if changed
+                if new_state != target.state:
+                    from tm_journal import update_task_state_in_file
+                    target.due_date = new_due
+                    target.priority = new_priority
+                    update_task_state_in_file(context.journal_path, target, new_state)
+                _save_undo_snapshot(context, snapshot)
+                refreshed = context.refresh_tasks()
+                clear_screen()
+                print(f"{Colors.DIM}Task {requested_id} updated.{Colors.RESET}")
+                _render(refreshed, view_state)
+                return CommandOutcome(refreshed, view_state)
+            elif target is None:
+                print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+            else:
+                # Subtask without text — show usage
+                print(f"{Colors.ERROR}Usage: e <task_id|subtask_id|task_id:n#> <new text>{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+
         if not match:
             print(f"{Colors.ERROR}Usage: e <task_id|subtask_id|task_id:n#> <new text>{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
