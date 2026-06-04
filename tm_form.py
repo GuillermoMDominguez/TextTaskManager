@@ -185,88 +185,96 @@ def _flush():
 def show_form(
     title: str,
     fields: List[Any],
-    start_row: int = 3,
 ) -> Optional[Dict[str, str]]:
     """Display an interactive form. Returns dict of values or None if cancelled."""
     active_idx = 0
     total_items = len(fields) + 2  # fields + Accept + Cancel
 
-    def _term_width() -> int:
+    def _term_size():
         try:
-            return os.get_terminal_size().columns
+            sz = os.get_terminal_size()
+            return sz.columns, sz.lines
         except (ValueError, OSError):
-            return 80
+            return 80, 24
+
+    total_rows = len(fields) + 8  # top + title + sep + fields + sep + buttons + bottom + help
 
     def _draw():
-        tw = _term_width()
+        tw, th = _term_size()
         box_w = min(62, tw - 4)
-        pad = " " * box_w
+        # Horizontal center offset (1-based column)
+        col_off = max(1, (tw - box_w) // 2)
+        # Vertical center
+        start_row = max(1, (th - total_rows) // 2)
+        # Right border column (absolute)
+        rc = col_off + box_w - 1
 
         row = start_row
         # Top
-        _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} ┌{'─' * (box_w - 2)}┐ {_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}┌{'─' * (box_w - 2)}┐{_RST}")
         row += 1
         # Title
         t = f" {title}"
         t_padded = t + " " * (box_w - 2 - len(t))
-        _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} │{_RST}{_FORM_BG}\033[1m\033[97m{t_padded}{_RST}{_FORM_BG}{_BORDER_COLOR}│ {_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_RST}{_FORM_BG}\033[1m\033[97m{t_padded}{_RST}{_FORM_BG}{_BORDER_COLOR}│{_RST}")
         row += 1
         # Sep
-        _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} ├{'─' * (box_w - 2)}┤ {_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}├{'─' * (box_w - 2)}┤{_RST}")
         row += 1
 
         # Fields
+        inner_w = box_w - 2  # usable chars between │ and │
         for i, field in enumerate(fields):
             is_active = (i == active_idx)
-            indicator = "\033[93m▸" if is_active else " "
+            indicator = "▸" if is_active else " "
             lbl = field.label + ":"
-            if is_active:
-                lbl_str = f"\033[1m\033[93m{lbl.ljust(13)}{_RST}{_FORM_BG}"
-            else:
-                lbl_str = f"\033[37m{lbl.ljust(13)}{_RST}{_FORM_BG}"
-
+            lbl_padded = lbl.ljust(13)
             rendered = field.render(is_active)
-            # Build line content (without worrying about exact width)
-            content = f"{indicator} {lbl_str} {rendered}"
-            _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} │{_RST}{_FORM_BG}{content}{_RST}{_FORM_BG}\033[K{_BORDER_COLOR}│ {_RST}")
-            # Erase to end and place right border at fixed column
-            # Use erase-to-right then overwrite at column
-            _write(f"\033[{row};{box_w + 1}H{_FORM_BG}{_BORDER_COLOR}│ {_RST}")
+
+            # Write left border
+            _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_RST}{_FORM_BG}")
+            # Write content with colors
+            if is_active:
+                _write(f"\033[93m{indicator} \033[1m{lbl_padded}{_RST}{_FORM_BG} {rendered}{_RST}{_FORM_BG}")
+            else:
+                _write(f" {indicator} \033[37m{lbl_padded}{_RST}{_FORM_BG} {rendered}{_RST}{_FORM_BG}")
+            # Erase to right border position and draw it
+            _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
             row += 1
 
         # Sep
-        _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} ├{'─' * (box_w - 2)}┤ {_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}├{'─' * (box_w - 2)}┤{_RST}")
         row += 1
 
         # Buttons
         acc_idx = len(fields)
         can_idx = len(fields) + 1
         if active_idx == acc_idx:
-            acc = "\033[7m\033[92m  Accept  \033[27m\033[0m"
+            acc = "\033[7m\033[92m Accept \033[27m\033[0m"
         else:
-            acc = "\033[32m  Accept  \033[0m"
+            acc = "\033[32m Accept \033[0m"
         if active_idx == can_idx:
-            can = "\033[7m\033[91m  Cancel  \033[27m\033[0m"
+            can = "\033[7m\033[91m Cancel \033[27m\033[0m"
         else:
-            can = "\033[2m  Cancel  \033[0m"
+            can = "\033[2m Cancel \033[0m"
 
-        _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} │{_RST}{_FORM_BG}   {acc}{_FORM_BG}   {can}{_FORM_BG}\033[K")
-        _write(f"\033[{row};{box_w + 1}H{_FORM_BG}{_BORDER_COLOR}│ {_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_RST}{_FORM_BG}   {acc}{_FORM_BG}  {can}{_FORM_BG}")
+        _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
         row += 1
 
         # Bottom
-        _write(f"\033[{row};1H{_FORM_BG}{_BORDER_COLOR} └{'─' * (box_w - 2)}┘ {_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}└{'─' * (box_w - 2)}┘{_RST}")
         row += 1
 
         # Help
-        _write(f"\033[{row};1H\033[2m  Tab/↑↓: navigate  Enter: accept  Esc: cancel  ←→: options\033[0m\033[K")
+        help_text = "Tab/↑↓: navigate  Enter: accept  Esc: cancel  ←→: options"
+        help_col = max(1, (tw - len(help_text)) // 2)
+        _write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
 
         _flush()
 
-    total_rows = len(fields) + 8
-
-    # Hide cursor
-    _write("\033[?25l")
+    # Clear screen and hide cursor
+    _write("\033[2J\033[H\033[?25l")
     _flush()
 
     cancelled = True
@@ -302,27 +310,8 @@ def show_form(
         except Exception:
             pass
     finally:
-        # Show cursor
-        _write("\033[?25h")
-        # Clear form area
-        try:
-            tw = _term_width()
-            term_bg = "\033[0m"
-            try:
-                from tm_ui import _BG_SEQ
-                term_bg = _BG_SEQ
-            except ImportError:
-                pass
-            for r in range(start_row, start_row + total_rows + 1):
-                _write(f"\033[{r};1H{term_bg}\033[K")
-            _write(f"\033[{start_row};1H")
-        except Exception as exc2:
-            import traceback
-            try:
-                with open("ttm_crash.log", "a", encoding="utf-8") as f:
-                    f.write(f"\nFORM CLEANUP ERROR:\n{traceback.format_exc()}")
-            except Exception:
-                pass
+        # Show cursor and clear screen for redraw
+        _write("\033[?25h\033[2J\033[H")
         _flush()
 
     if cancelled:

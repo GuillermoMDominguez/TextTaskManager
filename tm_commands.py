@@ -882,8 +882,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 import traceback
                 Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
                 print(f"{Colors.ERROR}Form crashed. See ttm_crash.log{Colors.RESET}")
+                clear_screen()
+                _render(tasks_by_date, view_state)
                 return CommandOutcome(tasks_by_date, view_state)
             if result is None:
+                clear_screen()
+                _render(tasks_by_date, view_state)
                 print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
                 return CommandOutcome(tasks_by_date, view_state)
 
@@ -1065,9 +1069,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 except Exception as exc:
                     import traceback
                     Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                    clear_screen()
+                    _render(updated_tasks, view_state)
                     print(f"{Colors.ERROR}Form crashed. See ttm_crash.log{Colors.RESET}")
                     return CommandOutcome(updated_tasks, view_state)
                 if result is None:
+                    clear_screen()
+                    _render(updated_tasks, view_state)
                     print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
                     return CommandOutcome(updated_tasks, view_state)
 
