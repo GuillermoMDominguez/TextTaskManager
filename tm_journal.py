@@ -489,7 +489,12 @@ def _insert_task_block(lines: List[str], block_lines: List[str], target_date: Op
 
 
 def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool:
-    """Persist a task state change in the journal file."""
+    """Persist a task state change in the journal file.
+
+    Handles both inline and multiline metadata formats. When a task uses
+    multiline continuation lines (-- STATE, -- due:, etc.), those lines are
+    removed and the metadata is consolidated into the task line.
+    """
     if task.source_line is None:
         return False
 
@@ -503,7 +508,82 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
         original_line = lines[line_index]
         indent = _task_line_indent(original_line, "-")
 
-        new_line = _render_task_line(task.title, new_state, task.due_date, task.priority, indent, task.recurrence)
+        # Extract raw title from the file line (not task.title which may have appended tags)
+        raw_content = original_line.strip()[1:].strip()  # Remove leading -
+        raw_parts = re.split(r"\s*(?:--|->)\s*", raw_content)
+        raw_title = raw_parts[0].strip()
+        # Remove inline comments after ':'
+        if ":" in raw_title:
+            raw_title = raw_title[:raw_title.find(":")].strip()
+
+        # Collect tags from continuation lines and remove metadata continuations
+        continuation_tags = []
+        lines_to_remove = []
+        for j in range(line_index + 1, len(lines)):
+            cline = lines[j]
+            if not cline or not cline[0].isspace():
+                break
+            cstripped = cline.strip()
+            # Metadata continuation: -- something
+            if cstripped.startswith("--") and not cstripped.startswith("---"):
+                meta = cstripped[2:].strip()
+                if meta:
+                    # Is it a state, due, priority, recur, spent, blockedby, blocks?
+                    is_meta = False
+                    for state in VALID_STATES:
+                        if meta.upper() == state:
+                            is_meta = True
+                            break
+                    if not is_meta:
+                        for alias in STATE_ALIASES:
+                            if meta.upper() == alias:
+                                is_meta = True
+                                break
+                    if not is_meta:
+                        if re.match(r"^(?:due|priority|recur|spent|time|blockedby|blocks)\s*[:=]", meta, re.IGNORECASE):
+                            is_meta = True
+                    if is_meta:
+                        lines_to_remove.append(j)
+                        continue
+                    else:
+                        # Unknown -- line, keep it
+                        break
+                else:
+                    lines_to_remove.append(j)
+                    continue
+            # Tag-only continuation line (e.g. "    #bugs #qr")
+            elif cstripped and cstripped[0] == "#" and all(
+                t.startswith("#") for t in cstripped.split()
+            ):
+                continuation_tags.extend(cstripped.split())
+                lines_to_remove.append(j)
+                continue
+            else:
+                break
+
+        # Remove collected continuation lines (in reverse to preserve indices)
+        for j in sorted(lines_to_remove, reverse=True):
+            del lines[j]
+
+        # Build the title with tags
+        title_with_tags = raw_title
+        if continuation_tags:
+            title_with_tags = raw_title + " " + " ".join(continuation_tags)
+
+        new_line = _render_task_line(
+            title_with_tags, new_state, task.due_date, task.priority, indent, task.recurrence
+        )
+
+        # Add spent if task had time tracked
+        if task.time_spent:
+            from tm_features import format_time_spent
+            new_line = new_line.rstrip("\n") + f" -- spent:{format_time_spent(task.time_spent)}\n"
+
+        # Add blockers
+        for b in (task.blocked_by or []):
+            new_line = new_line.rstrip("\n") + f" -- blockedby:{b}\n"
+        for b in (task.blocks or []):
+            new_line = new_line.rstrip("\n") + f" -- blocks:{b}\n"
 
         lines[line_index] = new_line
 
