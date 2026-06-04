@@ -782,7 +782,6 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     # ─── Day view: show tasks created on a specific date ─────────────
     if re.match(r"^\s*(?:day|hoy|today)(?:\s+.+)?\s*$", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*(?:day|hoy|today)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
-        from tm_logic import parse_date_input
         date_arg = match.group(1).strip() if match and match.group(1) else None
         if date_arg:
             target = parse_date_input(date_arg)

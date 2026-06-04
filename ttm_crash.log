@@ -1,0 +1,8 @@
+COMMAND ERROR (n):
+Traceback (most recent call last):
+  File "/Users/javier/Git/TextTaskManager/task_manager.py", line 415, in main
+    outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)
+  File "/Users/javier/Git/TextTaskManager/tm_commands.py", line 896, in execute_command
+    due_date = parse_date_input(result["Due date"].strip())
+               ^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'parse_date_input' where it is not associated with a value
