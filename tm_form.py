@@ -4,16 +4,16 @@ Provides a navigable form with fields (text, select) that works
 cross-platform (Windows, Linux, macOS) without external dependencies.
 
 Navigation:
-  Tab / Down      → Next field
-  Shift+Tab / Up  → Previous field
-  Enter           → Accept form (when on last field or [Accept] button)
-  Esc             → Cancel form
-  Left/Right      → Cycle options in select fields
+  Tab / Down      -> Next field
+  Shift+Tab / Up  -> Previous field
+  Enter           -> Accept form (when on [Accept] button)
+  Esc             -> Cancel form
+  Left/Right      -> Cycle options in select fields / move cursor in text
 """
 
 import sys
 import os
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any
 
 
 # ─── Cross-platform key reading ───────────────────────────────────────────────
@@ -53,7 +53,6 @@ else:
             tty.setraw(fd)
             ch = sys.stdin.read(1)
             if ch == "\x1b":
-                # Check for escape sequence
                 if _select.select([sys.stdin], [], [], 0.05)[0]:
                     seq = sys.stdin.read(1)
                     if seq == "[":
@@ -114,15 +113,19 @@ class TextField:
             self.value = self.value[: self.cursor_pos] + key + self.value[self.cursor_pos:]
             self.cursor_pos += 1
 
-    def render(self, active: bool, width: int = 40) -> str:
-        display = self.value if self.value else f"\033[2m{self.placeholder}\033[22m"
+    def render(self, active: bool, box_bg: str, width: int = 40) -> str:
         if active:
-            # Show cursor position
             before = self.value[: self.cursor_pos]
             cursor_ch = self.value[self.cursor_pos] if self.cursor_pos < len(self.value) else " "
             after = self.value[self.cursor_pos + 1:] if self.cursor_pos < len(self.value) else ""
-            display = f"{before}\033[7m{cursor_ch}\033[27m{after}"
-        return display
+            return f"{before}\033[7m{cursor_ch}\033[27m{after}"
+        elif self.value:
+            return self.value
+        else:
+            return f"\033[2m{self.placeholder}\033[22m"
+
+    def get_value(self) -> str:
+        return self.value
 
 
 class SelectField:
@@ -130,31 +133,34 @@ class SelectField:
 
     def __init__(self, label: str, options: List[str], selected: int = 0, allow_empty: bool = False):
         self.label = label
-        self.options = options if not allow_empty else ["(none)"] + options
-        self.selected = selected
+        self._options = list(options)
         self.allow_empty = allow_empty
+        if allow_empty:
+            self._options = ["(none)"] + self._options
+            self.selected = 0
+        else:
+            self.selected = selected
 
     def handle_key(self, key: str) -> None:
         if key in ("LEFT", "BACKSPACE"):
-            self.selected = (self.selected - 1) % len(self.options)
+            self.selected = (self.selected - 1) % len(self._options)
         elif key in ("RIGHT",) or (len(key) == 1 and key == " "):
-            self.selected = (self.selected + 1) % len(self.options)
+            self.selected = (self.selected + 1) % len(self._options)
 
-    def render(self, active: bool, width: int = 40) -> str:
+    def render(self, active: bool, box_bg: str, width: int = 40) -> str:
         parts = []
-        for i, opt in enumerate(self.options):
+        for i, opt in enumerate(self._options):
             if i == self.selected:
                 if active:
-                    parts.append(f"\033[7m {opt} \033[27m")
+                    parts.append(f"\033[7m\033[97m {opt} \033[27m\033[0m{box_bg}")
                 else:
-                    parts.append(f"\033[1m[{opt}]\033[22m")
+                    parts.append(f"\033[1m\033[96m[{opt}]\033[22m\033[0m{box_bg}")
             else:
-                parts.append(f" {opt} ")
+                parts.append(f"\033[2m {opt} \033[22m")
         return "".join(parts)
 
-    @property
-    def value(self) -> str:
-        val = self.options[self.selected]
+    def get_value(self) -> str:
+        val = self._options[self.selected]
         if self.allow_empty and val == "(none)":
             return ""
         return val
@@ -162,16 +168,8 @@ class SelectField:
 
 # ─── Form Renderer ─────────────────────────────────────────────────────────────
 
-_BG = "\033[48;2;0;0;0m"
-
-
-def _get_bg() -> str:
-    """Get background sequence (imports from tm_ui if available)."""
-    try:
-        from tm_ui import _BG_SEQ
-        return _BG_SEQ
-    except ImportError:
-        return _BG
+# Form box uses a slightly lighter background to stand out
+_FORM_BG = "\033[48;2;25;25;35m"
 
 
 def _hide_cursor():
@@ -188,6 +186,15 @@ def _move_to(row: int, col: int):
     sys.stdout.write(f"\033[{row};{col}H")
 
 
+def _term_bg() -> str:
+    """Get the terminal background sequence."""
+    try:
+        from tm_ui import _BG_SEQ
+        return _BG_SEQ
+    except ImportError:
+        return "\033[48;2;0;0;0m"
+
+
 def show_form(
     title: str,
     fields: List[Any],
@@ -196,78 +203,108 @@ def show_form(
     """Display an interactive form and return field values or None if cancelled.
 
     Returns:
-        Dict mapping field labels to their values, or None if user pressed Esc.
+        Dict mapping field labels to their string values, or None if cancelled.
     """
-    bg = _get_bg()
+    bg = _FORM_BG
+    term_bg = _term_bg()
     active_idx = 0
-    # Number of button "fields": Accept / Cancel
     button_count = 2
     total_items = len(fields) + button_count
-    button_labels = ["  [Accept]  ", "  [Cancel]  "]
+
+    def _clear_line(row: int, left: int, width: int):
+        _move_to(row, left)
+        sys.stdout.write(f"{bg}{' ' * width}\033[0m")
 
     def _render():
-        """Render the full form."""
         term_width = os.get_terminal_size().columns
-        box_width = min(60, term_width - 4)
-        left_margin = max(2, (term_width - box_width) // 2)
+        box_width = min(64, term_width - 4)
+        left = max(2, (term_width - box_width) // 2)
 
-        _move_to(start_row, left_margin)
-        # Title bar
-        sys.stdout.write(f"{bg}\033[1m\033[96m{'─' * box_width}\033[0m{bg}")
-        _move_to(start_row + 1, left_margin)
-        sys.stdout.write(f"{bg}\033[1m\033[97m  {title}{' ' * (box_width - len(title) - 2)}\033[0m{bg}")
-        _move_to(start_row + 2, left_margin)
-        sys.stdout.write(f"{bg}\033[96m{'─' * box_width}\033[0m{bg}")
+        row = start_row
+        # Top border
+        _clear_line(row, left, box_width)
+        _move_to(row, left)
+        sys.stdout.write(f"{bg}\033[36m┌{'─' * (box_width - 2)}┐\033[0m")
+        row += 1
 
-        row = start_row + 3
+        # Title
+        _clear_line(row, left, box_width)
+        _move_to(row, left)
+        title_padded = f" {title} ".ljust(box_width - 2)
+        sys.stdout.write(f"{bg}\033[36m│\033[0m{bg}\033[1m\033[97m{title_padded}\033[0m{bg}\033[36m│\033[0m")
+        row += 1
+
+        # Title separator
+        _clear_line(row, left, box_width)
+        _move_to(row, left)
+        sys.stdout.write(f"{bg}\033[36m├{'─' * (box_width - 2)}┤\033[0m")
+        row += 1
+
+        # Fields
         for i, field in enumerate(fields):
             is_active = (i == active_idx)
-            _move_to(row, left_margin)
-            label_str = f"  {field.label}:"
-            # Highlight active field label
-            if is_active:
-                sys.stdout.write(f"{bg}\033[1m\033[93m{label_str.ljust(16)}\033[0m{bg}")
-            else:
-                sys.stdout.write(f"{bg}\033[97m{label_str.ljust(16)}\033[0m{bg}")
+            _clear_line(row, left, box_width)
+            _move_to(row, left)
 
-            # Field value
-            rendered = field.render(is_active, box_width - 18)
-            sys.stdout.write(f"{bg}{rendered}\033[0m{bg}")
-            # Clear rest of line
-            sys.stdout.write(" " * max(0, box_width - 16 - len(field.value if hasattr(field, 'value') and isinstance(field.value, str) else "")))
-            sys.stdout.write(f"\033[0m{bg}")
+            label_str = f" {field.label}:"
+            if is_active:
+                label_col = "\033[1m\033[93m"  # Bold yellow
+                indicator = "▸"
+            else:
+                label_col = "\033[37m"
+                indicator = " "
+
+            rendered = field.render(is_active, bg, box_width - 20)
+            sys.stdout.write(
+                f"{bg}\033[36m│\033[0m{bg}"
+                f"{label_col}{indicator}{label_str.ljust(14)}\033[0m{bg}"
+                f" {rendered}\033[0m{bg}"
+                f"\033[{box_width}G\033[36m│\033[0m"
+            )
             row += 1
 
-        # Separator
-        row += 1
-        _move_to(row, left_margin)
-        sys.stdout.write(f"{bg}\033[96m{'─' * box_width}\033[0m{bg}")
+        # Button separator
+        _clear_line(row, left, box_width)
+        _move_to(row, left)
+        sys.stdout.write(f"{bg}\033[36m├{'─' * (box_width - 2)}┤\033[0m")
         row += 1
 
-        # Buttons
-        _move_to(row, left_margin)
-        for bi, blabel in enumerate(button_labels):
-            btn_idx = len(fields) + bi
-            is_btn_active = (active_idx == btn_idx)
-            if is_btn_active:
-                if bi == 0:  # Accept
-                    sys.stdout.write(f"{bg}\033[7m\033[92m{blabel}\033[0m{bg}  ")
-                else:  # Cancel
-                    sys.stdout.write(f"{bg}\033[7m\033[91m{blabel}\033[0m{bg}  ")
-            else:
-                if bi == 0:
-                    sys.stdout.write(f"{bg}\033[32m{blabel}\033[0m{bg}  ")
-                else:
-                    sys.stdout.write(f"{bg}\033[91m{blabel}\033[0m{bg}  ")
+        # Buttons row
+        _clear_line(row, left, box_width)
+        _move_to(row, left)
+        accept_active = (active_idx == len(fields))
+        cancel_active = (active_idx == len(fields) + 1)
 
+        if accept_active:
+            accept_str = "\033[7m\033[92m  Accept  \033[0m" + bg
+        else:
+            accept_str = "\033[32m  Accept  \033[0m" + bg
+
+        if cancel_active:
+            cancel_str = "\033[7m\033[91m  Cancel  \033[0m" + bg
+        else:
+            cancel_str = "\033[2m  Cancel  \033[0m" + bg
+
+        sys.stdout.write(
+            f"{bg}\033[36m│\033[0m{bg}"
+            f"    {accept_str}    {cancel_str}"
+            f"\033[{box_width}G\033[36m│\033[0m"
+        )
         row += 1
-        _move_to(row, left_margin)
-        sys.stdout.write(f"{bg}\033[96m{'─' * box_width}\033[0m{bg}")
+
+        # Bottom border
+        _clear_line(row, left, box_width)
+        _move_to(row, left)
+        sys.stdout.write(f"{bg}\033[36m└{'─' * (box_width - 2)}┘\033[0m")
         row += 1
-        _move_to(row, left_margin)
-        sys.stdout.write(f"{bg}\033[2m  Tab/↑↓: navigate  Enter: accept  Esc: cancel  ←→: options\033[0m{bg}")
+
+        # Help text
+        _move_to(row, left)
+        sys.stdout.write(f"{term_bg}\033[2m  Tab/↑↓: navigate │ Enter: accept │ Esc: cancel │ ←→: options\033[0m{term_bg}")
 
         sys.stdout.flush()
+
+    total_form_rows = len(fields) + 7  # borders + title + separator + buttons + help
 
     _hide_cursor()
     try:
@@ -277,36 +314,32 @@ def show_form(
 
             if key == "ESC":
                 return None
-
-            if key in ("TAB", "DOWN"):
+            elif key in ("TAB", "DOWN"):
                 active_idx = (active_idx + 1) % total_items
             elif key in ("SHIFT_TAB", "UP"):
                 active_idx = (active_idx - 1) % total_items
             elif key == "ENTER":
-                if active_idx == len(fields):  # Accept button
+                if active_idx == len(fields):  # Accept
                     break
-                elif active_idx == len(fields) + 1:  # Cancel button
+                elif active_idx == len(fields) + 1:  # Cancel
                     return None
                 else:
-                    # On a field: move to next
                     active_idx = (active_idx + 1) % total_items
             else:
-                # Pass key to active field
                 if active_idx < len(fields):
                     fields[active_idx].handle_key(key)
     finally:
         _show_cursor()
-        # Clear form area
+        # Clear the form area
         term_width = os.get_terminal_size().columns
-        total_rows = len(fields) + 8
-        for r in range(start_row, start_row + total_rows + 1):
+        for r in range(start_row, start_row + total_form_rows + 1):
             _move_to(r, 1)
-            sys.stdout.write(f"{bg}{' ' * term_width}")
+            sys.stdout.write(f"{term_bg}{' ' * term_width}")
         _move_to(start_row, 1)
         sys.stdout.flush()
 
     # Build result
     result = {}
     for field in fields:
-        result[field.label] = field.value
+        result[field.label] = field.get_value()
     return result
