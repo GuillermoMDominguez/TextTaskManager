@@ -152,7 +152,7 @@ class SelectField:
         if active:
             left = "◂" if len(self._options) > 1 else " "
             right = "▸" if len(self._options) > 1 else " "
-            return f"\033[2m{left}\033[22m \033[7m\033[97m {opt} \033[27m\033[22m \033[2m{right}\033[22m"
+            return f"\033[2m{left}\033[22m \033[7m\033[97m {opt} \033[27m\033[22m \033[2m{right}\033[22m \033[2m[space]\033[22m"
         else:
             return f"\033[97m{opt}\033[22m"
 
@@ -267,7 +267,7 @@ def show_form(
         row += 1
 
         # Help
-        help_text = "Tab/↑↓: navigate  Enter: accept  Esc: cancel  ←→: options"
+        help_text = "Tab/↑↓: navigate  Enter: accept  Esc: cancel  Space/←→: options"
         help_col = max(1, (tw - len(help_text)) // 2)
         _write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
 
