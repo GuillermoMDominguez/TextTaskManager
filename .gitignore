@@ -4,4 +4,6 @@ Javier_Journal.txt
 .task_manager_history
 .last_journal
 journals/*.txt
+journals/.git
 __pycache__/
+.ttm_secrets

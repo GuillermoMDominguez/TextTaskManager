@@ -55,6 +55,7 @@ from tm_journal import (
     update_task_metadata_in_file,
     update_subtask_state_in_file,
     update_task_state_in_file,
+    _notify_post_write,
 )
 from tm_logic import (
     build_pending_email_body,
@@ -435,6 +436,7 @@ def _log_time_to_task(context: CommandContext, task: "Task", minutes: int) -> bo
         lines[line_index] = update_time_in_line(task_line, total)
 
     Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+    _notify_post_write()
     return True
 
 
@@ -1824,6 +1826,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         if updated:
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+            _notify_post_write()
             _save_undo_snapshot(context, snapshot)
             print(f"{Colors.DIM}Task {blocked_id} is now blocked by task {blocker_id}.{Colors.RESET}")
         else:
@@ -1989,6 +1992,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         try:
             with open(context.journal_path, "a", encoding="utf-8") as f:
                 f.writelines(new_lines)
+            _notify_post_write()
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
@@ -2076,6 +2080,64 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if command == "":
         return CommandOutcome(tasks_by_date, view_state)
+
+    # ─── Sync commands ─────────────────────────────────────────────────
+    if command == "sync":
+        from tm_sync import sync_push_blocking, is_configured
+        if not is_configured():
+            print(f"{Colors.DIM}Sync not configured. Use 'config sync' to set up.{Colors.RESET}")
+        else:
+            sync_push_blocking()
+        return CommandOutcome(tasks_by_date, view_state)
+
+    if command == "config sync":
+        from tm_sync import run_config_wizard, init_sync, sync_push_async, is_configured
+        from tm_settings import load_settings, save_settings
+        from tm_journal import register_post_write_hook
+
+        script_dir = Path(context.journal_path).parent.parent
+        journals_dir = Path(context.journal_path).parent
+
+        sync_config = run_config_wizard(script_dir, journals_dir)
+        if sync_config:
+            # Update settings file
+            settings = load_settings(script_dir, force_reload=True)
+            settings["sync"] = sync_config
+            save_settings(settings, script_dir)
+
+            # Activate sync if not already active
+            if not is_configured():
+                if init_sync(journals_dir, settings, script_dir):
+                    register_post_write_hook(sync_push_async)
+
+            print(f"{Colors.DIM}Sync configuration saved to .ttm_config{Colors.RESET}")
+        return CommandOutcome(tasks_by_date, view_state)
+
+    if command == "sync status":
+        from tm_sync import sync_status
+        print(f"  {sync_status()}")
+        return CommandOutcome(tasks_by_date, view_state)
+
+    # ─── Log commands ──────────────────────────────────────────────────
+    if command in ("show log", "log show", "log on"):
+        from tm_log import set_visible, setup_scroll_region, render_log
+        set_visible(True)
+        setup_scroll_region()
+        render_log()
+        updated_tasks = _refresh_and_render(context, view_state)
+        return CommandOutcome(updated_tasks, view_state)
+
+    if command in ("hide log", "log hide", "log off"):
+        from tm_log import set_visible
+        set_visible(False)
+        updated_tasks = _refresh_and_render(context, view_state)
+        return CommandOutcome(updated_tasks, view_state)
+
+    if command in ("log clear", "clear log"):
+        from tm_log import clear
+        clear()
+        updated_tasks = _refresh_and_render(context, view_state)
+        return CommandOutcome(updated_tasks, view_state)
 
     print(f"{Colors.ERROR}Unknown command. Type 'help' for available commands.{Colors.RESET}")
     return CommandOutcome(tasks_by_date, view_state)

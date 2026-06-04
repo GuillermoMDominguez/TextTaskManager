@@ -10,9 +10,11 @@ from typing import List, Optional
 from tm_commands import CommandContext, ViewState, execute_command
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH
 from tm_email import load_email_config
-from tm_journal import JournalError, parse_journal, add_task_to_file
+from tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
+from tm_log import set_visible as set_log_visible
 from tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
 from tm_settings import load_settings
+from tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown
 from tm_ui import (
     Colors,
     display_tasks,
@@ -236,6 +238,9 @@ def main() -> None:
     set_terminal_background()
     atexit.register(reset_terminal_background)
 
+    # Apply log visibility from config
+    set_log_visible(settings.get("show_log", True))
+
     email_config = load_email_config([
         script_dir / ".task_manager_email.json",
         Path.home() / ".task_manager_email.json",
@@ -359,6 +364,13 @@ def main() -> None:
         for issue in issues:
             print(f"  {Colors.DIM}{issue}{Colors.RESET}")
 
+    # ─── Sync initialization ──────────────────────────────────────────
+    sync_active = init_sync(journals_dir, settings, script_dir)
+    if sync_active:
+        register_post_write_hook(sync_push_async)
+        atexit.register(sync_shutdown)
+        sync_pull(interactive=True)
+
     tasks_cache: Optional[dict] = None
 
     def refresh_tasks() -> dict:
@@ -426,6 +438,10 @@ def main() -> None:
 
             tasks_by_date = outcome.tasks_by_date
             view_state = outcome.view_state
+
+            # Always refresh the bottom log bar after any command
+            from tm_log import render_log
+            render_log()
 
             if outcome.should_exit:
                 save_command_history(str(history_path))

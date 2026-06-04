@@ -4,10 +4,31 @@ import re
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
 from tm_models import Subtask, Task
+
+
+# ─── Post-write hooks ──────────────────────────────────────────────────────────
+# Registered callbacks are called after any journal write operation.
+# Signature: callback() -> None
+
+_post_write_hooks: List[Callable[[], None]] = []
+
+
+def register_post_write_hook(callback: Callable[[], None]) -> None:
+    """Register a callback to be invoked after any journal file write."""
+    _post_write_hooks.append(callback)
+
+
+def _notify_post_write() -> None:
+    """Invoke all registered post-write hooks."""
+    for hook in _post_write_hooks:
+        try:
+            hook()
+        except Exception:
+            pass  # Hooks must never crash the main app
 
 
 class JournalError(Exception):
@@ -368,6 +389,7 @@ def _read_lines(filepath: str) -> List[str]:
 def _write_lines(filepath: str, lines: List[str]) -> None:
     with open(filepath, "w", encoding="utf-8") as file_handle:
         file_handle.writelines(lines)
+    _notify_post_write()
 
 
 def _task_line_indent(line: str, marker: str) -> str:
@@ -1006,6 +1028,7 @@ def restore_journal_snapshot(filepath: str, snapshot: str) -> bool:
     """Restore full journal file text from an undo snapshot."""
     try:
         Path(filepath).write_text(snapshot, encoding="utf-8")
+        _notify_post_write()
         return True
     except OSError:
         return False

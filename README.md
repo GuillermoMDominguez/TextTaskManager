@@ -308,6 +308,8 @@ Burndown (14 days) — 24 total tasks
 | `ck` | Lint journal: validate format, states, dates, priorities |
 | `se [email]` | Email pending tasks |
 | `r` | Reload journal from disk |
+| `show log` / `hide log` | Toggle system log bar |
+| `clear log` | Clear log messages |
 | `h` / `help` | Show help |
 | `q` / `quit` | Exit |
 
@@ -496,6 +498,103 @@ Stack depth: configurable via `max_undo` (default: 20). Session-only.
 
 ---
 
+## System Log
+
+A single-line status bar at the very bottom of the terminal shows the most recent system message (sync events, errors, warnings). It updates with each new event — only the latest message is shown.
+
+```
+ 14:35:12 [sync] Pushed successfully
+```
+
+| Command | Description |
+|---------|-------------|
+| `show log` | Show the log bar |
+| `hide log` | Hide the log bar |
+| `clear log` | Clear all log messages |
+
+Visibility can also be set in `.ttm_config`:
+
+```json
+{
+  "show_log": true
+}
+```
+
+---
+
+## Journal Sync
+
+Optionally sync your journal to a private git repository for backup and multi-machine access. When configured, changes are automatically pushed in the background after each save.
+
+### Setup
+
+Run the guided configuration wizard inside the app:
+
+```
+> config sync
+```
+
+The wizard will:
+1. Ask for your git provider (GitHub, GitLab, or custom remote URL)
+2. Request a personal access token and username
+3. Create a private repo automatically (or use an existing one)
+4. Perform the initial sync
+
+If the remote already has a journal backup (e.g., configuring a second machine), the wizard detects it and offers:
+
+| Option | Behavior |
+|--------|----------|
+| **D (Download)** | Replace local with remote journal (default for new machines) |
+| **M (Merge)** | Keep both — rebase local changes on top of remote |
+| **P (Push)** | Overwrite remote with local content |
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `config sync` | Guided sync setup |
+| `sync` | Force push now |
+| `sync status` | Show sync state |
+
+### How It Works
+
+- **On startup**: pulls remote changes (prompts on conflict)
+- **After each save**: debounced push in background (5s delay to batch rapid edits)
+- **On exit**: flushes any pending push
+- **No network**: fails silently, journal works offline, retries on next change
+
+### Configuration
+
+Sync settings live in `.ttm_config`:
+
+```json
+{
+  "sync": {
+    "enabled": true,
+    "remote": "git@github.com:youruser/ttm-journal.git",
+    "branch": "main"
+  }
+}
+```
+
+If using HTTPS with a token, credentials are stored separately in `.ttm_secrets` (git-ignored):
+
+```json
+{
+  "sync_token": "ghp_xxxxxxxxxxxx"
+}
+```
+
+SSH remotes (`git@...`) require no token — they use your system SSH keys.
+
+### Requirements
+
+- `git` CLI installed (used via subprocess)
+- For GitHub: token with `repo` scope
+- For GitLab: token with `api` scope
+
+---
+
 ## Architecture
 
 Modular, no circular dependencies:
@@ -508,6 +607,8 @@ tm_settings → tm_config → tm_models → tm_journal/tm_logic
                                    tm_commands
                                         ↓
                                   task_manager.py
+                                        ↓
+                                    tm_sync (optional)
 ```
 
 - **Zero external dependencies** — pure Python standard library
