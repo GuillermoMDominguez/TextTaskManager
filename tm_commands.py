@@ -1487,18 +1487,21 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         snapshot = read_journal_snapshot(context.journal_path)
         lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
         updated = False
-        for i, line in enumerate(lines):
-            if line.strip().startswith("-") and blocked_task.title in line:
-                lines[i] = add_blocker_metadata(line, _strip_tags(blocker_task.title))
+
+        # Add blockedby: to the blocked task using source_line
+        if blocked_task.source_line:
+            idx = blocked_task.source_line - 1
+            if 0 <= idx < len(lines):
+                lines[idx] = add_blocker_metadata(lines[idx], _strip_tags(blocker_task.title))
                 updated = True
-                break
+
+        if updated and blocker_task.source_line:
+            # Add blocks: to the blocker task using source_line
+            idx = blocker_task.source_line - 1
+            if 0 <= idx < len(lines):
+                lines[idx] = add_blocks_metadata(lines[idx], _strip_tags(blocked_task.title))
 
         if updated:
-            # Also add blocks: to the blocker task
-            for i, line in enumerate(lines):
-                if line.strip().startswith("-") and blocker_task.title in line:
-                    lines[i] = add_blocks_metadata(line, _strip_tags(blocked_task.title))
-                    break
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _save_undo_snapshot(context, snapshot)
             print(f"{Colors.DIM}Task {blocked_id} is now blocked by task {blocker_id}.{Colors.RESET}")
