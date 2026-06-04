@@ -956,7 +956,17 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if not selected_state:
             if requested_state:
                 print(f"{Colors.ERROR}Invalid state: {requested_state}{Colors.RESET}")
-            selected_state = prompt_for_state()
+            from tm_form import show_form, SelectField
+            from tm_config import VALID_STATES as _VS
+            current_idx = _VS.index(target_task.state) if target_task.state in _VS else 0
+            form_fields = [SelectField("State", _VS, selected=current_idx)]
+            result = show_form(f"Change State — {requested_id}", form_fields)
+            if result is None:
+                clear_screen()
+                _render(updated_tasks, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+            selected_state = result["State"]
 
         parent_id = None
         if isinstance(target_task, Subtask):
@@ -1007,16 +1017,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if re.match(r"^\s*(?:an|add\s+note)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
         match = re.match(r"^\s*(?:an|add\s+note)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
-        if not match:
-            print(f"{Colors.ERROR}Usage: an <task_id> <note>{Colors.RESET}")
+        id_only_match = re.match(r"^\s*(?:an|add\s+note)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+
+        if not match and not id_only_match:
+            print(f"{Colors.ERROR}Usage: an <task_id> [note]{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
-        requested_id = match.group(1).strip()
-        note_text = match.group(2).strip()
-
-        if not note_text:
-            print(f"{Colors.ERROR}Note cannot be empty.{Colors.RESET}")
-            return CommandOutcome(updated_tasks, view_state)
+        requested_id = (match.group(1) if match else id_only_match.group(1)).strip()
 
         target_task = find_task_by_id(updated_tasks, requested_id)
         if not target_task:
@@ -1025,6 +1032,23 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         if isinstance(target_task, Subtask):
             print(f"{Colors.ERROR}Add note supports parent task IDs only.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
+        if match:
+            note_text = match.group(2).strip()
+        else:
+            from tm_form import show_form, TextField
+            form_fields = [TextField("Note", placeholder="Note text")]
+            result = show_form(f"Add Note — {requested_id}", form_fields)
+            if result is None:
+                clear_screen()
+                _render(updated_tasks, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+            note_text = result["Note"].strip()
+
+        if not note_text:
+            print(f"{Colors.ERROR}Note cannot be empty.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -1222,20 +1246,36 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if re.match(r"^\s*(?:mv|move|reschedule)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
-        match = re.match(r"^\s*(?:mv|move|reschedule)\s+(\S+)\s+(\d{1,2}/\d{1,2}/\d{4})\s*$", raw_command, re.IGNORECASE)
-        if not match:
-            print(f"{Colors.ERROR}Usage: mv <task_id> <dd/mm/yyyy>{Colors.RESET}")
+        match = re.match(r"^\s*(?:mv|move|reschedule)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
+        id_only_match = re.match(r"^\s*(?:mv|move|reschedule)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+
+        if not match and not id_only_match:
+            print(f"{Colors.ERROR}Usage: mv <task_id> [date]{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
-        requested_id = match.group(1).strip()
-        target_date = _try_parse_date(match.group(2))
-        if target_date is None:
-            print(f"{Colors.ERROR}Invalid date. Use dd/mm/yyyy.{Colors.RESET}")
-            return CommandOutcome(updated_tasks, view_state)
+        requested_id = (match.group(1) if match else id_only_match.group(1)).strip()
 
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None or isinstance(target, Subtask):
             print(f"{Colors.ERROR}Move supports parent task IDs only.{Colors.RESET}")
+            return CommandOutcome(updated_tasks, view_state)
+
+        if match:
+            date_input = match.group(2).strip()
+        else:
+            from tm_form import show_form, TextField
+            form_fields = [TextField("Date", placeholder="dd/mm/yyyy or tomorrow, monday...")]
+            result = show_form(f"Move Task — {requested_id}", form_fields)
+            if result is None:
+                clear_screen()
+                _render(updated_tasks, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+            date_input = result["Date"].strip()
+
+        target_date = parse_date_input(date_input)
+        if target_date is None:
+            print(f"{Colors.ERROR}Invalid date: {date_input}{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
         if not _confirm_action(f"Move task {requested_id} to {target_date.strftime('%d/%m/%Y')}?"):
@@ -1292,27 +1332,68 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if re.match(r"^\s*sub\b", raw_command, re.IGNORECASE):
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*sub\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
-        if not match:
-            print(f"{Colors.ERROR}Usage: sub <id> <subtask title>{Colors.RESET}")
+        id_only_match = re.match(r"^\s*sub\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+
+        if not match and not id_only_match:
+            print(f"{Colors.ERROR}Usage: sub <id> [subtask title]{Colors.RESET}")
             return CommandOutcome(refreshed, view_state)
 
-        task_id = match.group(1)
-        sub_title = match.group(2).strip()
+        task_id = match.group(1) if match else id_only_match.group(1)
         target = find_task_by_id(refreshed, task_id)
 
         if not target or isinstance(target, Subtask):
             print(f"{Colors.ERROR}Task {task_id} not found (must be parent task).{Colors.RESET}")
             return CommandOutcome(refreshed, view_state)
 
+        if match:
+            sub_title = match.group(2).strip()
+            sub_state = DEFAULT_STATE
+        else:
+            # Show interactive form
+            from tm_form import show_form, TextField, SelectField
+            from tm_config import VALID_STATES as _VS, VALID_PRIORITIES as _VP
+            form_fields = [
+                TextField("Title", placeholder="Subtask title (required)"),
+                SelectField("State", _VS, selected=_VS.index(DEFAULT_STATE) if DEFAULT_STATE in _VS else 0),
+                TextField("Due date", placeholder="dd/mm/yyyy (optional)"),
+                SelectField("Priority", _VP, allow_empty=True),
+                TextField("Tags", placeholder="tag1 tag2 (optional)"),
+            ]
+            result = show_form(f"New Subtask — {task_id}", form_fields)
+            if result is None:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            sub_title = result["Title"].strip()
+            if not sub_title:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.ERROR}Subtask title cannot be empty.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            sub_state = result.get("State") or DEFAULT_STATE
+            # Build inline metadata
+            due_str = result.get("Due date", "").strip()
+            prio_str = result.get("Priority", "").strip()
+            tags_str = result.get("Tags", "").strip()
+            if tags_str:
+                sub_title += " " + " ".join(t if t.startswith("#") else f"#{t}" for t in tags_str.split())
+            if due_str:
+                sub_title += f" [due={due_str}]"
+            if prio_str:
+                sub_title += f" [priority={prio_str}]"
+
         snapshot = read_journal_snapshot(context.journal_path)
-        if add_subtask_to_task(context.journal_path, target, sub_title):
+        if add_subtask_to_task(context.journal_path, target, sub_title, sub_state):
             _save_undo_snapshot(context, snapshot)
+            refreshed = context.refresh_tasks()
+            clear_screen()
             print(f"{Colors.DIM}Subtask added to task {task_id}.{Colors.RESET}")
+            _render(refreshed, view_state)
         else:
             print(f"{Colors.ERROR}Could not add subtask.{Colors.RESET}")
 
-        updated_tasks = context.refresh_tasks()
-        return CommandOutcome(updated_tasks, view_state)
+        return CommandOutcome(refreshed, view_state)
 
     if re.match(r"^\s*(?:das|done\s+all\s+subtasks)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
@@ -1389,6 +1470,50 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if target is None:
             print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
+
+        # If no flags provided, show interactive form
+        if not has_due and not has_priority and not has_tags:
+            from tm_form import show_form, TextField, SelectField
+            from tm_config import VALID_PRIORITIES as _VP
+            if isinstance(target, Subtask):
+                base_title, existing_tags, existing_due, existing_priority = _extract_inline_meta(target.title)
+            else:
+                existing_tags = target.get_tags()
+                existing_due = target.due_date
+                existing_priority = target.priority
+            form_fields = [
+                TextField("Due date", value=existing_due.strftime("%d/%m/%Y") if existing_due else ""),
+                SelectField("Priority", _VP, selected=_VP.index(existing_priority) if existing_priority and existing_priority in _VP else -1, allow_empty=True),
+                TextField("Tags", value=" ".join(existing_tags) if existing_tags else ""),
+            ]
+            result = show_form(f"Metadata — {requested_id}", form_fields)
+            if result is None:
+                clear_screen()
+                _render(updated_tasks, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+            # Parse form results into flags
+            due_str = result.get("Due date", "").strip()
+            if due_str:
+                has_due = True
+                due_date = parse_date_input(due_str)
+            elif existing_due:
+                has_due = True
+                due_date = None  # Clear it
+            prio_str = result.get("Priority", "").strip()
+            if prio_str:
+                has_priority = True
+                priority = normalize_priority_input(prio_str)
+            elif existing_priority:
+                has_priority = True
+                priority = None
+            tags_str = result.get("Tags", "").strip()
+            if tags_str:
+                has_tags = True
+                tags = [t.lstrip("#") for t in tags_str.split() if t]
+            elif existing_tags:
+                has_tags = True
+                tags = []
 
         if isinstance(target, Subtask):
             base_title, existing_tags, existing_due, existing_priority = _extract_inline_meta(target.title)
@@ -1499,29 +1624,47 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         save_match = re.match(r"^save\s+(\S+)$", arg, re.IGNORECASE)
         if save_match:
             tpl_name = save_match.group(1)
-            # Interactive: ask for template details
-            title = input(f"{Colors.BOLD}Template title: {Colors.RESET}").strip()
+            from tm_form import show_form, TextField, SelectField
+            from tm_config import VALID_STATES as _VS, VALID_PRIORITIES as _VP
+            form_fields = [
+                TextField("Title", placeholder="Template title (required)"),
+                SelectField("State", _VS, selected=_VS.index(DEFAULT_STATE) if DEFAULT_STATE in _VS else 0),
+                SelectField("Priority", _VP, allow_empty=True),
+                TextField("Subtasks", placeholder="sub1, sub2, sub3 (comma-separated)"),
+            ]
+            result = show_form(f"Save Template — {tpl_name}", form_fields)
+            if result is None:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+
+            title = result["Title"].strip()
             if not title:
+                clear_screen()
+                _render(refreshed, view_state)
                 print(f"{Colors.ERROR}Title cannot be empty.{Colors.RESET}")
                 return CommandOutcome(refreshed, view_state)
-            state = input(f"{Colors.BOLD}State [{DEFAULT_STATE}]: {Colors.RESET}").strip() or None
-            priority = input(f"{Colors.BOLD}Priority (optional): {Colors.RESET}").strip() or None
-            subtasks_input = input(f"{Colors.BOLD}Subtasks (comma-separated, optional): {Colors.RESET}").strip()
-            subtasks = [s.strip() for s in subtasks_input.split(",") if s.strip()] if subtasks_input else []
 
             template_data = {"title": title}
-            if state:
-                normalized_state = normalize_state_input(state)
+            state_val = result.get("State", "").strip()
+            if state_val:
+                normalized_state = normalize_state_input(state_val)
                 if normalized_state:
                     template_data["state"] = normalized_state
-            if priority:
-                normalized_priority = normalize_priority_input(priority)
+            priority_val = result.get("Priority", "").strip()
+            if priority_val:
+                normalized_priority = normalize_priority_input(priority_val)
                 if normalized_priority:
                     template_data["priority"] = normalized_priority
+            subtasks_input = result.get("Subtasks", "").strip()
+            subtasks = [s.strip() for s in subtasks_input.split(",") if s.strip()] if subtasks_input else []
             if subtasks:
                 template_data["subtasks"] = subtasks
 
             if save_template(tpl_name, template_data):
+                clear_screen()
+                _render(refreshed, view_state)
                 print(f"{Colors.DIM}Template '{tpl_name}' saved.{Colors.RESET}")
             else:
                 print(f"{Colors.ERROR}Could not save template.{Colors.RESET}")
@@ -1622,11 +1765,30 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*(?:block|blocker)\s+(\S+)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: block <blocked_id> <blocker_id>{Colors.RESET}")
-            return CommandOutcome(refreshed, view_state)
+            from tm_form import show_form, TextField
+            # Pre-fill if partial ID was given
+            partial = re.match(r"^\s*(?:block|blocker)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+            form_fields = [
+                TextField("Blocked ID", value=partial.group(1) if partial else "", placeholder="ID of task being blocked"),
+                TextField("Blocker ID", placeholder="ID of blocking task"),
+            ]
+            result = show_form("Block Dependency", form_fields)
+            if result is None:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            blocked_id = result["Blocked ID"].strip()
+            blocker_id = result["Blocker ID"].strip()
+            if not blocked_id or not blocker_id:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.ERROR}Both IDs are required.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+        else:
+            blocked_id = match.group(1)
+            blocker_id = match.group(2)
 
-        blocked_id = match.group(1)
-        blocker_id = match.group(2)
         blocked_task = find_task_by_id(refreshed, blocked_id)
         blocker_task = find_task_by_id(refreshed, blocker_id)
 
@@ -1756,11 +1918,23 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*export\s+(\w+)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: export <json|csv|md> [filepath]{Colors.RESET}")
-            return CommandOutcome(refreshed, view_state)
-
-        fmt = match.group(1).lower()
-        filepath = match.group(2).strip() if match.group(2) else None
+            # Show form
+            from tm_form import show_form, TextField, SelectField
+            form_fields = [
+                SelectField("Format", ["json", "csv", "md"]),
+                TextField("File path", placeholder="(optional, auto-generated)"),
+            ]
+            result = show_form("Export Tasks", form_fields)
+            if result is None:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+            fmt = result["Format"]
+            filepath = result.get("File path", "").strip() or None
+        else:
+            fmt = match.group(1).lower()
+            filepath = match.group(2).strip() if match.group(2) else None
 
         if fmt == "json":
             content = export_to_json(refreshed)
@@ -1833,15 +2007,31 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if re.match(r"^\s*sort\b", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*sort\s+(\w+)(?:\s+(asc|desc))?\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: sort <priority|due_date|state|none> [asc|desc]{Colors.RESET}")
-            return CommandOutcome(tasks_by_date, view_state)
+            # Show form
+            from tm_form import show_form, SelectField
+            _sort_options = ["priority", "due_date", "state", "none"]
+            _dir_options = ["asc", "desc"]
+            cur_sort_idx = _sort_options.index(view_state.sort_by) if view_state.sort_by in _sort_options else 3
+            cur_dir_idx = _dir_options.index(view_state.sort_direction) if view_state.sort_direction in _dir_options else 0
+            form_fields = [
+                SelectField("Sort by", _sort_options, selected=cur_sort_idx),
+                SelectField("Direction", _dir_options, selected=cur_dir_idx),
+            ]
+            result = show_form("Sort Tasks", form_fields)
+            if result is None:
+                clear_screen()
+                _render(tasks_by_date, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(tasks_by_date, view_state)
+            sort_by = result["Sort by"]
+            direction = result["Direction"]
+        else:
+            sort_by = match.group(1).lower()
+            if sort_by not in ("priority", "due_date", "state", "none"):
+                print(f"{Colors.ERROR}Invalid sort: {sort_by}. Use priority, due_date, state, or none.{Colors.RESET}")
+                return CommandOutcome(tasks_by_date, view_state)
+            direction = match.group(2).lower() if match.group(2) else "asc"
 
-        sort_by = match.group(1).lower()
-        if sort_by not in ("priority", "due_date", "state", "none"):
-            print(f"{Colors.ERROR}Invalid sort: {sort_by}. Use priority, due_date, state, or none.{Colors.RESET}")
-            return CommandOutcome(tasks_by_date, view_state)
-
-        direction = match.group(2).lower() if match.group(2) else "asc"
         next_view = ViewState(
             show_done=view_state.show_done,
             only_in_progress=view_state.only_in_progress,

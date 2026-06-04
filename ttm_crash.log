@@ -1,8 +1,8 @@
-COMMAND ERROR (e 12):
+COMMAND ERROR (cs 4):
 Traceback (most recent call last):
   File "/Users/javier/Git/TextTaskManager/task_manager.py", line 415, in main
     outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)
-  File "/Users/javier/Git/TextTaskManager/tm_commands.py", line 1103, in execute_command
-    if new_title and new_title != title_no_tags + (" " + tags if tags else ""):
-                                                   ~~~~^~~~~~
-TypeError: can only concatenate str (not "list") to str
+  File "/Users/javier/Git/TextTaskManager/tm_commands.py", line 968, in execute_command
+    return CommandOutcome(updated_tasks, view_state)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'update_task_state_in_file' where it is not associated with a value
