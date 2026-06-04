@@ -199,7 +199,6 @@ class Colors:
     DATE = "\033[94m"
     TASK = "\033[97m"
     SUBTASK = "\033[92m"
-    COMMENT = "\033[90m"
     HEADER = "\033[96m"
     ERROR = "\033[91m"
 
@@ -261,9 +260,10 @@ def display_tasks(
 
         date_str = date.strftime("%A, %d/%m/%Y") if date else "No Date"
 
-        print(f"\n{Colors.DATE}{Colors.BOLD}{_hr()}{Colors.RESET}")
-        print(f"{Colors.DATE}{Colors.BOLD}  {date_str}{Colors.RESET}")
-        print(f"{Colors.DATE}{_hr()}{Colors.RESET}")
+        # Single-line date header: ── Date ──────────────────
+        label = f" {date_str} "
+        remaining = _term_width() - len(label) - 3
+        print(f"\n{Colors.DATE}{Colors.BOLD}──{label}{'─' * max(0, remaining)}{Colors.RESET}")
 
         for task in visible_tasks:
             total_tasks += 1
@@ -282,7 +282,12 @@ def display_tasks(
                 f"{Colors.DIM}{_format_task_meta_suffix(task)}{_format_tags_suffix(task.title)}{Colors.RESET}"
             )
 
+            max_notes_shown = 2
             for note_idx, comment in enumerate(task.comments, start=1):
+                if note_idx > max_notes_shown:
+                    remaining_notes = len(task.comments) - max_notes_shown
+                    print(f"{continuation_prefix}{Colors.DIM}┊ ... (+{remaining_notes} more){Colors.RESET}")
+                    break
                 note_id = build_note_id(task.task_id or "?", note_idx)
                 for line_idx, note_line in enumerate(comment.split("\n")):
                     if line_idx == 0:
@@ -301,17 +306,20 @@ def display_tasks(
                 subtask_id_display = _format_id_column(subtask.task_id, id_width)
                 subtask_title_display = _title_without_tags(subtask.title)
                 subtask_title_cell = _format_title_cell(subtask_title_display, _dynamic_title_width())
-                subtask_due = ""
-                if getattr(subtask, "due_date", None):
-                    subtask_due = f" [DUE:{subtask.due_date.strftime('%d/%m/%Y')}]"
+                subtask_meta = _format_task_meta_suffix(subtask) + _format_tags_suffix(subtask.title)
                 print(
                     f"{continuation_prefix}{Colors.SUBTASK}+ {Colors.RESET}{subtask_id_display} {subtask_state_display} "
                     f"{Colors.SUBTASK}{subtask_title_cell}{Colors.RESET}"
-                    f"{Colors.DIM}{subtask_due}{_format_tags_suffix(subtask.title)}{Colors.RESET}"
+                    f"{Colors.DIM}{subtask_meta}{Colors.RESET}"
                 )
                 # Subtask notes
                 sub_note_prefix = continuation_prefix + "  " + " " * (id_width + 2) + " " * (STATE_COLUMN_WIDTH + 2) + " "
-                for sn_idx, sn_comment in enumerate(getattr(subtask, "comments", []), start=1):
+                sub_comments = getattr(subtask, "comments", [])
+                for sn_idx, sn_comment in enumerate(sub_comments, start=1):
+                    if sn_idx > max_notes_shown:
+                        remaining_sn = len(sub_comments) - max_notes_shown
+                        print(f"{sub_note_prefix}{Colors.DIM}┊ ... (+{remaining_sn} more){Colors.RESET}")
+                        break
                     sn_id = build_note_id(subtask.task_id or "?", sn_idx)
                     for sn_line_idx, sn_line in enumerate(sn_comment.split("\n")):
                         if sn_line_idx == 0:
@@ -321,14 +329,18 @@ def display_tasks(
                             sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
                             print(f"{sub_note_prefix}{Colors.DIM}┊        {sn_cell}{Colors.RESET}")
 
-    print(f"\n{Colors.HEADER}{_hr()}{Colors.RESET}")
+    # Footer — single compact line
+    summary_parts = []
     if show_done:
-        print(f"{Colors.HEADER}  Total: {total_tasks} tasks ({total_pending} pending){Colors.RESET}")
+        summary_parts.append(f"{total_tasks} tasks ({total_pending} pending)")
     else:
-        print(f"{Colors.HEADER}  Showing: {total_pending} pending tasks{Colors.RESET}")
+        summary_parts.append(f"{total_pending} pending tasks")
     if search_query:
-        print(f"{Colors.HEADER}  Search: {search_query}{Colors.RESET}")
-    print(f"{Colors.HEADER}{_hr()}{Colors.RESET}")
+        summary_parts.append(f"search: {search_query}")
+    summary = " │ ".join(summary_parts)
+    footer_label = f" {summary} "
+    footer_remaining = _term_width() - len(footer_label) - 3
+    print(f"\n{Colors.DIM}──{footer_label}{'─' * max(0, footer_remaining)}{Colors.RESET}")
 
 
 def get_stats(tasks_by_date: dict) -> dict:

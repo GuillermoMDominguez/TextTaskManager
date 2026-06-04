@@ -2,6 +2,7 @@
 
 import re
 import shlex
+import shutil
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -74,6 +75,11 @@ _TAG_RE = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
 def _strip_tags(title: str) -> str:
     """Remove hashtag tokens from a title for use in metadata references."""
     return " ".join(_TAG_RE.sub("", title).split())
+
+
+def _title_without_tags_cmd(text: str) -> str:
+    """Remove hashtag tokens from text for display (alias for _strip_tags)."""
+    return _strip_tags(text)
 
 
 COMMAND_HELP = {
@@ -589,22 +595,28 @@ def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
             elif due <= week_limit:
                 due_soon.append(task)
 
-    def _print_group(title: str, items: list[Task]) -> None:
-        print(f"\n{Colors.HEADER}{title}{Colors.RESET}")
+    def _print_group(title: str, items: list[Task], icon: str = "") -> None:
+        print(f"\n  {Colors.BOLD}{icon}{title}{Colors.RESET}")
         if not items:
-            print(f"  {Colors.DIM}(none){Colors.RESET}")
+            print(f"    {Colors.DIM}(none){Colors.RESET}")
             return
         ordered = sorted(items, key=lambda item: item.due_date or datetime.max)
         for task in ordered:
             task_id = task.task_id or "?"
-            due = task.due_date.strftime("%d/%m/%Y") if task.due_date else "-"
-            priority = task.priority or "-"
-            print(f"  [{task_id}] {task.title} | due {due} | priority {priority} | {task.state}")
+            state_color = _get_state_color_inline(task.state)
+            due_str = task.due_date.strftime("%d/%m/%Y") if task.due_date else ""
+            priority_badge = f" [P:{task.priority}]" if task.priority else ""
+            title_clean = task.title
+            print(
+                f"    [{task_id}] {state_color}{task.state:<{11}}{Colors.RESET} "
+                f"{title_clean}{Colors.DIM}{priority_badge} [DUE:{due_str}]{Colors.RESET}"
+            )
 
-    print(f"\n{Colors.HEADER}{Colors.BOLD}Agenda{Colors.RESET}")
-    _print_group("Overdue", overdue)
-    _print_group("Due Today", due_today)
-    _print_group(f"Due Next {days_ahead} Days", due_soon)
+    tw = shutil.get_terminal_size((80, 24)).columns
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} Agenda {'─' * (tw - 12)}{Colors.RESET}")
+    _print_group("Overdue", overdue, "⚠ ")
+    _print_group("Due Today", due_today, "◉ ")
+    _print_group(f"Due Next {days_ahead} Days", due_soon, "◌ ")
 
 
 def _confirm_action(message: str) -> bool:
@@ -1522,19 +1534,21 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             print(f"{Colors.DIM}No tasks found with tag #{tag}.{Colors.RESET}")
             return CommandOutcome(refreshed, view_state)
 
-        print(f"\n{Colors.HEADER}{Colors.BOLD}Project: #{tag} ({len(tasks)} tasks){Colors.RESET}")
-        print(f"{Colors.HEADER}{'─' * 50}{Colors.RESET}")
+        tw = shutil.get_terminal_size((80, 24)).columns
+        print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} #{tag} ({len(tasks)} tasks) {'─' * max(0, tw - len(tag) - 18)}{Colors.RESET}")
         for task in tasks:
             state_color = _get_state_color_inline(task.state)
-            priority = f" [{task.priority}]" if task.priority else ""
-            due = f" (due: {task.due_date.strftime('%d/%m/%Y')})" if task.due_date else ""
             task_id = task.task_id or "?"
-            print(f"  [{task_id}] {state_color}{task.state}{Colors.RESET} {task.title}{priority}{due}")
+            priority_badge = f" [P:{task.priority}]" if task.priority else ""
+            due = f" [DUE:{task.due_date.strftime('%d/%m/%Y')}]" if task.due_date else ""
+            print(
+                f"  [{task_id}] {state_color}{task.state:<{11}}{Colors.RESET} "
+                f"{_title_without_tags_cmd(task.title)}{Colors.DIM}{priority_badge}{due}{Colors.RESET}"
+            )
             for st in task.subtasks:
                 st_color = _get_state_color_inline(st.state)
-                st_due = f" (due: {st.due_date.strftime('%d/%m/%Y')})" if st.due_date else ""
-                print(f"       + [{st.task_id}] {st_color}{st.state}{Colors.RESET} {st.title}{st_due}")
-        print(f"{Colors.HEADER}{'─' * 50}{Colors.RESET}")
+                st_due = f" [DUE:{st.due_date.strftime('%d/%m/%Y')}]" if st.due_date else ""
+                print(f"       + [{st.task_id}] {st_color}{st.state:<{11}}{Colors.RESET} {_title_without_tags_cmd(st.title)}{Colors.DIM}{st_due}{Colors.RESET}")
         return CommandOutcome(refreshed, view_state)
 
     # ─── Export ────────────────────────────────────────────────────────
@@ -1612,7 +1626,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         match = re.match(r"^\s*(?:wr|weekly)(?:\s+(\d+))?\s*$", raw_command, re.IGNORECASE)
         days = int(match.group(1)) if match and match.group(1) else int(get_setting("weekly_report_days", 7))
         report = generate_weekly_report(refreshed, days)
-        print(f"\n{Colors.HEADER}{report}{Colors.RESET}")
+        print(f"\n{report}")
         return CommandOutcome(refreshed, view_state)
 
     # ─── Sort ──────────────────────────────────────────────────────────

@@ -126,6 +126,8 @@ def get_all_tags(tasks_by_date: dict) -> dict:
 
 def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> str:
     """Render a kanban board as a string for terminal output."""
+    from tm_ui import Colors, get_state_color
+
     if columns is None:
         columns = get_setting("kanban_columns", ["BACKLOG", "IN PROGRESS", "TESTING", "DONE"])
 
@@ -144,15 +146,19 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> s
 
     num_cols = len(columns)
     col_width = max(20, (term_width - (num_cols + 1)) // num_cols)
+    reset = Colors.RESET
 
     lines: List[str] = []
 
-    # Header
-    header = "│".join(col.center(col_width) for col in columns)
-    separator = "┼".join("─" * col_width for _ in columns)
+    # Header with colored state names
+    header_cells = []
+    for col in columns:
+        color = get_state_color(col)
+        padded = col.center(col_width)
+        header_cells.append(f"{color}{padded}{reset}")
     lines.append("┌" + "┬".join("─" * col_width for _ in columns) + "┐")
-    lines.append("│" + header + "│")
-    lines.append("├" + separator + "┤")
+    lines.append("│" + "│".join(header_cells) + "│")
+    lines.append("├" + "┼".join("─" * col_width for _ in columns) + "┤")
 
     # Find max rows needed
     max_rows = max(len(tasks) for tasks in column_tasks.values()) if column_tasks else 0
@@ -161,6 +167,7 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> s
         cells = []
         for col in columns:
             tasks = column_tasks[col]
+            color = get_state_color(col)
             if row_idx < len(tasks):
                 task = tasks[row_idx]
                 task_id = task.task_id or "?"
@@ -169,17 +176,18 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> s
                 cell_content = f"[{task_id}]{priority_badge} {title}"
                 if len(cell_content) > col_width - 2:
                     cell_content = cell_content[: col_width - 3] + "~"
-                cells.append(f" {cell_content.ljust(col_width - 1)}")
+                cells.append(f" {color}{cell_content.ljust(col_width - 1)}{reset}")
             else:
                 cells.append(" " * col_width)
         lines.append("│" + "│".join(cells) + "│")
 
     lines.append("└" + "┴".join("─" * col_width for _ in columns) + "┘")
 
-    # Summary
+    # Summary with colors
     for col in columns:
         count = len(column_tasks[col])
-        lines.append(f"  {col}: {count} task(s)")
+        color = get_state_color(col)
+        lines.append(f"  {color}{col}{reset}: {count} task(s)")
 
     return "\n".join(lines)
 
@@ -323,6 +331,8 @@ def import_from_json(json_text: str) -> List[str]:
 
 def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
     """Generate a weekly summary of completed tasks and current status."""
+    from tm_ui import Colors, get_state_color
+
     today = datetime.now().date()
     period_start = today - timedelta(days=days)
 
@@ -333,7 +343,6 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
     for date, tasks in tasks_by_date.items():
         for task in tasks:
             if task.is_finished():
-                # Count tasks in date sections within the period
                 if date and period_start <= date.date() <= today:
                     completed.append(task)
             elif task.state == "IN PROGRESS":
@@ -342,44 +351,52 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
                 upcoming.append(task)
 
     tw = shutil.get_terminal_size((80, 24)).columns
+    r = Colors.RESET
     lines: List[str] = []
-    lines.append(f"Weekly Report ({period_start.strftime('%d/%m/%Y')} - {today.strftime('%d/%m/%Y')})")
-    lines.append("=" * tw)
 
-    lines.append(f"\n✓ COMPLETED ({len(completed)})")
-    lines.append("-" * tw)
+    title = f" Weekly Report ({period_start.strftime('%d/%m/%Y')} – {today.strftime('%d/%m/%Y')}) "
+    lines.append(f"{Colors.BOLD}{'─' * 3}{title}{'─' * max(0, tw - len(title) - 3)}{r}")
+
+    # Completed
+    done_color = get_state_color("DONE")
+    lines.append(f"\n  {done_color}{Colors.BOLD}✓ COMPLETED ({len(completed)}){r}")
+    lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
     if completed:
         for task in completed:
             priority = f" [{task.priority}]" if task.priority else ""
-            lines.append(f"  • {task.title}{priority}")
+            lines.append(f"    {done_color}•{r} {task.title}{Colors.DIM}{priority}{r}")
     else:
-        lines.append("  (none)")
+        lines.append(f"    {Colors.DIM}(none){r}")
 
-    lines.append(f"\n⚡ IN PROGRESS ({len(in_progress)})")
-    lines.append("-" * tw)
+    # In Progress
+    ip_color = get_state_color("IN PROGRESS")
+    lines.append(f"\n  {ip_color}{Colors.BOLD}⚡ IN PROGRESS ({len(in_progress)}){r}")
+    lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
     if in_progress:
         for task in in_progress:
-            due = f" (due: {task.due_date.strftime('%d/%m/%Y')})" if task.due_date else ""
-            lines.append(f"  • {task.title}{due}")
+            due = f" [DUE:{task.due_date.strftime('%d/%m/%Y')}]" if task.due_date else ""
+            lines.append(f"    {ip_color}•{r} {task.title}{Colors.DIM}{due}{r}")
     else:
-        lines.append("  (none)")
+        lines.append(f"    {Colors.DIM}(none){r}")
 
-    lines.append(f"\n📅 UPCOMING DUE ({len(upcoming)})")
-    lines.append("-" * tw)
+    # Upcoming
+    lines.append(f"\n  {Colors.DATE}{Colors.BOLD}📅 UPCOMING DUE ({len(upcoming)}){r}")
+    lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
     if upcoming:
         upcoming_sorted = sorted(upcoming, key=lambda t: t.due_date or datetime.max)
         for task in upcoming_sorted:
             due = task.due_date.strftime('%d/%m/%Y') if task.due_date else ""
-            lines.append(f"  • {task.title} (due: {due})")
+            state_color = get_state_color(task.state)
+            lines.append(f"    • {task.title} {state_color}{task.state}{r}{Colors.DIM} [DUE:{due}]{r}")
     else:
-        lines.append("  (none)")
+        lines.append(f"    {Colors.DIM}(none){r}")
 
     # Stats summary
     total = sum(len(tasks) for tasks in tasks_by_date.values())
     total_done = sum(1 for tasks in tasks_by_date.values() for t in tasks if t.is_finished())
     total_pending = total - total_done
-    lines.append(f"\n{'─' * tw}")
-    lines.append(f"Summary: {total} total | {total_done} done | {total_pending} pending")
+    lines.append(f"\n  {Colors.DIM}{'─' * (tw - 4)}{r}")
+    lines.append(f"  Summary: {total} total │ {done_color}{total_done} done{r} │ {total_pending} pending")
 
     return "\n".join(lines)
 
