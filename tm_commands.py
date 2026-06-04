@@ -545,16 +545,8 @@ def _parse_meta_command(
         return None, False, None, False, None, False, None, f"Unknown option: {tokens[idx]}"
 
     if not has_due and not has_priority and not has_tags:
-        return (
-            None,
-            False,
-            None,
-            False,
-            None,
-            False,
-            None,
-            "Usage: md <id|id.n|id:n#> [--due dd/mm/yyyy|none] [--priority <level>|none] [--tags <list>|none]",
-        )
+        # No flags — return ID with no error so form can be shown
+        return task_id, False, None, False, None, False, None, None
 
     if has_tags and tags is None:
         return None, False, None, False, None, False, None, "Invalid tags. Use comma/space-separated tokens or 'none'."
@@ -814,6 +806,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if command in ("q", "quit", "exit"):
         return CommandOutcome(tasks_by_date, view_state, should_exit=True)
+
+    if command in ("cls", "clear"):
+        clear_screen()
+        _render(tasks_by_date, view_state)
+        return CommandOutcome(tasks_by_date, view_state)
 
     if command in ("a", "all"):
         next_view = ViewState(show_done=True, search_query=view_state.search_query)
