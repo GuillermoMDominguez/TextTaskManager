@@ -294,6 +294,13 @@ def show_form(
                     fields[active_idx].handle_key(key)
     except (KeyboardInterrupt, EOFError):
         pass
+    except Exception as exc:
+        import traceback
+        try:
+            with open("ttm_crash.log", "w", encoding="utf-8") as f:
+                f.write(f"FORM LOOP ERROR:\n{traceback.format_exc()}")
+        except Exception:
+            pass
     finally:
         # Show cursor
         _write("\033[?25h")
@@ -309,8 +316,13 @@ def show_form(
             for r in range(start_row, start_row + total_rows + 1):
                 _write(f"\033[{r};1H{term_bg}\033[K")
             _write(f"\033[{start_row};1H")
-        except Exception:
-            pass
+        except Exception as exc2:
+            import traceback
+            try:
+                with open("ttm_crash.log", "a", encoding="utf-8") as f:
+                    f.write(f"\nFORM CLEANUP ERROR:\n{traceback.format_exc()}")
+            except Exception:
+                pass
         _flush()
 
     if cancelled:

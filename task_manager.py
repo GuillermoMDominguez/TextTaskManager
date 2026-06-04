@@ -416,6 +416,14 @@ def main() -> None:
             except JournalError as exc:
                 print(f"{Colors.ERROR}{exc}{Colors.RESET}")
                 continue
+            except Exception as exc:
+                import traceback
+                Path("ttm_crash.log").write_text(
+                    f"COMMAND ERROR ({raw_command}):\n{traceback.format_exc()}",
+                    encoding="utf-8",
+                )
+                print(f"{Colors.ERROR}Unexpected error. See ttm_crash.log{Colors.RESET}")
+                continue
 
             tasks_by_date = outcome.tasks_by_date
             view_state = outcome.view_state
