@@ -893,7 +893,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
             task_title = result["Title"].strip()
             if result.get("Tags", "").strip():
-                task_title += " " + result["Tags"].strip()
+                raw_tags = result["Tags"].strip()
+                # Ensure each tag has # prefix
+                tags = []
+                for t in raw_tags.split():
+                    tags.append(t if t.startswith("#") else f"#{t}")
+                task_title += " " + " ".join(tags)
             task_state = result.get("State") or DEFAULT_STATE
             if result.get("Due date", "").strip():
                 due_date = parse_date_input(result["Due date"].strip())
@@ -1081,7 +1086,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
                 new_title = result["Title"].strip()
                 if result.get("Tags", "").strip():
-                    new_title += " " + result["Tags"].strip()
+                    raw_tags = result["Tags"].strip()
+                    tags = []
+                    for t in raw_tags.split():
+                        tags.append(t if t.startswith("#") else f"#{t}")
+                    new_title += " " + " ".join(tags)
 
                 new_state = result.get("State") or target.state
                 new_due = parse_date_input(result["Due date"].strip()) if result.get("Due date", "").strip() else None

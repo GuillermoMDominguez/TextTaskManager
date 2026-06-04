@@ -117,11 +117,11 @@ class TextField:
             before = self.value[: self.cursor_pos]
             cursor_ch = self.value[self.cursor_pos] if self.cursor_pos < len(self.value) else " "
             after = self.value[self.cursor_pos + 1:] if self.cursor_pos < len(self.value) else ""
-            return f"{before}\033[7m{cursor_ch}\033[27m{after}"
+            return f"\033[97m{before}\033[7m{cursor_ch}\033[27m{after}\033[0m"
         elif self.value:
-            return self.value
+            return f"\033[97m{self.value}\033[0m"
         else:
-            return f"\033[2m{self.placeholder}\033[22m"
+            return f"\033[2m\033[37m{self.placeholder}\033[0m"
 
     def get_value(self) -> str:
         return self.value
@@ -152,9 +152,9 @@ class SelectField:
         for i, opt in enumerate(self._options):
             if i == self.selected:
                 if active:
-                    parts.append(f"\033[7m {opt} \033[27m")
+                    parts.append(f"\033[7m\033[97m {opt} \033[27m\033[22m")
                 else:
-                    parts.append(f"\033[1m[{opt}]\033[22m")
+                    parts.append(f"\033[1m\033[97m[{opt}]\033[22m")
             else:
                 parts.append(f"\033[2m {opt} \033[22m")
         return "".join(parts)
@@ -216,7 +216,7 @@ def show_form(
         # Title
         t = f" {title}"
         t_padded = t + " " * (box_w - 2 - len(t))
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_RST}{_FORM_BG}\033[1m\033[97m{t_padded}{_RST}{_FORM_BG}{_BORDER_COLOR}│{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}\033[1m\033[97m{t_padded}\033[22m{_BORDER_COLOR}│{_RST}")
         row += 1
         # Sep
         _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}├{'─' * (box_w - 2)}┤{_RST}")
@@ -231,14 +231,15 @@ def show_form(
             lbl_padded = lbl.ljust(13)
             rendered = field.render(is_active)
 
-            # Write left border
-            _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_RST}{_FORM_BG}")
-            # Write content with colors
+            # Fill entire line background first
+            _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+            # Now draw content over it (reposition after left border)
+            _write(f"\033[{row};{col_off + 1}H{_FORM_BG}")
             if is_active:
-                _write(f"\033[93m{indicator} \033[1m{lbl_padded}{_RST}{_FORM_BG} {rendered}{_RST}{_FORM_BG}")
+                _write(f"\033[93m{indicator} \033[1m{lbl_padded}\033[22m\033[93m {rendered}{_FORM_BG}")
             else:
-                _write(f" {indicator} \033[37m{lbl_padded}{_RST}{_FORM_BG} {rendered}{_RST}{_FORM_BG}")
-            # Erase to right border position and draw it
+                _write(f" {indicator} \033[37m{lbl_padded}\033[0m{_FORM_BG} {rendered}{_FORM_BG}")
+            # Ensure right border is intact
             _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
             row += 1
 
@@ -250,15 +251,17 @@ def show_form(
         acc_idx = len(fields)
         can_idx = len(fields) + 1
         if active_idx == acc_idx:
-            acc = "\033[7m\033[92m Accept \033[27m\033[0m"
+            acc = f"\033[7m\033[92m Accept \033[27m\033[22m"
         else:
-            acc = "\033[32m Accept \033[0m"
+            acc = f"\033[32m Accept "
         if active_idx == can_idx:
-            can = "\033[7m\033[91m Cancel \033[27m\033[0m"
+            can = f"\033[7m\033[91m Cancel \033[27m\033[22m"
         else:
-            can = "\033[2m Cancel \033[0m"
+            can = f"\033[2m Cancel \033[22m"
 
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_RST}{_FORM_BG}   {acc}{_FORM_BG}  {can}{_FORM_BG}")
+        # Fill line then draw buttons
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+        _write(f"\033[{row};{col_off + 1}H{_FORM_BG}   {acc}{_FORM_BG}  {can}{_FORM_BG}")
         _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
         row += 1
 
