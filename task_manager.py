@@ -407,9 +407,8 @@ def main() -> None:
 
     while True:
         try:
-            raw_command = input(f"\n{Colors.BOLD}>{Colors.RESET} ")
+            raw_command = input(f"\n{Colors.BOLD}>{Colors.RESET} ").strip()
             remember_command(raw_command)
-            raw_command = raw_command.strip()
 
             try:
                 outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)

@@ -438,6 +438,8 @@ def print_help() -> None:
         ("f / find <text|#tag|priority:...|due:...>", "Filter by text, tag, priority or due"),
         ("fc / find clear", "Clear active search filter"),
         ("r / refresh", "Reload file and refresh display"),
+        ("cls / clear", "Clear terminal and refresh display"),
+        ("day / hoy [date]", "Show tasks for a specific date"),
         ("h / help", "Show this help message"),
         ("q / quit", "Exit the application"),
     ]

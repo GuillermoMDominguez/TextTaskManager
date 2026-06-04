@@ -507,7 +507,7 @@ def _parse_meta_command(
             if raw_priority.lower() != "none":
                 priority = normalize_priority_input(raw_priority)
                 if priority is None:
-                    valid = ", ".join(priority.lower() for priority in VALID_PRIORITIES)
+                    valid = ", ".join(p.lower() for p in VALID_PRIORITIES)
                     return (
                         None,
                         False,
@@ -741,6 +741,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             only_in_progress=view_state.only_in_progress,
             only_testing=view_state.only_testing,
             search_query=None,
+            sort_by=view_state.sort_by,
+            sort_direction=view_state.sort_direction,
         )
         updated_tasks = _refresh_and_render(context, next_view)
         return CommandOutcome(updated_tasks, next_view)
@@ -813,12 +815,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         return CommandOutcome(tasks_by_date, view_state)
 
     if command in ("a", "all"):
-        next_view = ViewState(show_done=True, search_query=view_state.search_query)
+        next_view = ViewState(show_done=True, search_query=view_state.search_query, sort_by=view_state.sort_by, sort_direction=view_state.sort_direction)
         updated_tasks = _refresh_and_render(context, next_view)
         return CommandOutcome(updated_tasks, next_view)
 
     if command in ("p", "pending"):
-        next_view = ViewState(search_query=view_state.search_query)
+        next_view = ViewState(search_query=view_state.search_query, sort_by=view_state.sort_by, sort_direction=view_state.sort_direction)
         updated_tasks = _refresh_and_render(context, next_view)
         return CommandOutcome(updated_tasks, next_view)
 
@@ -1692,9 +1694,18 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # Add subtasks if any
             tpl_subtasks = tpl_data.get("subtasks", [])
             if tpl_subtasks:
-                from tm_journal import add_subtask_to_file
-                for sub_title in tpl_subtasks:
-                    add_subtask_to_file(context.journal_path, tpl_title, sub_title, DEFAULT_STATE)
+                refreshed_for_sub = context.refresh_tasks()
+                parent = None
+                for tasks in refreshed_for_sub.values():
+                    for t in tasks:
+                        if _strip_tags(t.title) == tpl_title:
+                            parent = t
+                            break
+                    if parent:
+                        break
+                if parent:
+                    for sub_title in tpl_subtasks:
+                        add_subtask_to_task(context.journal_path, parent, sub_title, DEFAULT_STATE)
 
             updated_tasks = context.refresh_tasks()
             clear_screen()
