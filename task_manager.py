@@ -17,6 +17,7 @@ from tm_ui import (
     display_tasks,
     enable_command_history,
     enable_windows_ansi,
+    set_terminal_background,
     remember_command,
     save_command_history,
 )
@@ -213,6 +214,7 @@ def _resolve_journal_for_quick_ops(journals_dir: Path, cache_path: Path, journal
 def main() -> None:
     """Main entry point for the task manager."""
     enable_windows_ansi()
+    set_terminal_background()
 
     script_dir = Path(__file__).parent
     journals_dir = script_dir / "journals"

@@ -184,6 +184,16 @@ def enable_windows_ansi() -> None:
             pass
 
 
+def set_terminal_background() -> None:
+    """Set terminal background to opaque black. Works on Windows, Linux, macOS."""
+    # ANSI escape: set background color to RGB(0,0,0) for the entire screen
+    import sys
+    sys.stdout.write("\033[48;2;0;0;0m")  # Set BG to black (RGB)
+    sys.stdout.write("\033[2J")            # Clear screen with new BG
+    sys.stdout.write("\033[H")             # Move cursor to top-left
+    sys.stdout.flush()
+
+
 class Colors:
     RESET = "\033[0m"
     BOLD = "\033[1m"
