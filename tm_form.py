@@ -52,7 +52,8 @@ else:
             tty.setraw(fd)
             ch = sys.stdin.read(1)
             if ch == "\x1b":
-                if _select.select([sys.stdin], [], [], 0.05)[0]:
+                # Try multiple times to catch escape sequences
+                if _select.select([sys.stdin], [], [], 0.15)[0]:
                     seq = sys.stdin.read(1)
                     if seq == "[":
                         code = sys.stdin.read(1)
@@ -69,6 +70,17 @@ else:
                         elif code == "3":
                             sys.stdin.read(1)
                             return "DELETE"
+                    elif seq == "O":
+                        # Some terminals send \x1bOA for arrows
+                        code = sys.stdin.read(1)
+                        if code == "A":
+                            return "UP"
+                        elif code == "B":
+                            return "DOWN"
+                        elif code == "C":
+                            return "RIGHT"
+                        elif code == "D":
+                            return "LEFT"
                 return "ESC"
             if ch == "\r" or ch == "\n":
                 return "ENTER"
