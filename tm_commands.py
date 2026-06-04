@@ -957,7 +957,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             from tm_config import VALID_STATES as _VS
             current_idx = _VS.index(target_task.state) if target_task.state in _VS else 0
             form_fields = [SelectField("State", _VS, selected=current_idx)]
-            result = show_form(f"Change State — {requested_id}", form_fields)
+            result = show_form(f"Change State — {_strip_tags(target_task.title)[:30]}", form_fields)
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
@@ -1036,7 +1036,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         else:
             from tm_form import show_form, TextField
             form_fields = [TextField("Note", placeholder="Note text")]
-            result = show_form(f"Add Note — {requested_id}", form_fields)
+            result = show_form(f"Add Note — {_strip_tags(target_task.title)[:30]}", form_fields)
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
@@ -1090,7 +1090,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 ]
 
                 try:
-                    result = show_form(f"Edit Task {requested_id}", form_fields)
+                    result = show_form(f"Edit — {_strip_tags(target.title)[:30]}", form_fields)
                 except Exception as exc:
                     import traceback
                     Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
@@ -1260,7 +1260,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         else:
             from tm_form import show_form, TextField
             form_fields = [TextField("Date", placeholder="dd/mm/yyyy or tomorrow, monday...")]
-            result = show_form(f"Move Task — {requested_id}", form_fields)
+            result = show_form(f"Move — {_strip_tags(target.title)[:30]}", form_fields)
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
@@ -1354,7 +1354,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 SelectField("Priority", _VP, allow_empty=True),
                 TextField("Tags", placeholder="tag1 tag2 (optional)"),
             ]
-            result = show_form(f"New Subtask — {task_id}", form_fields)
+            result = show_form(f"New Subtask — {_strip_tags(target.title)[:30]}", form_fields)
             if result is None:
                 clear_screen()
                 _render(refreshed, view_state)
@@ -1481,7 +1481,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 SelectField("Priority", _VP, selected=_VP.index(existing_priority) if existing_priority and existing_priority in _VP else -1, allow_empty=True),
                 TextField("Tags", value=" ".join(existing_tags) if existing_tags else ""),
             ]
-            result = show_form(f"Metadata — {requested_id}", form_fields)
+            result = show_form(f"Metadata — {_strip_tags(target.title)[:30]}", form_fields)
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
