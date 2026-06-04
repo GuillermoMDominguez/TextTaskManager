@@ -877,7 +877,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 TextField("Recurrence", placeholder="daily/weekly/monthly (optional)"),
             ]
 
-            result = show_form("New Task", form_fields)
+            try:
+                result = show_form("New Task", form_fields)
+            except Exception as exc:
+                import traceback
+                Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                print(f"{Colors.ERROR}Form crashed. See ttm_crash.log{Colors.RESET}")
+                return CommandOutcome(tasks_by_date, view_state)
             if result is None:
                 print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
                 return CommandOutcome(tasks_by_date, view_state)
@@ -1055,7 +1061,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     TextField("Tags", value=tags),
                 ]
 
-                result = show_form(f"Edit Task {requested_id}", form_fields)
+                try:
+                    result = show_form(f"Edit Task {requested_id}", form_fields)
+                except Exception as exc:
+                    import traceback
+                    Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                    print(f"{Colors.ERROR}Form crashed. See ttm_crash.log{Colors.RESET}")
+                    return CommandOutcome(updated_tasks, view_state)
                 if result is None:
                     print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
                     return CommandOutcome(updated_tasks, view_state)
