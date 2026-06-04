@@ -554,10 +554,11 @@ def _create_gitlab_repo(token: str, repo_name: str) -> Tuple[bool, str]:
 
 
 def _print_sync(message: str) -> None:
-    """Route sync messages through the system log."""
+    """Route sync messages through the system log and refresh the bar."""
     try:
-        from tm_log import log
+        from tm_log import log, render_log
         log("sync", message)
+        render_log()
     except ImportError:
         pass
 
