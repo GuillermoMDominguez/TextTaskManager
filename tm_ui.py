@@ -186,16 +186,18 @@ def enable_windows_ansi() -> None:
 
 def set_terminal_background() -> None:
     """Set terminal background to opaque black. Works on Windows, Linux, macOS."""
-    # ANSI escape: set background color to RGB(0,0,0) for the entire screen
     import sys
-    sys.stdout.write("\033[48;2;0;0;0m")  # Set BG to black (RGB)
-    sys.stdout.write("\033[2J")            # Clear screen with new BG
-    sys.stdout.write("\033[H")             # Move cursor to top-left
+    sys.stdout.write(_BG_BLACK)       # Set BG to black (RGB)
+    sys.stdout.write("\033[2J")       # Clear screen with new BG
+    sys.stdout.write("\033[H")        # Move cursor to top-left
     sys.stdout.flush()
 
 
+_BG_BLACK = "\033[48;2;0;0;0m"
+
+
 class Colors:
-    RESET = "\033[0m"
+    RESET = "\033[0m" + _BG_BLACK
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
@@ -464,5 +466,14 @@ def prompt_for_state() -> str:
 
 
 def clear_screen() -> None:
-    """Clear the terminal screen."""
-    os.system("cls" if os.name == "nt" else "clear")
+    """Clear the terminal screen, preserving black background."""
+    import sys
+    sys.stdout.write(_BG_BLACK + "\033[2J\033[H")
+    sys.stdout.flush()
+
+
+def reset_terminal_background() -> None:
+    """Restore the terminal's default background on exit."""
+    import sys
+    sys.stdout.write("\033[0m\033[2J\033[H")
+    sys.stdout.flush()

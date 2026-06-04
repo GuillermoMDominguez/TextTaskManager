@@ -3,6 +3,7 @@
 
 import argparse
 import sys
+import atexit
 from pathlib import Path
 from typing import List, Optional
 
@@ -18,6 +19,7 @@ from tm_ui import (
     enable_command_history,
     enable_windows_ansi,
     set_terminal_background,
+    reset_terminal_background,
     remember_command,
     save_command_history,
 )
@@ -215,6 +217,7 @@ def main() -> None:
     """Main entry point for the task manager."""
     enable_windows_ansi()
     set_terminal_background()
+    atexit.register(reset_terminal_background)
 
     script_dir = Path(__file__).parent
     journals_dir = script_dir / "journals"
