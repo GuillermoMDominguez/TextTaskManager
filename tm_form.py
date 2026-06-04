@@ -42,7 +42,6 @@ if os.name == "nt":
 else:
     import tty
     import termios
-    import select as _select
 
     def _read_key() -> str:
         """Read a single keypress on Unix/macOS."""
@@ -50,47 +49,55 @@ else:
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
-            ch = sys.stdin.read(1)
-            if ch == "\x1b":
-                # Try multiple times to catch escape sequences
-                if _select.select([sys.stdin], [], [], 0.15)[0]:
-                    seq = sys.stdin.read(1)
-                    if seq == "[":
-                        code = sys.stdin.read(1)
-                        if code == "A":
-                            return "UP"
-                        elif code == "B":
-                            return "DOWN"
-                        elif code == "C":
-                            return "RIGHT"
-                        elif code == "D":
-                            return "LEFT"
-                        elif code == "Z":
-                            return "SHIFT_TAB"
-                        elif code == "3":
-                            sys.stdin.read(1)
-                            return "DELETE"
-                    elif seq == "O":
-                        # Some terminals send \x1bOA for arrows
-                        code = sys.stdin.read(1)
-                        if code == "A":
-                            return "UP"
-                        elif code == "B":
-                            return "DOWN"
-                        elif code == "C":
-                            return "RIGHT"
-                        elif code == "D":
-                            return "LEFT"
+            ch = os.read(fd, 1)
+            if ch == b"\x1b":
+                # Read rest of escape sequence using os.read with timeout
+                import fcntl
+                # Set non-blocking
+                flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                try:
+                    import time
+                    time.sleep(0.02)  # Brief wait for sequence bytes
+                    try:
+                        seq = os.read(fd, 10)
+                    except (OSError, BlockingIOError):
+                        seq = b""
+                finally:
+                    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+                if seq == b"[A":
+                    return "UP"
+                elif seq == b"[B":
+                    return "DOWN"
+                elif seq == b"[C":
+                    return "RIGHT"
+                elif seq == b"[D":
+                    return "LEFT"
+                elif seq == b"[Z":
+                    return "SHIFT_TAB"
+                elif seq == b"[3~":
+                    return "DELETE"
+                elif seq == b"OA":
+                    return "UP"
+                elif seq == b"OB":
+                    return "DOWN"
+                elif seq == b"OC":
+                    return "RIGHT"
+                elif seq == b"OD":
+                    return "LEFT"
+                elif seq == b"":
+                    return "ESC"
                 return "ESC"
-            if ch == "\r" or ch == "\n":
+            if ch == b"\r" or ch == b"\n":
                 return "ENTER"
-            if ch == "\t":
+            if ch == b"\t":
                 return "TAB"
-            if ch == "\x7f" or ch == "\x08":
+            if ch == b"\x7f" or ch == b"\x08":
                 return "BACKSPACE"
-            if ord(ch) < 32:
+            if len(ch) == 1 and ch[0] < 32:
                 return ""
-            return ch
+            return ch.decode("utf-8", errors="ignore")
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
@@ -279,7 +286,7 @@ def show_form(
         row += 1
 
         # Help
-        help_text = "Tab/↑↓: navigate  Enter: accept  Esc: cancel  Space/←→: options"
+        help_text = "↑↓/Tab: navigate  ←→/Space: options  Enter: accept  Esc: cancel"
         help_col = max(1, (tw - len(help_text)) // 2)
         _write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
 
