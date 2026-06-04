@@ -140,6 +140,11 @@ COMMAND_HELP = {
         "description": "Show due-date agenda for next N days (default 7).",
         "examples": ["ag", "ag 14"],
     },
+    "day": {
+        "syntax": "day [date]",
+        "description": "Show tasks created on a date (default: today). Accepts natural dates.",
+        "examples": ["day", "hoy", "day 03/06/2026", "day yesterday", "day friday"],
+    },
     "ck": {
         "syntax": "ck",
         "description": "Run journal linter and show format/metadata issues.",
@@ -243,6 +248,8 @@ ALIAS_TO_HELP_KEY = {
     "archive": "ar",
     "meta": "md",
     "agenda": "ag",
+    "today": "day",
+    "hoy": "day",
     "check": "ck",
     "undo": "u",
     "find": "f",
@@ -691,6 +698,29 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(tasks_by_date, view_state)
         refreshed = context.refresh_tasks()
         _print_agenda(refreshed, days_ahead=days)
+        return CommandOutcome(refreshed, view_state)
+
+    # ─── Day view: show tasks created on a specific date ─────────────
+    if re.match(r"^\s*(?:day|hoy|today)(?:\s+.+)?\s*$", raw_command, re.IGNORECASE):
+        match = re.match(r"^\s*(?:day|hoy|today)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
+        from tm_logic import parse_date_input
+        date_arg = match.group(1).strip() if match and match.group(1) else None
+        if date_arg:
+            target = parse_date_input(date_arg)
+            if target is None:
+                print(f"{Colors.ERROR}Invalid date: {date_arg}{Colors.RESET}")
+                return CommandOutcome(tasks_by_date, view_state)
+        else:
+            target = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        refreshed = context.refresh_tasks()
+        filtered = {}
+        for d, tl in refreshed.items():
+            if d and d.date() == target.date():
+                filtered[d] = tl
+        if not filtered:
+            print(f"{Colors.DIM}No tasks for {target.strftime('%d/%m/%Y')}.{Colors.RESET}")
+        else:
+            display_tasks(filtered, show_done=view_state.show_done)
         return CommandOutcome(refreshed, view_state)
 
     if command in ("ck", "check"):
