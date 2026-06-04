@@ -1045,16 +1045,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 title_no_tags = _strip_tags(target.title)
 
                 state_idx = VALID_STATES.index(target.state) if target.state in VALID_STATES else 0
-                prio_options = ["(none)"] + VALID_PRIORITIES
-                prio_idx = 0
-                if target.priority and target.priority in VALID_PRIORITIES:
-                    prio_idx = VALID_PRIORITIES.index(target.priority) + 1
+                prio_idx = VALID_PRIORITIES.index(target.priority) if target.priority and target.priority in VALID_PRIORITIES else -1
 
                 form_fields = [
                     TextField("Title", value=title_no_tags),
                     SelectField("State", VALID_STATES, selected=state_idx),
                     TextField("Due date", value=target.due_date.strftime("%d/%m/%Y") if target.due_date else ""),
-                    SelectField("Priority", VALID_PRIORITIES, selected=prio_idx - 1 if prio_idx > 0 else 0, allow_empty=True),
+                    SelectField("Priority", VALID_PRIORITIES, selected=prio_idx, allow_empty=True),
                     TextField("Tags", value=tags),
                 ]
 
