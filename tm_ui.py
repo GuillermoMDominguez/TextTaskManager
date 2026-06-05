@@ -179,9 +179,14 @@ def enable_command_history(history_file: Optional[str] = None, max_items: int = 
     if readline is None:
         return
 
-    readline.parse_and_bind("\"\\e[A\": previous-history")
-    readline.parse_and_bind("\"\\e[B\": next-history")
-    readline.parse_and_bind("tab: complete")
+    # Detect libedit (macOS) vs GNU readline — different bind syntax
+    _is_libedit = "libedit" in (readline.__doc__ or "")
+    if _is_libedit:
+        readline.parse_and_bind("bind ^I rl_complete")
+    else:
+        readline.parse_and_bind("\"\\e[A\": previous-history")
+        readline.parse_and_bind("\"\\e[B\": next-history")
+        readline.parse_and_bind("tab: complete")
     readline.set_history_length(max_items)
     readline.set_completer(_command_completer)
     readline.set_completer_delims(" ")

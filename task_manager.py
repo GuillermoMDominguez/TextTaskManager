@@ -419,8 +419,11 @@ def main() -> None:
 
     while True:
         try:
+            # Print blank line before prompt (outside readline's view)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
             # \001/\002 wrap ANSI codes so readline calculates cursor width correctly
-            prompt = f"\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            prompt = f"\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
             raw_command = input(prompt).strip()
             remember_command(raw_command)
 
