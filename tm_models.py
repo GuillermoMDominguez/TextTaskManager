@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
-from tm_config import DEFAULT_STATE, FINISHED_STATES
+from tm_config import DEFAULT_STATE, FINISHED_STATES, PROGRESS_STATES, TESTING_STATES
 
 
 TAG_PATTERN = re.compile(r"(?<!\w)#([A-Za-z0-9_-]+)")
@@ -41,11 +41,11 @@ class Subtask:
 
     def is_in_progress(self) -> bool:
         """Check if subtask is in progress."""
-        return self.state == "IN PROGRESS"
+        return self.state in PROGRESS_STATES
 
     def is_in_testing(self) -> bool:
         """Check if subtask is in testing."""
-        return self.state in ("TESTING", "IN TESTING")
+        return self.state in TESTING_STATES
 
     def get_tags(self) -> List[str]:
         """Return tags found in the subtask title."""
@@ -76,11 +76,11 @@ class Task:
 
     def is_in_progress(self) -> bool:
         """Check if task is in progress."""
-        return self.state == "IN PROGRESS"
+        return self.state in PROGRESS_STATES
 
     def is_in_testing(self) -> bool:
         """Check if task is in testing."""
-        return self.state in ("TESTING", "IN TESTING")
+        return self.state in TESTING_STATES
 
     def get_tags(self) -> List[str]:
         """Return tags found in the task title only (notes are plain text)."""

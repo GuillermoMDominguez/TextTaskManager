@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from tm_config import VALID_STATES, FINISHED_STATES
+from tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE
 from tm_models import Task, Subtask
 from tm_settings import get_setting
 
@@ -308,7 +308,7 @@ def import_from_json(json_text: str) -> List[str]:
 
         for item in items:
             title = item.get("title", "Untitled")
-            state = item.get("state", "BACKLOG")
+            state = item.get("state", DEFAULT_STATE)
             parts = [f"- {title} -- {state}"]
             if item.get("due_date"):
                 parts.append(f"due:{item['due_date']}")
@@ -321,7 +321,7 @@ def import_from_json(json_text: str) -> List[str]:
 
             for st in item.get("subtasks", []):
                 st_title = st.get("title", "")
-                st_state = st.get("state", "BACKLOG")
+                st_state = st.get("state", DEFAULT_STATE)
                 lines.append(f"+ {st_title} -- {st_state}\n")
 
     return lines
@@ -345,7 +345,7 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
             if task.is_finished():
                 if date and period_start <= date.date() <= today:
                     completed.append(task)
-            elif task.state == "IN PROGRESS":
+            elif task.state in PROGRESS_STATES:
                 in_progress.append(task)
             elif task.due_date and task.due_date.date() <= today + timedelta(days=7):
                 upcoming.append(task)
@@ -358,7 +358,7 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
     lines.append(f"{Colors.BOLD}{'─' * 3}{title}{'─' * max(0, tw - len(title) - 3)}{r}")
 
     # Completed
-    done_color = get_state_color("DONE")
+    done_color = get_state_color(FINISHED_STATES[0])
     lines.append(f"\n  {done_color}{Colors.BOLD}✓ COMPLETED ({len(completed)}){r}")
     lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
     if completed:
@@ -369,7 +369,7 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
         lines.append(f"    {Colors.DIM}(none){r}")
 
     # In Progress
-    ip_color = get_state_color("IN PROGRESS")
+    ip_color = get_state_color(PROGRESS_STATES[0])
     lines.append(f"\n  {ip_color}{Colors.BOLD}⚡ IN PROGRESS ({len(in_progress)}){r}")
     lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
     if in_progress:

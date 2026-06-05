@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
-from tm_config import DEFAULT_STATE, VALID_PRIORITIES, VALID_RECURRENCES, RECURRENCE_ALIASES
+from tm_config import DEFAULT_STATE, FINISHED_STATES, VALID_PRIORITIES, VALID_RECURRENCES, RECURRENCE_ALIASES
 from tm_email import EmailConfig, EmailResult, send_email_report
 from tm_features import (
     compute_next_recurrence_date,
@@ -627,7 +627,7 @@ def _maybe_autoclose_parent(context: CommandContext, parent_id: str, view_state:
         return None
 
     snapshot = read_journal_snapshot(context.journal_path)
-    if update_task_state_in_file(context.journal_path, parent, "DONE"):
+    if update_task_state_in_file(context.journal_path, parent, FINISHED_STATES[0]):
         _save_undo_snapshot(context, snapshot)
         latest = context.refresh_tasks()
         clear_screen()
@@ -998,7 +998,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # Handle recurring tasks: create next instance on completion
             if (
                 not isinstance(target_task, Subtask)
-                and selected_state in ("DONE", "CANCELLED")
+                and selected_state in FINISHED_STATES
                 and getattr(target_task, "recurrence", None)
             ):
                 base_date = target_task.due_date or target_task.date or datetime.now()

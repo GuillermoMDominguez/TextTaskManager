@@ -8,6 +8,8 @@ from typing import Any, Optional
 DEFAULT_SETTINGS = {
     "states": ["BACKLOG", "IN PROGRESS", "WAITING", "TESTING", "DONE", "CANCELLED"],
     "finished_states": ["DONE", "CANCELLED"],
+    "progress_states": ["IN PROGRESS"],
+    "testing_states": ["TESTING", "IN TESTING"],
     "state_aliases": {"IN TESTING": "TESTING"},
     "priorities": ["LOW", "MEDIUM", "HIGH", "URGENT"],
     "priority_aliases": {"L": "LOW", "M": "MEDIUM", "H": "HIGH", "U": "URGENT"},

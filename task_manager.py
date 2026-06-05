@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from tm_commands import CommandContext, ViewState, execute_command
-from tm_config import APP_VERSION, BANNER_INNER_WIDTH
+from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
 from tm_email import load_email_config
 from tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
 from tm_log import log as tm_log_msg, render_log, set_visible as set_log_visible
@@ -307,7 +307,7 @@ def main() -> None:
                 print(f"{Colors.ERROR}Invalid recurrence: {args.quick_recur}{Colors.RESET}")
                 sys.exit(1)
 
-        if add_task_to_file(str(journal_path), args.quick_add, state or "BACKLOG", target_date, due_date, priority, recurrence):
+        if add_task_to_file(str(journal_path), args.quick_add, state or DEFAULT_STATE, target_date, due_date, priority, recurrence):
             print(f"{Colors.DIM}Task added to {journal_path.name}: \"{args.quick_add}\"{Colors.RESET}")
             sys.exit(0)
         else:
