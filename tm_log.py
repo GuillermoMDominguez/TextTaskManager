@@ -8,6 +8,7 @@ Usage:
     # get_history() returns all stored entries formatted
 """
 
+import sys
 import time
 from collections import deque
 
@@ -29,6 +30,7 @@ def log(category: str, message: str) -> None:
     _category = category
     _timestamp = time.time()
     _history.append((_timestamp, category, message))
+    _update_title(message)
 
 
 def get_status_line() -> str:
@@ -71,6 +73,7 @@ def clear() -> None:
     _category = ""
     _timestamp = 0.0
     _history.clear()
+    _update_title("")
 
 
 def get_message() -> str:
@@ -79,6 +82,13 @@ def get_message() -> str:
 
 
 # ─── Private helpers ───────────────────────────────────────────────────────────
+
+def _update_title(message: str) -> None:
+    """Set the terminal tab/window title."""
+    title = f"TTM | {message}" if message else "TTM"
+    sys.stdout.write(f"\033]0;{title}\007")
+    sys.stdout.flush()
+
 
 def _category_icon(category: str) -> str:
     icons = {

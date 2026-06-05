@@ -638,3 +638,11 @@ def _prompt(text: str, default: str = "") -> str:
         return value if value else default
     except (EOFError, KeyboardInterrupt):
         return default
+
+
+def get_sync_user() -> str:
+    """Return the git user.name for the sync repo, or empty string."""
+    if not _journals_dir:
+        return ""
+    name = _run_git(["config", "user.name"])
+    return name.strip() if name else ""

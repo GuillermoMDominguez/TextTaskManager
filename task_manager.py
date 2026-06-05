@@ -15,7 +15,7 @@ from tm_journal import JournalError, parse_journal, add_task_to_file, register_p
 from tm_log import log as tm_log_msg, get_status_line, set_visible as set_log_visible
 from tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
 from tm_settings import load_settings
-from tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown
+from tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown, get_sync_user
 from tm_ui import (
     Colors,
     clear_screen,
@@ -373,6 +373,9 @@ def main() -> None:
         atexit.register(sync_shutdown)
         sync_pull(interactive=True)
 
+    # Get git username for prompt (cached once at startup)
+    _sync_user = get_sync_user() if sync_active else ""
+
     tasks_cache: Optional[dict] = None
 
     def refresh_tasks() -> dict:
@@ -432,10 +435,14 @@ def main() -> None:
         try:
             # Build prompt — include status line above ">" if there's a message
             status = get_status_line()
-            if status:
-                prompt = f"\n{status}\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            if _sync_user:
+                prompt_char = f"\001{Colors.DIM}\002{_sync_user}\001{Colors.RESET}\002\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
             else:
-                prompt = f"\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+                prompt_char = f"\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            if status:
+                prompt = f"\n{status}\n{prompt_char}"
+            else:
+                prompt = f"\n{prompt_char}"
             raw_command = input(prompt).strip()
             remember_command(raw_command)
 
