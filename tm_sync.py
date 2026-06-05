@@ -83,6 +83,16 @@ def sync_pull(interactive: bool = True) -> bool:
         _print_sync(msg)
         return False
 
+    # Check if local branch has any commits yet
+    has_head = _run_git(["rev-parse", "HEAD"]) is not None
+    if not has_head:
+        # Fresh repo with no local commits — reset to remote branch
+        reset = _run_git(["reset", "--hard", f"origin/{branch}"])
+        if reset is None:
+            # Try checkout as fallback (remote might also be empty)
+            _run_git(["checkout", "-B", branch, f"origin/{branch}"])
+        return True
+
     # Check if there are remote changes
     diff_result = _run_git(["diff", f"origin/{branch}", "--stat"])
     if diff_result is not None and diff_result.strip() == "":
@@ -385,15 +395,23 @@ def _is_git_repo(path: Path) -> bool:
 
 
 def _git_init(journals_dir: Path, remote_url: str, branch: str) -> None:
-    """Initialize a new git repo in journals directory."""
+    """Initialize a new git repo in journals directory and pull existing content."""
     _run_git(["init"])
-    _run_git(["checkout", "-b", branch])
     _run_git(["remote", "add", "origin", remote_url])
 
     # Create .gitignore for the journals repo (ignore nothing by default)
     gitignore_path = journals_dir / ".gitignore"
     if not gitignore_path.exists():
         gitignore_path.write_text("# Journal sync repo\n", encoding="utf-8")
+
+    # Try to fetch and checkout existing remote content
+    fetch_ok = _run_git(["fetch", "origin", branch])
+    if fetch_ok is not None:
+        # Remote has content — set local branch to track it
+        _run_git(["checkout", "-b", branch, f"origin/{branch}"])
+    else:
+        # No remote content or no connection — start fresh local branch
+        _run_git(["checkout", "-b", branch])
 
 
 def _run_git(args: list, timeout: int = 30) -> Optional[str]:
