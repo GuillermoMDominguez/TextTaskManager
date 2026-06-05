@@ -579,6 +579,29 @@ def add_blocks_metadata(line: str, blocked_title: str) -> str:
     return line.rstrip() + f" -- blocks:{blocked_title.strip()}"
 
 
+def remove_blocker_metadata(line: str, blocker_title: str) -> str:
+    """Remove a specific blockedby:Title from a task line."""
+    # Remove the specific -- blockedby:Title segment
+    pattern = r"\s*--\s*blockedby\s*[:=]\s*" + re.escape(blocker_title.strip())
+    return re.sub(pattern, "", line, count=1, flags=re.IGNORECASE).rstrip()
+
+
+def remove_all_blocker_metadata(line: str) -> str:
+    """Remove all blockedby: entries from a task line."""
+    return re.sub(r"\s*--\s*blockedby\s*[:=]\s*.+?(?=\s+--|$)", "", line, flags=re.IGNORECASE).rstrip()
+
+
+def remove_blocks_metadata(line: str, blocked_title: str) -> str:
+    """Remove a specific blocks:Title from a task line."""
+    pattern = r"\s*--\s*blocks\s*[:=]\s*" + re.escape(blocked_title.strip())
+    return re.sub(pattern, "", line, count=1, flags=re.IGNORECASE).rstrip()
+
+
+def remove_all_blocks_metadata(line: str) -> str:
+    """Remove all blocks: entries from a task line."""
+    return re.sub(r"\s*--\s*blocks\s*[:=]\s*.+?(?=\s+--|$)", "", line, flags=re.IGNORECASE).rstrip()
+
+
 def find_task_by_title_match(tasks_by_date: dict, title: str) -> Optional[Task]:
     """Find a task whose title matches (case-insensitive)."""
     lower = title.strip().lower()

@@ -104,9 +104,9 @@ COMMAND_HELP = {
         "examples": ["an 3 Review blocker with #backend"],
     },
     "e": {
-        "syntax": "e <id|id:n#> <new text>",
-        "description": "Edit task, subtask, or note text.",
-        "examples": ["e 3 Update task title", "e 3:n1 New note text"],
+        "syntax": "e <id> [text] [--due x] [--priority x] [--tags x]",
+        "description": "Edit task (form if no args, inline with text or metadata flags). Also: md/meta.",
+        "examples": ["e 3", "e 3 New title", "e 3 --due 10/06/2026 --priority high", "e 3 --tags backend,qr"],
     },
     "del": {
         "syntax": "del <id|id:n#>",
@@ -139,14 +139,9 @@ COMMAND_HELP = {
         "examples": ["ar", "ar 10/06/2026"],
     },
     "md": {
-        "syntax": "md <id|id.n|id:n#> [--due dd/mm/yyyy|none] [--priority <level>|none] [--tags <list>|none]",
-        "description": "Edit due/priority/tags on tasks; for subtasks/notes due-priority are stored inline.",
-        "examples": [
-            "md 3 --due 10/06/2026 --priority urgent",
-            "md 3 --tags backend,qr",
-            "md 3.1 --due 11/06/2026 --priority high --tags qa",
-            "md 3:n1 --priority low --tags none",
-        ],
+        "syntax": "md <id> [--due x] [--priority x] [--tags x]",
+        "description": "Alias for 'e' — edit metadata (due/priority/tags).",
+        "examples": ["md 3 --due 10/06/2026", "md 3.1 --priority high --tags qa"],
     },
     "ag": {
         "syntax": "ag [days]",
@@ -231,9 +226,14 @@ COMMAND_HELP = {
         "examples": ["tt 3 1h30m", "tt 3 start", "tt 3 stop"],
     },
     "block": {
-        "syntax": "block <id> <id>",
-        "description": "Mark first task as blocked by second task.",
-        "examples": ["block 3 5"],
+        "syntax": "block <id> <id> | block del <blocked_id> <blocker_id>",
+        "description": "Mark first task as blocked by second, or remove a specific blocker.",
+        "examples": ["block 3 5", "block del 3 5"],
+    },
+    "unblock": {
+        "syntax": "unblock <id>",
+        "description": "Remove ALL blockers from a task.",
+        "examples": ["unblock 3"],
     },
     "pom": {
         "syntax": "pom [id] [minutes]",
@@ -259,7 +259,7 @@ ALIAS_TO_HELP_KEY = {
     "duplicate": "dup",
     "done": "das",
     "archive": "ar",
-    "meta": "md",
+    "meta": "e",
     "agenda": "ag",
     "today": "day",
     "hoy": "day",
@@ -863,6 +863,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             )
             return CommandOutcome(tasks_by_date, view_state)
 
+        result = None  # Will be set if interactive form is used
         if not task_title:
             # Show interactive form
             from tm_form import show_form, TextField, SelectField
@@ -874,6 +875,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 TextField("Due date", placeholder="dd/mm/yyyy (optional)"),
                 SelectField("Priority", VALID_PRIORITIES, allow_empty=True),
                 TextField("Tags", placeholder="tag1 tag2 (optional)"),
+                TextField("Note", placeholder="Add a note (optional)"),
                 TextField("Recurrence", placeholder="daily/weekly/monthly (optional)"),
             ]
 
@@ -918,6 +920,17 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         if add_task_to_file(context.journal_path, task_title, task_state, target_date, due_date, priority, recurrence):
             _save_undo_snapshot(context, snapshot)
+            # Add note if provided via form
+            if result is not None and result.get("Note", "").strip():
+                updated_tasks = context.refresh_tasks()
+                # Find the just-created task by title match
+                created_task = None
+                for tasks in updated_tasks.values():
+                    for t in tasks:
+                        if t.title.strip() == task_title.strip():
+                            created_task = t
+                if created_task:
+                    add_note_to_task_in_file(context.journal_path, created_task, result["Note"].strip())
             updated_tasks = context.refresh_tasks()
             clear_screen()
             created_date = (target_date or datetime.now()).strftime("%d/%m/%Y")
@@ -1064,11 +1077,85 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         print(f"{Colors.ERROR}Could not add note in file.{Colors.RESET}")
         return CommandOutcome(updated_tasks, view_state)
 
-    if re.match(r"^\s*(?:e|edit)\b", raw_command, re.IGNORECASE):
+    if re.match(r"^\s*(?:e|edit|md|meta)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
-        # Check if it's "e <id>" without new text → show form
-        match_no_text = re.match(r"^\s*(?:e|edit)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
-        match = re.match(r"^\s*(?:e|edit)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
+
+        # ─── Check for metadata flags (--due, --priority, --tags) ─────
+        # This replaces the old standalone `md` command.
+        has_meta_flags = bool(re.search(r"--(?:due|priority|tags)\b|-[pt]\b", raw_command))
+        if has_meta_flags or re.match(r"^\s*(?:md|meta)\b", raw_command, re.IGNORECASE):
+            requested_id, has_due, due_date, has_priority, priority, has_tags, tags, parse_error = _parse_meta_command(raw_command)
+            if parse_error:
+                print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+
+            note_target = find_note_by_id(updated_tasks, requested_id or "")
+            if note_target is not None:
+                print(f"{Colors.ERROR}Notes don't support metadata. Use 'e {requested_id} <text>' to edit.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+
+            target = find_task_by_id(updated_tasks, requested_id or "")
+            if target is None:
+                print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+
+            # If no flags provided, fall through to interactive form below
+            if not has_due and not has_priority and not has_tags:
+                pass  # will be handled by the form section below
+            else:
+                # Apply metadata flags directly (inline mode)
+                if isinstance(target, Subtask):
+                    base_title, existing_tags, existing_due, existing_priority = _extract_inline_meta(target.title)
+                    next_tags = tags or [] if has_tags else existing_tags
+                    next_due = due_date if has_due else existing_due
+                    next_priority = priority if has_priority else existing_priority
+                    next_title = _render_inline_meta_text(base_title, next_tags, next_due, next_priority)
+                    snapshot = read_journal_snapshot(context.journal_path)
+                    if edit_subtask_title_in_file(context.journal_path, target, next_title):
+                        _save_undo_snapshot(context, snapshot)
+                        refreshed = context.refresh_tasks()
+                        clear_screen()
+                        print(f"{Colors.DIM}Updated metadata for {requested_id}.{Colors.RESET}")
+                        _render(refreshed, view_state)
+                        return CommandOutcome(refreshed, view_state)
+                    print(f"{Colors.ERROR}Could not update subtask metadata in file.{Colors.RESET}")
+                    return CommandOutcome(updated_tasks, view_state)
+
+                next_due = due_date if has_due else target.due_date
+                next_priority = priority if has_priority else target.priority
+                snapshot = read_journal_snapshot(context.journal_path)
+
+                if has_tags:
+                    next_title = _apply_tags_to_text(target.title, tags or [])
+                    if not edit_task_title_in_file(context.journal_path, target, next_title):
+                        print(f"{Colors.ERROR}Could not update task tags in file.{Colors.RESET}")
+                        return CommandOutcome(updated_tasks, view_state)
+                    updated_tasks = context.refresh_tasks()
+                    refreshed_target = find_task_by_id(updated_tasks, requested_id or "")
+                    if isinstance(refreshed_target, Task):
+                        target = refreshed_target
+                        next_due = due_date if has_due else target.due_date
+                        next_priority = priority if has_priority else target.priority
+
+                if update_task_metadata_in_file(context.journal_path, target, next_due, next_priority):
+                    _save_undo_snapshot(context, snapshot)
+                    refreshed = context.refresh_tasks()
+                    clear_screen()
+                    due_label = next_due.strftime("%d/%m/%Y") if next_due else "none"
+                    priority_label = next_priority or "none"
+                    print(
+                        f"{Colors.DIM}Updated metadata for {requested_id}: due={due_label}, "
+                        f"priority={priority_label}, tags={'updated' if has_tags else 'unchanged'}.{Colors.RESET}"
+                    )
+                    _render(refreshed, view_state)
+                    return CommandOutcome(refreshed, view_state)
+
+                print(f"{Colors.ERROR}Could not update metadata in file.{Colors.RESET}")
+                return CommandOutcome(updated_tasks, view_state)
+
+        # ─── Interactive form: e <id> (no trailing text, no flags) ────
+        match_no_text = re.match(r"^\s*(?:e|edit|md|meta)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+        match = re.match(r"^\s*(?:e|edit|md|meta)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
 
         if match_no_text and not match:
             requested_id = match_no_text.group(1).strip()
@@ -1091,6 +1178,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     TextField("Due date", value=target.due_date.strftime("%d/%m/%Y") if target.due_date else ""),
                     SelectField("Priority", VALID_PRIORITIES, selected=prio_idx, allow_empty=True),
                     TextField("Tags", value=tags),
+                    TextField("Note", placeholder="Add a note (optional)"),
                 ]
 
                 try:
@@ -1130,6 +1218,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     target.due_date = new_due
                     target.priority = new_priority
                     update_task_state_in_file(context.journal_path, target, new_state)
+                # Update metadata
+                update_task_metadata_in_file(context.journal_path, target, new_due, new_priority)
+                # Add note if provided
+                note_text = result.get("Note", "").strip()
+                if note_text:
+                    add_note_to_task_in_file(context.journal_path, target, note_text)
                 _save_undo_snapshot(context, snapshot)
                 refreshed = context.refresh_tasks()
                 clear_screen()
@@ -1144,8 +1238,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 print(f"{Colors.ERROR}Usage: e <task_id|subtask_id|task_id:n#> <new text>{Colors.RESET}")
                 return CommandOutcome(updated_tasks, view_state)
 
+        # ─── Inline edit: e <id> <new text> ───────────────────────────
         if not match:
-            print(f"{Colors.ERROR}Usage: e <task_id|subtask_id|task_id:n#> <new text>{Colors.RESET}")
+            print(f"{Colors.ERROR}Usage: e <id> [text] [--due x] [--priority x] [--tags x]{Colors.RESET}")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
@@ -1453,117 +1548,6 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         _render(refreshed, view_state)
         return CommandOutcome(refreshed, view_state)
 
-    if re.match(r"^\s*(?:md|meta)\b", raw_command, re.IGNORECASE):
-        updated_tasks = context.refresh_tasks()
-        requested_id, has_due, due_date, has_priority, priority, has_tags, tags, parse_error = _parse_meta_command(raw_command)
-        if parse_error:
-            print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
-            return CommandOutcome(updated_tasks, view_state)
-
-        note_target = find_note_by_id(updated_tasks, requested_id or "")
-        if note_target is not None:
-            print(f"{Colors.ERROR}Notes don't support metadata. Use 'e {requested_id} <text>' to edit.{Colors.RESET}")
-            return CommandOutcome(updated_tasks, view_state)
-
-        target = find_task_by_id(updated_tasks, requested_id or "")
-        if target is None:
-            print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
-            return CommandOutcome(updated_tasks, view_state)
-
-        # If no flags provided, show interactive form
-        if not has_due and not has_priority and not has_tags:
-            from tm_form import show_form, TextField, SelectField
-            from tm_config import VALID_PRIORITIES as _VP
-            if isinstance(target, Subtask):
-                base_title, existing_tags, existing_due, existing_priority = _extract_inline_meta(target.title)
-            else:
-                existing_tags = target.get_tags()
-                existing_due = target.due_date
-                existing_priority = target.priority
-            form_fields = [
-                TextField("Due date", value=existing_due.strftime("%d/%m/%Y") if existing_due else ""),
-                SelectField("Priority", _VP, selected=_VP.index(existing_priority) if existing_priority and existing_priority in _VP else -1, allow_empty=True),
-                TextField("Tags", value=" ".join(existing_tags) if existing_tags else ""),
-            ]
-            result = show_form(f"Metadata — {_strip_tags(target.title)[:30]}", form_fields)
-            if result is None:
-                clear_screen()
-                _render(updated_tasks, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
-                return CommandOutcome(updated_tasks, view_state)
-            # Parse form results into flags
-            due_str = result.get("Due date", "").strip()
-            if due_str:
-                has_due = True
-                due_date = parse_date_input(due_str)
-            elif existing_due:
-                has_due = True
-                due_date = None  # Clear it
-            prio_str = result.get("Priority", "").strip()
-            if prio_str:
-                has_priority = True
-                priority = normalize_priority_input(prio_str)
-            elif existing_priority:
-                has_priority = True
-                priority = None
-            tags_str = result.get("Tags", "").strip()
-            if tags_str:
-                has_tags = True
-                tags = [t.lstrip("#") for t in tags_str.split() if t]
-            elif existing_tags:
-                has_tags = True
-                tags = []
-
-        if isinstance(target, Subtask):
-            base_title, existing_tags, existing_due, existing_priority = _extract_inline_meta(target.title)
-            next_tags = tags or [] if has_tags else existing_tags
-            next_due = due_date if has_due else existing_due
-            next_priority = priority if has_priority else existing_priority
-            next_title = _render_inline_meta_text(base_title, next_tags, next_due, next_priority)
-            snapshot = read_journal_snapshot(context.journal_path)
-            if edit_subtask_title_in_file(context.journal_path, target, next_title):
-                _save_undo_snapshot(context, snapshot)
-                refreshed = context.refresh_tasks()
-                clear_screen()
-                print(f"{Colors.DIM}Updated metadata for {requested_id}.{Colors.RESET}")
-                _render(refreshed, view_state)
-                return CommandOutcome(refreshed, view_state)
-
-            print(f"{Colors.ERROR}Could not update subtask metadata in file.{Colors.RESET}")
-            return CommandOutcome(updated_tasks, view_state)
-
-        next_due = due_date if has_due else target.due_date
-        next_priority = priority if has_priority else target.priority
-        snapshot = read_journal_snapshot(context.journal_path)
-
-        if has_tags:
-            next_title = _apply_tags_to_text(target.title, tags or [])
-            if not edit_task_title_in_file(context.journal_path, target, next_title):
-                print(f"{Colors.ERROR}Could not update task tags in file.{Colors.RESET}")
-                return CommandOutcome(updated_tasks, view_state)
-            updated_tasks = context.refresh_tasks()
-            refreshed_target = find_task_by_id(updated_tasks, requested_id or "")
-            if isinstance(refreshed_target, Task):
-                target = refreshed_target
-                next_due = due_date if has_due else target.due_date
-                next_priority = priority if has_priority else target.priority
-
-        if update_task_metadata_in_file(context.journal_path, target, next_due, next_priority):
-            _save_undo_snapshot(context, snapshot)
-            refreshed = context.refresh_tasks()
-            clear_screen()
-            due_label = next_due.strftime("%d/%m/%Y") if next_due else "none"
-            priority_label = next_priority or "none"
-            print(
-                f"{Colors.DIM}Updated metadata for {requested_id}: due={due_label}, "
-                f"priority={priority_label}, tags={'updated' if has_tags else 'unchanged'}.{Colors.RESET}"
-            )
-            _render(refreshed, view_state)
-            return CommandOutcome(refreshed, view_state)
-
-        print(f"{Colors.ERROR}Could not update metadata in file.{Colors.RESET}")
-        return CommandOutcome(updated_tasks, view_state)
-
     if re.match(r"^\s*(?:f|find)\b", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*(?:f|find)\s*(.*)$", raw_command, re.IGNORECASE)
         query = match.group(1).strip() if match else ""
@@ -1769,6 +1753,117 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         return CommandOutcome(updated_tasks, view_state)
 
     # ─── Task Dependencies / Blockers ──────────────────────────────────
+    # block del <blocked_id> <blocker_id> — remove a specific blocker
+    if re.match(r"^\s*(?:block|blocker)\s+del\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*(?:block|blocker)\s+del\s+(\S+)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+        if not match:
+            print(f"{Colors.ERROR}Usage: block del <blocked_id> <blocker_id>{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        blocked_id = match.group(1)
+        blocker_id = match.group(2)
+
+        blocked_task = find_task_by_id(refreshed, blocked_id)
+        blocker_task = find_task_by_id(refreshed, blocker_id)
+
+        if not blocked_task or isinstance(blocked_task, Subtask):
+            print(f"{Colors.ERROR}Task {blocked_id} not found.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+        if not blocker_task or isinstance(blocker_task, Subtask):
+            print(f"{Colors.ERROR}Task {blocker_id} not found.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        from tm_features import remove_blocker_metadata, remove_blocks_metadata
+
+        snapshot = read_journal_snapshot(context.journal_path)
+        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+        updated = False
+
+        # Remove blockedby: from the blocked task
+        if blocked_task.source_line:
+            idx = blocked_task.source_line - 1
+            if 0 <= idx < len(lines):
+                lines[idx] = remove_blocker_metadata(lines[idx], _strip_tags(blocker_task.title))
+                updated = True
+
+        # Remove blocks: from the blocker task
+        if updated and blocker_task.source_line:
+            idx = blocker_task.source_line - 1
+            if 0 <= idx < len(lines):
+                lines[idx] = remove_blocks_metadata(lines[idx], _strip_tags(blocked_task.title))
+
+        if updated:
+            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+            _notify_post_write()
+            _save_undo_snapshot(context, snapshot)
+            clear_screen()
+            refreshed = context.refresh_tasks()
+            print(f"{Colors.DIM}Removed blocker: {blocker_id} no longer blocks {blocked_id}.{Colors.RESET}")
+            _render(refreshed, view_state)
+        else:
+            print(f"{Colors.ERROR}Could not remove blocker.{Colors.RESET}")
+
+        return CommandOutcome(context.refresh_tasks(), view_state)
+
+    # unblock <id> — remove ALL blockers from a task
+    if re.match(r"^\s*unblock\b", raw_command, re.IGNORECASE):
+        refreshed = context.refresh_tasks()
+        match = re.match(r"^\s*unblock\s+(\S+)\s*$", raw_command, re.IGNORECASE)
+        if not match:
+            print(f"{Colors.ERROR}Usage: unblock <task_id>{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        task_id = match.group(1)
+        target = find_task_by_id(refreshed, task_id)
+
+        if not target or isinstance(target, Subtask):
+            print(f"{Colors.ERROR}Task {task_id} not found.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        from tm_features import (
+            extract_blockers_from_line, remove_all_blocker_metadata,
+            remove_blocks_metadata, find_task_by_title_match,
+        )
+
+        snapshot = read_journal_snapshot(context.journal_path)
+        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+
+        if not target.source_line:
+            print(f"{Colors.ERROR}Could not locate task in file.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        idx = target.source_line - 1
+        if idx < 0 or idx >= len(lines):
+            print(f"{Colors.ERROR}Could not locate task in file.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        # Get blocker titles before removing
+        blockers = extract_blockers_from_line(lines[idx])
+        if not blockers:
+            print(f"{Colors.DIM}Task {task_id} has no blockers.{Colors.RESET}")
+            return CommandOutcome(refreshed, view_state)
+
+        # Remove all blockedby: from this task
+        lines[idx] = remove_all_blocker_metadata(lines[idx])
+
+        # Remove corresponding blocks: from each blocker task
+        for blocker_title in blockers:
+            blocker_task = find_task_by_title_match(refreshed, blocker_title)
+            if blocker_task and blocker_task.source_line:
+                b_idx = blocker_task.source_line - 1
+                if 0 <= b_idx < len(lines):
+                    lines[b_idx] = remove_blocks_metadata(lines[b_idx], _strip_tags(target.title))
+
+        Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+        _notify_post_write()
+        _save_undo_snapshot(context, snapshot)
+        clear_screen()
+        refreshed = context.refresh_tasks()
+        print(f"{Colors.DIM}Removed {len(blockers)} blocker(s) from task {task_id}.{Colors.RESET}")
+        _render(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state)
+
     if re.match(r"^\s*(?:block|blocker)\b", raw_command, re.IGNORECASE):
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*(?:block|blocker)\s+(\S+)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
