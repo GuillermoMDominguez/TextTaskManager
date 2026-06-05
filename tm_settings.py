@@ -1,5 +1,6 @@
 """User settings loaded from .ttm_config JSON file."""
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -94,7 +95,7 @@ def load_settings(project_dir: Optional[Path] = None, force_reload: bool = False
     config_path = _find_config_file(project_dir)
     _settings_path = config_path
 
-    settings = dict(DEFAULT_SETTINGS)
+    settings = copy.deepcopy(DEFAULT_SETTINGS)
 
     if config_path and config_path.exists():
         try:
