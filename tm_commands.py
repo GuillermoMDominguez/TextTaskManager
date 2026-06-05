@@ -1831,12 +1831,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 print(f"{Colors.DIM}No blocked tasks found.{Colors.RESET}")
                 return CommandOutcome(refreshed, view_state)
 
-            # Show list picker (vertical, all visible)
+            # Show list picker (vertical, multi-select)
             from tm_form import show_list_picker
             import shutil as _shutil
             _cols = _shutil.get_terminal_size().columns
-            # Max text width: terminal - 10 (borders, indicator, padding)
-            _max_opt = max(20, _cols - 10)
+            # Max text width: terminal - 14 (borders, indicator, checkbox, padding)
+            _max_opt = max(20, _cols - 14)
             options = []
             for t, b in blocked_tasks:
                 label = f"[{t.task_id}] {_strip_tags(t.title)} (← {', '.join(b)})"
@@ -1844,14 +1844,51 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     label = label[:_max_opt - 1] + "…"
                 options.append(label)
 
-            selected_idx = show_list_picker("Unblock — select task", options)
-            if selected_idx is None:
+            selected_indices = show_list_picker("Unblock — select tasks", options, multi=True)
+            if not selected_indices:
                 clear_screen()
                 _render(refreshed, view_state)
                 return CommandOutcome(refreshed, view_state)
 
-            target, _ = blocked_tasks[selected_idx]
-            task_id = target.task_id
+            # Process all selected tasks
+            from tm_features import (
+                extract_blockers_from_line, remove_all_blocker_metadata,
+                remove_blocks_metadata, find_task_by_title_match,
+            )
+            snapshot = read_journal_snapshot(context.journal_path)
+            lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+            total_removed = 0
+
+            for sel_idx in selected_indices:
+                target, _ = blocked_tasks[sel_idx]
+                if not target.source_line:
+                    continue
+                idx = target.source_line - 1
+                if idx < 0 or idx >= len(lines):
+                    continue
+                blockers = extract_blockers_from_line(lines[idx])
+                if not blockers:
+                    continue
+                # Remove all blockedby: from this task
+                lines[idx] = remove_all_blocker_metadata(lines[idx])
+                # Remove corresponding blocks: from each blocker task
+                for blocker_title in blockers:
+                    blocker_task = find_task_by_title_match(refreshed, blocker_title)
+                    if blocker_task and blocker_task.source_line:
+                        b_idx = blocker_task.source_line - 1
+                        if 0 <= b_idx < len(lines):
+                            lines[b_idx] = remove_blocks_metadata(lines[b_idx], _strip_tags(target.title))
+                total_removed += len(blockers)
+
+            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
+            _notify_post_write()
+            _save_undo_snapshot(context, snapshot)
+            from tm_log import log as _log
+            _log("info", f"Removed {total_removed} blocker(s) from {len(selected_indices)} task(s).")
+            clear_screen()
+            refreshed = context.refresh_tasks()
+            _render(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state)
         else:
             task_id = match.group(1)
             target = find_task_by_id(refreshed, task_id)
