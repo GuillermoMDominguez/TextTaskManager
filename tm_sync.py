@@ -484,26 +484,30 @@ def _do_push(verbose: bool = False) -> bool:
     remote_url = _resolve_remote_url()
     _run_git(["remote", "set-url", "origin", remote_url])
 
-    # Stage all changes
-    _run_git(["add", "-A"])
+    # Acquire journal file lock during add+commit to prevent capturing
+    # a partially-written file from the main thread
+    from tm_journal import file_lock as _journal_lock
+    with _journal_lock:
+        # Stage all changes
+        _run_git(["add", "-A"])
 
-    # Check if there's anything to commit
-    status = _run_git(["status", "--porcelain"])
-    if status is None or status.strip() == "":
-        if verbose:
-            _print_sync("Nothing to push")
-        return True
+        # Check if there's anything to commit
+        status = _run_git(["status", "--porcelain"])
+        if status is None or status.strip() == "":
+            if verbose:
+                _print_sync("Nothing to push")
+            return True
 
-    # Commit
-    _ensure_git_identity()
-    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    commit_result = _run_git(["commit", "-m", f"sync: {timestamp}"])
-    if commit_result is None:
-        detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
-        _print_sync(f"Commit failed: {detail}")
-        return False
+        # Commit
+        _ensure_git_identity()
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        commit_result = _run_git(["commit", "-m", f"sync: {timestamp}"])
+        if commit_result is None:
+            detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
+            _print_sync(f"Commit failed: {detail}")
+            return False
 
-    # Pull before push to handle diverged histories
+    # Pull before push to handle diverged histories (no lock needed — network op)
     _run_git(["pull", "--rebase", "origin", branch])
 
     # Push

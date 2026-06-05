@@ -1,6 +1,8 @@
 """Journal parsing and persistence helpers."""
 
+import os
 import re
+import threading
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +10,11 @@ from typing import Callable, List, Optional, Tuple
 
 from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
 from tm_models import Subtask, Task
+
+
+# ─── File lock (shared with tm_sync to prevent concurrent access) ──────────────
+# Acquire this lock before writing to any journal file.
+file_lock = threading.Lock()
 
 
 # ─── Post-write hooks ──────────────────────────────────────────────────────────
@@ -406,8 +413,45 @@ def _read_lines(filepath: str) -> List[str]:
 
 
 def _write_lines(filepath: str, lines: List[str]) -> None:
-    with open(filepath, "w", encoding="utf-8") as file_handle:
-        file_handle.writelines(lines)
+    """Atomically write lines to a journal file (write-tmp + rename)."""
+    tmp = filepath + ".tmp"
+    with file_lock:
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.writelines(lines)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, filepath)
+        except BaseException:
+            # Clean up temp file on any failure
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    _notify_post_write()
+
+
+def write_journal(filepath: str, content: str) -> None:
+    """Atomically write full text content to a journal file.
+
+    Use this instead of Path(...).write_text() for any journal writes.
+    Ensures atomic write (tmp+rename) and triggers post-write hooks.
+    """
+    tmp = filepath + ".tmp"
+    with file_lock:
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(content)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, filepath)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
     _notify_post_write()
 
 
@@ -1059,8 +1103,10 @@ def read_journal_snapshot(filepath: str) -> Optional[str]:
 def restore_journal_snapshot(filepath: str, snapshot: str) -> bool:
     """Restore full journal file text from an undo snapshot."""
     try:
-        Path(filepath).write_text(snapshot, encoding="utf-8")
-        _notify_post_write()
+        write_journal(filepath, snapshot)
+        return True
+    except OSError:
+        return False
         return True
     except OSError:
         return False

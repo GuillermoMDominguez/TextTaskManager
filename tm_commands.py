@@ -55,6 +55,7 @@ from tm_journal import (
     update_task_metadata_in_file,
     update_subtask_state_in_file,
     update_task_state_in_file,
+    write_journal,
     _notify_post_write,
 )
 from tm_logic import (
@@ -437,8 +438,7 @@ def _log_time_to_task(context: CommandContext, task: "Task", minutes: int) -> bo
         # Inline: append or update on task line
         lines[line_index] = update_time_in_line(task_line, total)
 
-    Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
-    _notify_post_write()
+    write_journal(context.journal_path, "\n".join(lines))
     return True
 
 
@@ -1795,8 +1795,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 lines[idx] = remove_blocks_metadata(lines[idx], _strip_tags(blocked_task.title))
 
         if updated:
-            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
-            _notify_post_write()
+            write_journal(context.journal_path, "\n".join(lines))
             _save_undo_snapshot(context, snapshot)
             _log("info", f"Removed blocker: {blocker_id} no longer blocks {blocked_id}.")
             clear_screen()
@@ -1880,8 +1879,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                             lines[b_idx] = remove_blocks_metadata(lines[b_idx], _strip_tags(target.title))
                 total_removed += len(blockers)
 
-            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
-            _notify_post_write()
+            write_journal(context.journal_path, "\n".join(lines))
             _save_undo_snapshot(context, snapshot)
             _log("info", f"Removed {total_removed} blocker(s) from {len(selected_indices)} task(s).")
             clear_screen()
@@ -1930,8 +1928,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 if 0 <= b_idx < len(lines):
                     lines[b_idx] = remove_blocks_metadata(lines[b_idx], _strip_tags(target.title))
 
-        Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
-        _notify_post_write()
+        write_journal(context.journal_path, "\n".join(lines))
         _save_undo_snapshot(context, snapshot)
         _log("info", f"Removed {len(blockers)} blocker(s) from task {task_id}.")
         clear_screen()
@@ -1995,8 +1992,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 lines[idx] = add_blocks_metadata(lines[idx], _strip_tags(blocked_task.title))
 
         if updated:
-            Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
-            _notify_post_write()
+            write_journal(context.journal_path, "\n".join(lines))
             _save_undo_snapshot(context, snapshot)
             _log("info", f"Task {blocked_id} is now blocked by task {blocker_id}.")
         else:
