@@ -37,7 +37,7 @@ def setup_scroll_region() -> None:
 
 
 def render_log() -> None:
-    """Draw the log bar at the absolute bottom 2 rows of the terminal.
+    """Draw the log bar as a single line at the absolute last row of the terminal.
 
     Uses save/restore cursor so the visible cursor position is unchanged.
     Safe to call from any context (main thread or background thread).
@@ -49,21 +49,16 @@ def render_log() -> None:
 
     rows, cols = shutil.get_terminal_size()
 
-    # Save cursor, draw at bottom, restore cursor
+    # Save cursor, draw at bottom row, restore cursor
     sys.stdout.write("\033[s")  # save cursor
 
-    # Row (rows-1): subtle divider
-    sys.stdout.write(f"\033[{rows - 1};1H\033[2K")
-    divider = "┄" * cols
-    sys.stdout.write(f"{Colors.DIM}{divider}{Colors.RESET}")
-
-    # Row (rows): log message
+    # Single line at row `rows`: ┄ HH:MM:SS [category] message
     sys.stdout.write(f"\033[{rows};1H\033[2K")
     ts = time.strftime("%H:%M:%S", time.localtime(_timestamp))
     icon = _category_icon(_category)
     color = _category_color(_category)
-    content = f" {ts} {color}{icon} {_message}{Colors.RESET}"
-    visible_len = len(f" {ts} {icon} {_message}")
+    content = f"┄ {ts} {color}{icon} {_message}{Colors.RESET}"
+    visible_len = len(f"┄ {ts} {icon} {_message}")
     padding = " " * max(0, cols - visible_len)
     sys.stdout.write(f"{Colors.DIM}{content}{padding}")
 
@@ -73,10 +68,9 @@ def render_log() -> None:
 
 
 def clear_log_bar() -> None:
-    """Erase the bottom bar area."""
+    """Erase the log bar (last row)."""
     rows, cols = shutil.get_terminal_size()
     sys.stdout.write("\033[s")
-    sys.stdout.write(f"\033[{rows - 1};1H" + " " * cols)
     sys.stdout.write(f"\033[{rows};1H" + " " * cols)
     sys.stdout.write("\033[u")
     sys.stdout.flush()

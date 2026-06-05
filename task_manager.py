@@ -419,18 +419,32 @@ def main() -> None:
 
     while True:
         try:
-            # Prompt flows naturally after content; scroll region prevents
-            # it from ever reaching the log bar at the bottom.
-            sys.stdout.write("\n")
+            import shutil as _shutil
+            _rows, _ = _shutil.get_terminal_size()
+
+            # Draw log bar at absolute bottom (row _rows)
+            from tm_log import render_log
+            render_log()
+
+            # Move cursor to fixed prompt row (rows-1), clear it
+            sys.stdout.write(f"\033[{_rows - 1};1H\033[2K")
             sys.stdout.flush()
+
+            # \001/\002 wrap ANSI so readline calculates width correctly
             prompt = f"\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
             raw_command = input(prompt).strip()
+
+            # Clear the prompt line (remove "typed" text so only one prompt exists)
+            sys.stdout.write(f"\033[{_rows - 1};1H\033[2K")
+            sys.stdout.flush()
+
             remember_command(raw_command)
 
             try:
                 outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)
             except JournalError as exc:
-                print(f"{Colors.ERROR}{exc}{Colors.RESET}")
+                from tm_log import log as _log
+                _log("error", str(exc))
                 continue
             except Exception as exc:
                 import traceback
@@ -438,28 +452,27 @@ def main() -> None:
                     f"COMMAND ERROR ({raw_command}):\n{traceback.format_exc()}",
                     encoding="utf-8",
                 )
-                print(f"{Colors.ERROR}Unexpected error. See ttm_crash.log{Colors.RESET}")
+                from tm_log import log as _log
+                _log("error", f"Unexpected error. See ttm_crash.log")
                 continue
 
             tasks_by_date = outcome.tasks_by_date
             view_state = outcome.view_state
 
-            # Always refresh the bottom log bar after any command
-            from tm_log import render_log
-            render_log()
-
             if outcome.should_exit:
                 save_command_history(str(history_path))
+                # Clear bottom area before exit message
+                sys.stdout.write(f"\033[{_rows - 1};1H\033[2K")
+                sys.stdout.write(f"\033[{_rows};1H\033[2K")
+                sys.stdout.write(f"\033[{_rows - 1};1H")
                 print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
                 break
 
         except KeyboardInterrupt:
             save_command_history(str(history_path))
-            print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}")
             break
         except EOFError:
             save_command_history(str(history_path))
-            print(f"\n{Colors.DIM}Goodbye!{Colors.RESET}")
             break
 
 
