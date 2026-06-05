@@ -1797,9 +1797,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _notify_post_write()
             _save_undo_snapshot(context, snapshot)
+            from tm_log import log as _log
+            _log("info", f"Removed blocker: {blocker_id} no longer blocks {blocked_id}.")
             clear_screen()
             refreshed = context.refresh_tasks()
-            print(f"{Colors.DIM}Removed blocker: {blocker_id} no longer blocks {blocked_id}.{Colors.RESET}")
             _render(refreshed, view_state)
         else:
             print(f"{Colors.ERROR}Could not remove blocker.{Colors.RESET}")
@@ -1901,9 +1902,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
         _notify_post_write()
         _save_undo_snapshot(context, snapshot)
+        from tm_log import log as _log
+        _log("info", f"Removed {len(blockers)} blocker(s) from task {task_id}.")
         clear_screen()
         refreshed = context.refresh_tasks()
-        print(f"{Colors.DIM}Removed {len(blockers)} blocker(s) from task {task_id}.{Colors.RESET}")
         _render(refreshed, view_state)
         return CommandOutcome(refreshed, view_state)
 
@@ -1966,11 +1968,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _notify_post_write()
             _save_undo_snapshot(context, snapshot)
-            print(f"{Colors.DIM}Task {blocked_id} is now blocked by task {blocker_id}.{Colors.RESET}")
+            from tm_log import log as _log
+            _log("info", f"Task {blocked_id} is now blocked by task {blocker_id}.")
         else:
             print(f"{Colors.ERROR}Could not update dependency.{Colors.RESET}")
 
         updated_tasks = context.refresh_tasks()
+        clear_screen()
+        _render(updated_tasks, view_state)
         return CommandOutcome(updated_tasks, view_state)
 
     # ─── Pomodoro ──────────────────────────────────────────────────────

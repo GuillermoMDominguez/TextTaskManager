@@ -1,14 +1,13 @@
-"""System log module — fixed single-line bottom bar.
+"""System log module — single-line bottom bar.
 
-Uses ANSI scroll regions to pin a status line at the very bottom of the
-terminal. All other content (tasks, prompt) lives in the scroll region above.
+Draws a status bar at the last 2 rows of the terminal using save/restore
+cursor positioning. NO scroll regions — content and prompt flow naturally.
 
 Usage:
-    from tm_log import log, render_log, set_visible, setup_scroll_region
+    from tm_log import log, render_log, set_visible
 
-    setup_scroll_region()  # call once on startup / after clear_screen
     log("sync", "Pushed successfully")
-    render_log()           # draws the bottom bar without moving content
+    render_log()  # draws at absolute bottom without moving visible cursor
 """
 
 import sys
@@ -33,23 +32,16 @@ def log(category: str, message: str) -> None:
 
 
 def setup_scroll_region() -> None:
-    """Set terminal scroll region to exclude the bottom 2 lines (divider + log).
-
-    Call this after every clear_screen(). Only activates if visible AND there's
-    a message to show.
-    """
-    if not _visible or not _message:
-        return
-    rows, _ = shutil.get_terminal_size()
-    # Scroll region: line 1 to (rows - 2), leaving 2 lines at bottom:
-    #   rows-1 = divider, rows = log
-    sys.stdout.write(f"\033[1;{rows - 2}r")
-    sys.stdout.write("\033[1;1H")
-    sys.stdout.flush()
+    """No-op — kept for backward compatibility. Scroll regions removed."""
+    pass
 
 
 def render_log() -> None:
-    """Draw the bottom bar (divider + log) at the fixed bottom of the terminal."""
+    """Draw the log bar at the absolute bottom 2 rows of the terminal.
+
+    Uses save/restore cursor so the visible cursor position is unchanged.
+    Safe to call from any context (main thread or background thread).
+    """
     if not _visible or not _message:
         return
 
@@ -57,23 +49,16 @@ def render_log() -> None:
 
     rows, cols = shutil.get_terminal_size()
 
-    # Ensure scroll region is active (excludes bottom 2 lines: divider + log)
-    sys.stdout.write(f"\033[1;{rows - 2}r")
+    # Save cursor, draw at bottom, restore cursor
+    sys.stdout.write("\033[s")  # save cursor
 
-    # Save cursor position
-    sys.stdout.write("\033[s")
-
-    # Row layout: rows-1 = divider, rows = log
-    divider_row = rows - 1
-    bar_row = rows
-
-    # Draw subtle divider
-    sys.stdout.write(f"\033[{divider_row};1H\033[2K")
+    # Row (rows-1): subtle divider
+    sys.stdout.write(f"\033[{rows - 1};1H\033[2K")
     divider = "┄" * cols
     sys.stdout.write(f"{Colors.DIM}{divider}{Colors.RESET}")
 
-    # Draw log message on last row
-    sys.stdout.write(f"\033[{bar_row};1H\033[2K")
+    # Row (rows): log message
+    sys.stdout.write(f"\033[{rows};1H\033[2K")
     ts = time.strftime("%H:%M:%S", time.localtime(_timestamp))
     icon = _category_icon(_category)
     color = _category_color(_category)
@@ -82,13 +67,13 @@ def render_log() -> None:
     padding = " " * max(0, cols - visible_len)
     sys.stdout.write(f"{Colors.DIM}{content}{padding}")
 
-    # Restore cursor position (back in scroll region)
+    # Restore cursor
     sys.stdout.write("\033[u")
     sys.stdout.flush()
 
 
 def clear_log_bar() -> None:
-    """Erase the bottom bar area (e.g. before resetting scroll region)."""
+    """Erase the bottom bar area."""
     rows, cols = shutil.get_terminal_size()
     sys.stdout.write("\033[s")
     sys.stdout.write(f"\033[{rows - 1};1H" + " " * cols)
@@ -98,10 +83,8 @@ def clear_log_bar() -> None:
 
 
 def reset_scroll_region() -> None:
-    """Reset scroll region to full terminal (call on exit)."""
-    rows, _ = shutil.get_terminal_size()
-    sys.stdout.write(f"\033[1;{rows}r")
-    sys.stdout.flush()
+    """No-op — kept for backward compatibility. Scroll regions removed."""
+    pass
 
 
 def set_visible(visible: bool) -> None:
@@ -110,7 +93,6 @@ def set_visible(visible: bool) -> None:
     _visible = visible
     if not visible:
         clear_log_bar()
-        reset_scroll_region()
 
 
 def is_visible() -> bool:

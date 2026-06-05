@@ -553,17 +553,14 @@ def prompt_for_state() -> str:
 def clear_screen() -> None:
     """Clear the terminal screen, preserving background color."""
     import sys
-    from tm_log import setup_scroll_region, render_log
+    from tm_log import render_log
     sys.stdout.write(_BG_SEQ + "\033[2J\033[H")
     sys.stdout.flush()
-    setup_scroll_region()
     render_log()
 
 
 def reset_terminal_background() -> None:
     """Restore the terminal's default background on exit."""
     import sys
-    from tm_log import reset_scroll_region
-    reset_scroll_region()
     sys.stdout.write("\033[0m\033[2J\033[H")
     sys.stdout.flush()
