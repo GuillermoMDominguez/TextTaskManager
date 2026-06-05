@@ -2262,9 +2262,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         from tm_sync import sync_push_blocking, is_configured
         if not is_configured():
             _log("info", f"Sync not configured. Use 'config sync' to set up.")
+            return CommandOutcome(tasks_by_date, view_state)
         else:
             sync_push_blocking()
-        return CommandOutcome(tasks_by_date, view_state)
+            # Refresh tasks — pull may have brought new data
+            updated_tasks = context.refresh_tasks()
+            return CommandOutcome(updated_tasks, view_state)
 
     if command == "config sync":
         from tm_sync import run_config_wizard, init_sync, sync_push_async, is_configured

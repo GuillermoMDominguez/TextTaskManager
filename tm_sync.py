@@ -137,7 +137,7 @@ def sync_push_async() -> None:
 
 
 def sync_push_blocking() -> bool:
-    """Force an immediate sync push. Returns True if successful."""
+    """Force an immediate full sync (pull + push). Returns True if successful."""
     if not _is_active():
         _print_sync("Sync not configured")
         return False
@@ -148,6 +148,9 @@ def sync_push_blocking() -> bool:
             _push_timer.cancel()
             _push_timer = None
 
+    # Pull first to get remote changes
+    sync_pull(interactive=True)
+    # Then push local changes
     return _do_push(verbose=True)
 
 
