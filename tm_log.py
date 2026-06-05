@@ -1,110 +1,80 @@
-"""System log module — single-line bottom bar.
-
-Draws a status bar at the last 2 rows of the terminal using save/restore
-cursor positioning. NO scroll regions — content and prompt flow naturally.
+"""System log — stores status messages and history, printed above the prompt.
 
 Usage:
-    from tm_log import log, render_log, set_visible
+    from tm_log import log, get_status_line, get_history, set_visible
 
     log("sync", "Pushed successfully")
-    render_log()  # draws at absolute bottom without moving visible cursor
+    # get_status_line() returns the last formatted line, or ""
+    # get_history() returns all stored entries formatted
 """
 
-import sys
 import time
-import shutil
+from collections import deque
 
+MAX_HISTORY = 50
 
 _message: str = ""
 _category: str = ""
 _timestamp: float = 0.0
 _visible: bool = True
+_history: deque = deque(maxlen=MAX_HISTORY)
 
 
 # ─── Public API ────────────────────────────────────────────────────────────────
 
 def log(category: str, message: str) -> None:
-    """Set the current log bar message (replaces previous)."""
+    """Store a status message and append to history."""
     global _message, _category, _timestamp
     _message = message
     _category = category
     _timestamp = time.time()
+    _history.append((_timestamp, category, message))
 
 
-def setup_scroll_region() -> None:
-    """No-op — kept for backward compatibility. Scroll regions removed."""
-    pass
-
-
-def render_log() -> None:
-    """Draw the log bar as a single line at the absolute last row of the terminal.
-
-    Uses save/restore cursor so the visible cursor position is unchanged.
-    Safe to call from any context (main thread or background thread).
-    """
+def get_status_line() -> str:
+    """Return the formatted status line, or empty string if nothing to show."""
     if not _visible or not _message:
-        return
-
+        return ""
     from tm_ui import Colors
-
-    rows, cols = shutil.get_terminal_size()
-
-    # Save cursor, draw at bottom row, restore cursor
-    sys.stdout.write("\033[s")  # save cursor
-
-    # Single line at row `rows`: ┄ HH:MM:SS [category] message
-    sys.stdout.write(f"\033[{rows};1H\033[2K")
     ts = time.strftime("%H:%M:%S", time.localtime(_timestamp))
-    icon = _category_icon(_category)
     color = _category_color(_category)
-    content = f"┄ {ts} {color}{icon} {_message}{Colors.RESET}"
-    visible_len = len(f"┄ {ts} {icon} {_message}")
-    padding = " " * max(0, cols - visible_len)
-    sys.stdout.write(f"{Colors.DIM}{content}{padding}")
-
-    # Restore cursor
-    sys.stdout.write("\033[u")
-    sys.stdout.flush()
+    icon = _category_icon(_category)
+    return f"{Colors.DIM}┄ {ts} {color}{icon} {_message}{Colors.RESET}"
 
 
-def clear_log_bar() -> None:
-    """Erase the log bar (last row)."""
-    rows, cols = shutil.get_terminal_size()
-    sys.stdout.write("\033[s")
-    sys.stdout.write(f"\033[{rows};1H" + " " * cols)
-    sys.stdout.write("\033[u")
-    sys.stdout.flush()
-
-
-def reset_scroll_region() -> None:
-    """No-op — kept for backward compatibility. Scroll regions removed."""
-    pass
+def get_history() -> list[str]:
+    """Return all history entries as formatted strings."""
+    from tm_ui import Colors
+    lines = []
+    for ts, cat, msg in _history:
+        t = time.strftime("%H:%M:%S", time.localtime(ts))
+        color = _category_color(cat)
+        icon = _category_icon(cat)
+        lines.append(f"{Colors.DIM}{t} {color}{icon} {msg}{Colors.RESET}")
+    return lines
 
 
 def set_visible(visible: bool) -> None:
-    """Toggle log bar visibility."""
+    """Toggle log visibility."""
     global _visible
     _visible = visible
-    if not visible:
-        clear_log_bar()
 
 
 def is_visible() -> bool:
-    """Check if log bar is currently visible."""
     return _visible
 
 
 def clear() -> None:
-    """Clear the current log message and erase the bar."""
+    """Clear the current message and all history."""
     global _message, _category, _timestamp
     _message = ""
     _category = ""
     _timestamp = 0.0
-    clear_log_bar()
+    _history.clear()
 
 
 def get_message() -> str:
-    """Get the current log message."""
+    """Get the raw current message text."""
     return _message
 
 

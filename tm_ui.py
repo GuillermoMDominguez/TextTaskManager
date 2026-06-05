@@ -516,17 +516,6 @@ def print_help() -> None:
     for command_text, description in rows:
         print(f"  {Colors.BOLD}{command_text.ljust(command_width)}{Colors.RESET} {description}")
 
-    print(
-        " "
-        f"\n  {Colors.DIM}Usage for new:{Colors.RESET} "
-        f"{Colors.BOLD}n [title] [--state <state>] [--date dd/mm/yyyy] [--due dd/mm/yyyy] [--priority <level>]{Colors.RESET}"
-    )
-    print(f"  {Colors.DIM}Examples:{Colors.RESET}")
-    print(f"    {Colors.BOLD}md 3 --due 10/06/2026 --priority high{Colors.RESET}")
-    print(f"    {Colors.BOLD}ag 14{Colors.RESET}")
-    print(f"    {Colors.BOLD}f priority:urgent{Colors.RESET}")
-    print(f"    {Colors.BOLD}f due:overdue{Colors.RESET}")
-    print(f"  {Colors.DIM}Note:{Colors.RESET} task IDs are generated per session and can change after refresh/restart.")
     print(f"{Colors.HEADER}{_hr()}{Colors.RESET}")
 
 

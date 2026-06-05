@@ -12,7 +12,7 @@ from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
 from tm_features import sort_tasks
 from tm_email import load_email_config
 from tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
-from tm_log import log as tm_log_msg, render_log, set_visible as set_log_visible
+from tm_log import log as tm_log_msg, get_status_line, set_visible as set_log_visible
 from tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
 from tm_settings import load_settings
 from tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown
@@ -430,8 +430,12 @@ def main() -> None:
 
     while True:
         try:
-            # Prompt flows naturally after content
-            prompt = f"\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            # Build prompt — include status line above ">" if there's a message
+            status = get_status_line()
+            if status:
+                prompt = f"\n{status}\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            else:
+                prompt = f"\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
             raw_command = input(prompt).strip()
             remember_command(raw_command)
 
@@ -465,7 +469,6 @@ def main() -> None:
             # Re-render: clean screen, fresh content, one prompt next iteration
             clear_screen()
             _render_view(tasks_by_date, view_state)
-            render_log()
 
         except KeyboardInterrupt:
             save_command_history(str(history_path))

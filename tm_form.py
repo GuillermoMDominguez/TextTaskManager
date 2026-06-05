@@ -78,6 +78,10 @@ else:
                     return "SHIFT_TAB"
                 elif seq == b"[3~":
                     return "DELETE"
+                elif seq == b"[H" or seq == b"[1~" or seq == b"OH":
+                    return "HOME"
+                elif seq == b"[F" or seq == b"[4~" or seq == b"OF":
+                    return "END"
                 elif seq == b"OA":
                     return "UP"
                 elif seq == b"OB":
@@ -105,7 +109,7 @@ else:
 # ─── Form Field Types ──────────────────────────────────────────────────────────
 
 class TextField:
-    """Editable text input field."""
+    """Editable text input field with visual line wrapping."""
 
     def __init__(self, label: str, value: str = "", placeholder: str = ""):
         self.label = label
@@ -127,11 +131,68 @@ class TextField:
         elif key == "RIGHT":
             if self.cursor_pos < len(self.value):
                 self.cursor_pos += 1
+        elif key == "HOME":
+            self.cursor_pos = 0
+        elif key == "END":
+            self.cursor_pos = len(self.value)
         elif len(key) == 1 and key.isprintable():
             self.value = self.value[: self.cursor_pos] + key + self.value[self.cursor_pos:]
             self.cursor_pos += 1
 
+    def line_count(self, width: int) -> int:
+        """How many visual rows this field needs at the given width."""
+        if width <= 0:
+            return 1
+        text = self.value or self.placeholder
+        if not text:
+            return 1
+        return max(1, -(-len(text) // width))  # ceil division
+
+    def render_lines(self, active: bool, width: int) -> list:
+        """Return list of rendered strings, one per visual row."""
+        if width <= 0:
+            return [self.render(active)]
+
+        text = self.value
+        if not active and not text:
+            return [f"\033[2m\033[37m{self.placeholder[:width]}\033[0m"]
+
+        if not text:
+            # Active with empty value — just show cursor
+            return [f"\033[7m \033[27m\033[0m"]
+
+        # Split text into chunks of `width`
+        chunks = []
+        for i in range(0, len(text), width):
+            chunks.append(text[i:i + width])
+        if not chunks:
+            chunks = [""]
+
+        if not active:
+            return [f"\033[97m{c}\033[0m" for c in chunks]
+
+        # Active — place cursor highlight in the correct chunk
+        cursor_row = self.cursor_pos // width
+        cursor_col = self.cursor_pos % width
+
+        lines = []
+        for row_idx, chunk in enumerate(chunks):
+            if row_idx == cursor_row:
+                before = chunk[:cursor_col]
+                cursor_ch = chunk[cursor_col] if cursor_col < len(chunk) else " "
+                after = chunk[cursor_col + 1:] if cursor_col < len(chunk) else ""
+                lines.append(f"\033[97m{before}\033[7m{cursor_ch}\033[27m{after}\033[0m")
+            else:
+                lines.append(f"\033[97m{chunk}\033[0m")
+
+        # If cursor is exactly at end (past last char), it's on a new line
+        if self.cursor_pos == len(text) and len(text) % width == 0 and len(text) > 0:
+            lines.append(f"\033[7m \033[27m\033[0m")
+
+        return lines
+
     def render(self, active: bool) -> str:
+        """Single-line render (fallback, used if width unknown)."""
         if active:
             before = self.value[: self.cursor_pos]
             cursor_ch = self.value[self.cursor_pos] if self.cursor_pos < len(self.value) else " "
@@ -414,11 +475,24 @@ def show_form(
         except (ValueError, OSError):
             return 80, 24
 
-    total_rows = len(fields) + 8  # top + title + sep + fields + sep + buttons + bottom + help
-
     def _draw():
         tw, th = _term_size()
         box_w = min(62, tw - 4)
+        inner_w = box_w - 2  # usable chars between │ and │
+        # Width available for text values: inner - indicator(2) - label(13) - space(2)
+        value_width = inner_w - 17
+
+        # Calculate total field rows (some fields may wrap)
+        total_field_rows = 0
+        for f in fields:
+            if isinstance(f, TextField):
+                total_field_rows += f.line_count(value_width)
+            else:
+                total_field_rows += 1
+
+        # Box dimensions: top + title + sep + field_rows + sep + buttons + bottom + help
+        total_rows = total_field_rows + 7
+
         # Horizontal center offset (1-based column)
         col_off = max(1, (tw - box_w) // 2)
         # Vertical center
@@ -440,25 +514,42 @@ def show_form(
         row += 1
 
         # Fields
-        inner_w = box_w - 2  # usable chars between │ and │
         for i, field in enumerate(fields):
             is_active = (i == active_idx)
             indicator = "▸" if is_active else " "
             lbl = field.label + ":"
             lbl_padded = lbl.ljust(13)
-            rendered = field.render(is_active)
 
-            # Fill entire line background first
-            _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
-            # Now draw content over it (reposition after left border)
-            _write(f"\033[{row};{col_off + 1}H{_FORM_BG}")
-            if is_active:
-                _write(f"\033[93m{indicator} \033[1m{lbl_padded}\033[22m\033[93m {rendered}{_FORM_BG}")
+            if isinstance(field, TextField):
+                lines = field.render_lines(is_active, value_width)
+                for line_idx, line_text in enumerate(lines):
+                    # Fill background
+                    _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+                    _write(f"\033[{row};{col_off + 1}H{_FORM_BG}")
+                    if line_idx == 0:
+                        # First line: show indicator + label
+                        if is_active:
+                            _write(f"\033[93m{indicator} \033[1m{lbl_padded}\033[22m\033[93m {line_text}{_FORM_BG}")
+                        else:
+                            _write(f" {indicator} \033[37m{lbl_padded}\033[0m{_FORM_BG} {line_text}{_FORM_BG}")
+                    else:
+                        # Continuation lines: indent to align with value
+                        padding = " " * 17  # indicator(2) + label(13) + space(2)
+                        _write(f"{padding}{line_text}{_FORM_BG}")
+                    # Right border
+                    _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
+                    row += 1
             else:
-                _write(f" {indicator} \033[37m{lbl_padded}\033[0m{_FORM_BG} {rendered}{_FORM_BG}")
-            # Ensure right border is intact
-            _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
-            row += 1
+                rendered = field.render(is_active)
+                # Fill background
+                _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+                _write(f"\033[{row};{col_off + 1}H{_FORM_BG}")
+                if is_active:
+                    _write(f"\033[93m{indicator} \033[1m{lbl_padded}\033[22m\033[93m {rendered}{_FORM_BG}")
+                else:
+                    _write(f" {indicator} \033[37m{lbl_padded}\033[0m{_FORM_BG} {rendered}{_FORM_BG}")
+                _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
+                row += 1
 
         # Sep
         _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}├{'─' * (box_w - 2)}┤{_RST}")

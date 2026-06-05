@@ -2294,25 +2294,31 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     # ─── Log commands ──────────────────────────────────────────────────
+    if command == "log":
+        from tm_log import get_history
+        history = get_history()
+        if not history:
+            print("  (no log entries)")
+        else:
+            for line in history:
+                print(f"  {line}")
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
     if command in ("show log", "log show", "log on"):
-        from tm_log import set_visible, setup_scroll_region, render_log
+        from tm_log import set_visible
         set_visible(True)
-        setup_scroll_region()
-        render_log()
-        updated_tasks = _refresh_and_render(context, view_state)
-        return CommandOutcome(updated_tasks, view_state)
+        _log("info", "Log enabled.")
+        return CommandOutcome(tasks_by_date, view_state)
 
     if command in ("hide log", "log hide", "log off"):
         from tm_log import set_visible
         set_visible(False)
-        updated_tasks = _refresh_and_render(context, view_state)
-        return CommandOutcome(updated_tasks, view_state)
+        return CommandOutcome(tasks_by_date, view_state)
 
     if command in ("log clear", "clear log"):
         from tm_log import clear
         clear()
-        updated_tasks = _refresh_and_render(context, view_state)
-        return CommandOutcome(updated_tasks, view_state)
+        return CommandOutcome(tasks_by_date, view_state)
 
     _log("error", "Unknown command. Type 'help' for available commands.")
     return CommandOutcome(tasks_by_date, view_state)
