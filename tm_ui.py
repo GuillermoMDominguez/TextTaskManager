@@ -122,6 +122,58 @@ def _title_continuation_prefix(id_width: int) -> str:
     return f"  {'  '} {id_placeholder} {state_placeholder} "
 
 
+# ─── Tab completion ────────────────────────────────────────────────────────────
+
+_COMMANDS = [
+    "n", "new", "cs", "change", "an", "e", "edit", "md", "meta",
+    "del", "delete", "mv", "move", "dup", "sub", "das",
+    "ar", "archive", "ag", "agenda", "day", "hoy",
+    "kb", "kanban", "pj", "project", "sort",
+    "tpl", "template", "tt", "time",
+    "block", "blocker", "unblock",
+    "pom", "pomodoro", "bd", "burndown",
+    "f", "find", "fc", "se", "send",
+    "export", "import", "wr", "weekly",
+    "ck", "check", "u", "undo", "r",
+    "p", "ip", "t", "d", "w",
+    "sync", "config sync", "sync status",
+    "show log", "hide log", "clear log",
+    "help", "h", "q", "quit",
+]
+
+_COMMAND_FLAGS = {
+    "n": ["--state", "--date", "--due", "--priority", "--recur"],
+    "new": ["--state", "--date", "--due", "--priority", "--recur"],
+    "e": ["--due", "--priority", "--tags"],
+    "edit": ["--due", "--priority", "--tags"],
+    "md": ["--due", "--priority", "--tags"],
+    "meta": ["--due", "--priority", "--tags"],
+    "sort": ["priority", "due_date", "state", "none", "asc", "desc"],
+    "export": ["json", "csv", "md"],
+    "block": ["del"],
+}
+
+
+def _command_completer(text: str, state: int) -> Optional[str]:
+    """Readline completer for commands and flags."""
+    try:
+        buffer = readline.get_line_buffer() if readline else ""
+        tokens = buffer.lstrip().split()
+
+        if not tokens or (len(tokens) == 1 and not buffer.endswith(" ")):
+            # Complete command name
+            matches = [c + " " for c in _COMMANDS if c.startswith(text.lower())]
+        else:
+            # Complete flags/subcommands for the first token
+            cmd = tokens[0].lower()
+            flags = _COMMAND_FLAGS.get(cmd, [])
+            matches = [f + " " for f in flags if f.startswith(text.lower())]
+
+        return matches[state] if state < len(matches) else None
+    except Exception:
+        return None
+
+
 def enable_command_history(history_file: Optional[str] = None, max_items: int = 300) -> None:
     """Enable input history navigation with arrow keys and optional persistence."""
     if readline is None:
@@ -129,7 +181,10 @@ def enable_command_history(history_file: Optional[str] = None, max_items: int = 
 
     readline.parse_and_bind("\"\\e[A\": previous-history")
     readline.parse_and_bind("\"\\e[B\": next-history")
+    readline.parse_and_bind("tab: complete")
     readline.set_history_length(max_items)
+    readline.set_completer(_command_completer)
+    readline.set_completer_delims(" ")
 
     if history_file and os.path.exists(history_file):
         try:

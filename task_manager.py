@@ -419,7 +419,9 @@ def main() -> None:
 
     while True:
         try:
-            raw_command = input(f"\n{Colors.BOLD}>{Colors.RESET} ").strip()
+            # \001/\002 wrap ANSI codes so readline calculates cursor width correctly
+            prompt = f"\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            raw_command = input(prompt).strip()
             remember_command(raw_command)
 
             try:

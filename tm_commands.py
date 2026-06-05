@@ -1806,16 +1806,51 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         return CommandOutcome(context.refresh_tasks(), view_state)
 
-    # unblock <id> — remove ALL blockers from a task
+    # unblock <id> — remove ALL blockers from a task (or show picker if no ID)
     if re.match(r"^\s*unblock\b", raw_command, re.IGNORECASE):
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*unblock\s+(\S+)\s*$", raw_command, re.IGNORECASE)
-        if not match:
-            print(f"{Colors.ERROR}Usage: unblock <task_id>{Colors.RESET}")
-            return CommandOutcome(refreshed, view_state)
 
-        task_id = match.group(1)
-        target = find_task_by_id(refreshed, task_id)
+        if not match:
+            # No ID given — show interactive list of blocked tasks
+            from tm_features import extract_blockers_from_line
+
+            blocked_tasks = []
+            for tasks in refreshed.values():
+                for task in tasks:
+                    if task.source_line:
+                        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+                        idx = task.source_line - 1
+                        if 0 <= idx < len(lines):
+                            blockers = extract_blockers_from_line(lines[idx])
+                            if blockers:
+                                blocked_tasks.append((task, blockers))
+
+            if not blocked_tasks:
+                print(f"{Colors.DIM}No blocked tasks found.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+
+            # Show selection form
+            from tm_form import show_form, SelectField
+            options = [f"[{t.display_id}] {_strip_tags(t.title)} (blocked by: {', '.join(b)})" for t, b in blocked_tasks]
+            form_fields = [
+                SelectField("Unblock task", options, selected=0),
+            ]
+            result = show_form("Unblock — select task", form_fields)
+            if result is None:
+                clear_screen()
+                _render(refreshed, view_state)
+                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                return CommandOutcome(refreshed, view_state)
+
+            # Find which task was selected
+            selected_label = result["Unblock task"]
+            selected_idx = options.index(selected_label) if selected_label in options else 0
+            target, _ = blocked_tasks[selected_idx]
+            task_id = target.display_id
+        else:
+            task_id = match.group(1)
+            target = find_task_by_id(refreshed, task_id)
 
         if not target or isinstance(target, Subtask):
             print(f"{Colors.ERROR}Task {task_id} not found.{Colors.RESET}")
