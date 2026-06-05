@@ -397,13 +397,18 @@ def _run_git(args: list, timeout: int = 30) -> Optional[str]:
         return None
 
     cmd = ["git"] + args
+    env = dict(__import__("os").environ)
+    # Prevent git from opening interactive credential prompts
+    env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         result = subprocess.run(
             cmd,
             cwd=str(_journals_dir),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
         if result.returncode == 0:
             return result.stdout
