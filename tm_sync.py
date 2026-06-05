@@ -641,8 +641,13 @@ def _prompt(text: str, default: str = "") -> str:
 
 
 def get_sync_user() -> str:
-    """Return the git user.name for the sync repo, or empty string."""
-    if not _journals_dir:
+    """Return the username from the sync remote URL, or empty string."""
+    if not _sync_config:
         return ""
-    name = _run_git(["config", "user.name"])
-    return name.strip() if name else ""
+    remote = _sync_config.get("remote", "")
+    # Extract user from URL patterns:
+    #   https://github.com/User/repo.git -> User
+    #   git@github.com:User/repo.git -> User
+    import re
+    m = re.search(r"[/:]([^/:]+)/[^/]+(?:\.git)?$", remote)
+    return m.group(1) if m else ""
