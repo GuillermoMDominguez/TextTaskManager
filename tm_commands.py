@@ -1158,6 +1158,43 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         if match_no_text and not match:
             requested_id = match_no_text.group(1).strip()
+
+            # Check if it's a note ID (e.g. 13:n1) — open edit form for the note
+            note_target = find_note_by_id(updated_tasks, requested_id)
+            if note_target is not None:
+                task, note_index, note_text = note_target
+                from tm_form import show_form, TextField
+                form_fields = [TextField("Note", value=note_text)]
+                try:
+                    result = show_form(f"Edit Note — {requested_id}", form_fields)
+                except Exception:
+                    import traceback
+                    Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                    clear_screen()
+                    _render(updated_tasks, view_state)
+                    _log("error", "Form crashed. See ttm_crash.log")
+                    return CommandOutcome(updated_tasks, view_state)
+                if result is None:
+                    clear_screen()
+                    _render(updated_tasks, view_state)
+                    _log("info", "Cancelled.")
+                    return CommandOutcome(updated_tasks, view_state)
+                new_text = result["Note"].strip()
+                if not new_text:
+                    _log("error", "Note text cannot be empty. Use 'del' to remove.")
+                    return CommandOutcome(updated_tasks, view_state)
+                snapshot = read_journal_snapshot(context.journal_path)
+                persisted = edit_note_in_file(context.journal_path, task, note_index, new_text)
+                if persisted:
+                    _save_undo_snapshot(context, snapshot)
+                    refreshed = context.refresh_tasks()
+                    clear_screen()
+                    _log("info", f"Updated note {requested_id}.")
+                    _render(refreshed, view_state)
+                    return CommandOutcome(refreshed, view_state)
+                _log("error", "Could not edit note in file.")
+                return CommandOutcome(updated_tasks, view_state)
+
             target = find_task_by_id(updated_tasks, requested_id)
             if target and not isinstance(target, Subtask):
                 # Show interactive edit form for parent task
