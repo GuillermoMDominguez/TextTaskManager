@@ -68,6 +68,7 @@ from tm_logic import (
     parse_new_command_args,
 )
 from tm_models import Subtask, Task, extract_tags_from_text
+from tm_log import log as _log
 from tm_settings import get_setting
 from tm_ui import Colors, clear_screen, display_stats, display_tasks, print_help, prompt_for_state
 
@@ -351,11 +352,11 @@ def _refresh_and_render(context: CommandContext, view_state: ViewState) -> dict:
 def _print_email_result(result: EmailResult) -> None:
     """Print a user-facing message based on email dispatch status."""
     if result.status == "sent":
-        print(f"{Colors.DIM}{result.message}{Colors.RESET}")
+        _log("info", f"{result.message}")
     elif result.status == "draft":
-        print(f"{Colors.HEADER}{result.message}{Colors.RESET}")
+        _log("info", f"{result.message}")
     else:
-        print(f"{Colors.ERROR}{result.message}{Colors.RESET}")
+        _log("error", f"{result.message}")
 
 
 def _default_archive_path(journal_path: str) -> str:
@@ -630,7 +631,7 @@ def _maybe_autoclose_parent(context: CommandContext, parent_id: str, view_state:
         _save_undo_snapshot(context, snapshot)
         latest = context.refresh_tasks()
         clear_screen()
-        print(f"{Colors.DIM}All subtasks are DONE. Parent task {parent_id} closed automatically.{Colors.RESET}")
+        _log("info", f"All subtasks are DONE. Parent task {parent_id} closed automatically.")
         _render(latest, view_state)
         return latest
     return None
@@ -715,7 +716,7 @@ def _print_command_help(help_key: str) -> None:
     """Print detailed help for a specific command."""
     info = COMMAND_HELP.get(help_key)
     if not info:
-        print(f"{Colors.ERROR}No help available for that command.{Colors.RESET}")
+        _log("error", f"No help available for that command.")
         return
 
     print(f"\n{Colors.HEADER}{Colors.BOLD}Command Help: {help_key}{Colors.RESET}")
@@ -736,7 +737,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         help_key = _resolve_help_key(requested_help)
         if help_key:
             _print_command_help(help_key)
-            return CommandOutcome(tasks_by_date, view_state)
+            return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     if command == "fc":
         next_view = ViewState(
@@ -752,29 +753,29 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if command in ("u", "undo"):
         if not context.undo_stack:
-            print(f"{Colors.DIM}Nothing to undo.{Colors.RESET}")
+            _log("info", f"Nothing to undo.")
             return CommandOutcome(tasks_by_date, view_state)
 
         snapshot = context.undo_stack.pop()
         if restore_journal_snapshot(context.journal_path, snapshot):
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Undid last change.{Colors.RESET}")
+            _log("info", f"Undid last change.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not restore undo snapshot.{Colors.RESET}")
+        _log("error", f"Could not restore undo snapshot.")
         return CommandOutcome(tasks_by_date, view_state)
 
     if re.match(r"^\s*(?:ag|agenda)(?:\s+\d+)?\s*$", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*(?:ag|agenda)(?:\s+(\d+))?\s*$", raw_command, re.IGNORECASE)
         days = int(match.group(1)) if match and match.group(1) else 7
         if days < 1 or days > 90:
-            print(f"{Colors.ERROR}Agenda days must be between 1 and 90.{Colors.RESET}")
+            _log("error", f"Agenda days must be between 1 and 90.")
             return CommandOutcome(tasks_by_date, view_state)
         refreshed = context.refresh_tasks()
         _print_agenda(refreshed, days_ahead=days)
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     # ─── Day view: show tasks created on a specific date ─────────────
     if re.match(r"^\s*(?:day|hoy|today)(?:\s+.+)?\s*$", raw_command, re.IGNORECASE):
@@ -783,7 +784,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if date_arg:
             target = parse_date_input(date_arg)
             if target is None:
-                print(f"{Colors.ERROR}Invalid date: {date_arg}{Colors.RESET}")
+                _log("error", f"Invalid date: {date_arg}")
                 return CommandOutcome(tasks_by_date, view_state)
         else:
             target = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -793,10 +794,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if d and d.date() == target.date():
                 filtered[d] = tl
         if not filtered:
-            print(f"{Colors.DIM}No tasks for {target.strftime('%d/%m/%Y')}.{Colors.RESET}")
+            _log("info", f"No tasks for {target.strftime('%d/%m/%Y')}.")
         else:
             display_tasks(filtered, show_done=view_state.show_done)
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     if command in ("ck", "check"):
         findings = lint_journal(context.journal_path)
@@ -805,9 +806,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             for finding in findings:
                 print(f"  - {finding}")
         else:
-            print(f"{Colors.DIM}Journal check passed. No issues found.{Colors.RESET}")
+            _log("info", f"Journal check passed. No issues found.")
         refreshed = context.refresh_tasks()
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     if command in ("q", "quit", "exit"):
         return CommandOutcome(tasks_by_date, view_state, should_exit=True)
@@ -836,7 +837,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         updated_tasks = context.refresh_tasks()
         pending = get_pending_tasks(updated_tasks)
         if not pending:
-            print(f"{Colors.DIM}No pending tasks to send.{Colors.RESET}")
+            _log("info", f"No pending tasks to send.")
             return CommandOutcome(updated_tasks, view_state)
 
         match = re.match(r"^\s*(?:se|send\s+email)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
@@ -857,12 +858,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if re.match(r"^\s*(?:n|new)\b", raw_command, re.IGNORECASE):
         task_title, task_state, target_date, due_date, priority, recurrence, parse_error = parse_new_command_args(raw_command)
         if parse_error:
-            print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
+            _log("error", f"{parse_error}")
             print(
                 f"{Colors.DIM}Usage: n [title] [--state <state>] [--date dd/mm/yyyy] "
                 f"[--due dd/mm/yyyy] [--priority <level>] [--recur <freq>]{Colors.RESET}"
             )
-            return CommandOutcome(tasks_by_date, view_state)
+            return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
         result = None  # Will be set if interactive form is used
         if not task_title:
@@ -885,14 +886,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             except Exception as exc:
                 import traceback
                 Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
-                print(f"{Colors.ERROR}Form crashed. See ttm_crash.log{Colors.RESET}")
+                _log("error", f"Form crashed. See ttm_crash.log")
                 clear_screen()
                 _render(tasks_by_date, view_state)
                 return CommandOutcome(tasks_by_date, view_state)
             if result is None:
                 clear_screen()
                 _render(tasks_by_date, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(tasks_by_date, view_state)
 
             task_title = result["Title"].strip()
@@ -913,7 +914,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 recurrence = normalize_recurrence_input(result["Recurrence"].strip())
 
         if not task_title:
-            print(f"{Colors.ERROR}Task title cannot be empty.{Colors.RESET}")
+            _log("error", f"Task title cannot be empty.")
             return CommandOutcome(tasks_by_date, view_state)
 
         task_state = task_state or DEFAULT_STATE
@@ -943,24 +944,24 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if recurrence:
                 extra.append(f"recur {recurrence}")
             suffix = f" ({', '.join(extra)})" if extra else ""
-            print(f"{Colors.DIM}Task created in {task_state} for {created_date}{suffix}.{Colors.RESET}")
+            _log("info", f"Task created in {task_state} for {created_date}{suffix}.")
             _render(updated_tasks, view_state)
             return CommandOutcome(updated_tasks, view_state)
 
-        print(f"{Colors.ERROR}Could not create task in file.{Colors.RESET}")
+        _log("error", f"Could not create task in file.")
         return CommandOutcome(tasks_by_date, view_state)
 
     if re.match(r"^\s*(?:cs|change\s+state)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
         match = re.match(r"^\s*(?:cs|change\s+state)\s+(\S+)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: cs <task_id> [state]{Colors.RESET}")
+            _log("error", f"Usage: cs <task_id> [state]")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
         target_task = find_task_by_id(updated_tasks, requested_id)
         if not target_task:
-            print(f"{Colors.ERROR}Task ID {requested_id} not found.{Colors.RESET}")
+            _log("error", f"Task ID {requested_id} not found.")
             return CommandOutcome(updated_tasks, view_state)
 
         selected_state = None
@@ -970,7 +971,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         if not selected_state:
             if requested_state:
-                print(f"{Colors.ERROR}Invalid state: {requested_state}{Colors.RESET}")
+                _log("error", f"Invalid state: {requested_state}")
             from tm_form import show_form, SelectField
             from tm_config import VALID_STATES as _VS
             current_idx = _VS.index(target_task.state) if target_task.state in _VS else 0
@@ -979,7 +980,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(updated_tasks, view_state)
             selected_state = result["State"]
 
@@ -1014,11 +1015,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     target_task.priority,
                     target_task.recurrence,
                 )
-                print(f"{Colors.DIM}Recurring task created for {next_date.strftime('%d/%m/%Y')}.{Colors.RESET}")
+                _log("info", f"Recurring task created for {next_date.strftime('%d/%m/%Y')}.")
 
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Task {requested_id} updated to {selected_state}.{Colors.RESET}")
+            _log("info", f"Task {requested_id} updated to {selected_state}.")
             _render(refreshed, view_state)
             if parent_id:
                 maybe_closed = _maybe_autoclose_parent(context, parent_id, view_state)
@@ -1026,7 +1027,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     refreshed = maybe_closed
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not update task in file.{Colors.RESET}")
+        _log("error", f"Could not update task in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:an|add\s+note)\b", raw_command, re.IGNORECASE):
@@ -1035,18 +1036,18 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         id_only_match = re.match(r"^\s*(?:an|add\s+note)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
 
         if not match and not id_only_match:
-            print(f"{Colors.ERROR}Usage: an <task_id> [note]{Colors.RESET}")
+            _log("error", f"Usage: an <task_id> [note]")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = (match.group(1) if match else id_only_match.group(1)).strip()
 
         target_task = find_task_by_id(updated_tasks, requested_id)
         if not target_task:
-            print(f"{Colors.ERROR}Task ID {requested_id} not found.{Colors.RESET}")
+            _log("error", f"Task ID {requested_id} not found.")
             return CommandOutcome(updated_tasks, view_state)
 
         if isinstance(target_task, Subtask):
-            print(f"{Colors.ERROR}Add note supports parent task IDs only.{Colors.RESET}")
+            _log("error", f"Add note supports parent task IDs only.")
             return CommandOutcome(updated_tasks, view_state)
 
         if match:
@@ -1058,12 +1059,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(updated_tasks, view_state)
             note_text = result["Note"].strip()
 
         if not note_text:
-            print(f"{Colors.ERROR}Note cannot be empty.{Colors.RESET}")
+            _log("error", f"Note cannot be empty.")
             return CommandOutcome(updated_tasks, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -1071,11 +1072,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Note added to task {requested_id}.{Colors.RESET}")
+            _log("info", f"Note added to task {requested_id}.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not add note in file.{Colors.RESET}")
+        _log("error", f"Could not add note in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:e|edit|md|meta)\b", raw_command, re.IGNORECASE):
@@ -1087,17 +1088,17 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if has_meta_flags or re.match(r"^\s*(?:md|meta)\b", raw_command, re.IGNORECASE):
             requested_id, has_due, due_date, has_priority, priority, has_tags, tags, parse_error = _parse_meta_command(raw_command)
             if parse_error:
-                print(f"{Colors.ERROR}{parse_error}{Colors.RESET}")
+                _log("error", f"{parse_error}")
                 return CommandOutcome(updated_tasks, view_state)
 
             note_target = find_note_by_id(updated_tasks, requested_id or "")
             if note_target is not None:
-                print(f"{Colors.ERROR}Notes don't support metadata. Use 'e {requested_id} <text>' to edit.{Colors.RESET}")
+                _log("error", f"Notes don't support metadata. Use 'e {requested_id} <text>' to edit.")
                 return CommandOutcome(updated_tasks, view_state)
 
             target = find_task_by_id(updated_tasks, requested_id or "")
             if target is None:
-                print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+                _log("error", f"ID {requested_id} not found.")
                 return CommandOutcome(updated_tasks, view_state)
 
             # If no flags provided, fall through to interactive form below
@@ -1116,10 +1117,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                         _save_undo_snapshot(context, snapshot)
                         refreshed = context.refresh_tasks()
                         clear_screen()
-                        print(f"{Colors.DIM}Updated metadata for {requested_id}.{Colors.RESET}")
+                        _log("info", f"Updated metadata for {requested_id}.")
                         _render(refreshed, view_state)
                         return CommandOutcome(refreshed, view_state)
-                    print(f"{Colors.ERROR}Could not update subtask metadata in file.{Colors.RESET}")
+                    _log("error", f"Could not update subtask metadata in file.")
                     return CommandOutcome(updated_tasks, view_state)
 
                 next_due = due_date if has_due else target.due_date
@@ -1129,7 +1130,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 if has_tags:
                     next_title = _apply_tags_to_text(target.title, tags or [])
                     if not edit_task_title_in_file(context.journal_path, target, next_title):
-                        print(f"{Colors.ERROR}Could not update task tags in file.{Colors.RESET}")
+                        _log("error", f"Could not update task tags in file.")
                         return CommandOutcome(updated_tasks, view_state)
                     updated_tasks = context.refresh_tasks()
                     refreshed_target = find_task_by_id(updated_tasks, requested_id or "")
@@ -1144,14 +1145,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     clear_screen()
                     due_label = next_due.strftime("%d/%m/%Y") if next_due else "none"
                     priority_label = next_priority or "none"
-                    print(
-                        f"{Colors.DIM}Updated metadata for {requested_id}: due={due_label}, "
-                        f"priority={priority_label}, tags={'updated' if has_tags else 'unchanged'}.{Colors.RESET}"
-                    )
+                    _log("info", f"Updated metadata for {requested_id}: due={due_label}, priority={priority_label}, tags={'updated' if has_tags else 'unchanged'}.")
                     _render(refreshed, view_state)
                     return CommandOutcome(refreshed, view_state)
 
-                print(f"{Colors.ERROR}Could not update metadata in file.{Colors.RESET}")
+                _log("error", f"Could not update metadata in file.")
                 return CommandOutcome(updated_tasks, view_state)
 
         # ─── Interactive form: e <id> (no trailing text, no flags) ────
@@ -1189,12 +1187,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
                     clear_screen()
                     _render(updated_tasks, view_state)
-                    print(f"{Colors.ERROR}Form crashed. See ttm_crash.log{Colors.RESET}")
+                    _log("error", f"Form crashed. See ttm_crash.log")
                     return CommandOutcome(updated_tasks, view_state)
                 if result is None:
                     clear_screen()
                     _render(updated_tasks, view_state)
-                    print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                    _log("info", f"Cancelled.")
                     return CommandOutcome(updated_tasks, view_state)
 
                 new_title = result["Title"].strip()
@@ -1228,26 +1226,26 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 _save_undo_snapshot(context, snapshot)
                 refreshed = context.refresh_tasks()
                 clear_screen()
-                print(f"{Colors.DIM}Task {requested_id} updated.{Colors.RESET}")
+                _log("info", f"Task {requested_id} updated.")
                 _render(refreshed, view_state)
                 return CommandOutcome(refreshed, view_state)
             elif target is None:
-                print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+                _log("error", f"ID {requested_id} not found.")
                 return CommandOutcome(updated_tasks, view_state)
             else:
                 # Subtask without text — show usage
-                print(f"{Colors.ERROR}Usage: e <task_id|subtask_id|task_id:n#> <new text>{Colors.RESET}")
+                _log("error", f"Usage: e <task_id|subtask_id|task_id:n#> <new text>")
                 return CommandOutcome(updated_tasks, view_state)
 
         # ─── Inline edit: e <id> <new text> ───────────────────────────
         if not match:
-            print(f"{Colors.ERROR}Usage: e <id> [text] [--due x] [--priority x] [--tags x]{Colors.RESET}")
+            _log("error", f"Usage: e <id> [text] [--due x] [--priority x] [--tags x]")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
         new_title = match.group(2).strip()
         if not new_title:
-            print(f"{Colors.ERROR}New title cannot be empty.{Colors.RESET}")
+            _log("error", f"New title cannot be empty.")
             return CommandOutcome(updated_tasks, view_state)
 
         note_target = find_note_by_id(updated_tasks, requested_id)
@@ -1259,16 +1257,16 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 _save_undo_snapshot(context, snapshot)
                 refreshed = context.refresh_tasks()
                 clear_screen()
-                print(f"{Colors.DIM}Updated note {requested_id}.{Colors.RESET}")
+                _log("info", f"Updated note {requested_id}.")
                 _render(refreshed, view_state)
                 return CommandOutcome(refreshed, view_state)
 
-            print(f"{Colors.ERROR}Could not edit note in file.{Colors.RESET}")
+            _log("error", f"Could not edit note in file.")
             return CommandOutcome(updated_tasks, view_state)
 
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None:
-            print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+            _log("error", f"ID {requested_id} not found.")
             return CommandOutcome(updated_tasks, view_state)
 
         if isinstance(target, Subtask):
@@ -1282,23 +1280,23 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Updated title for {requested_id}.{Colors.RESET}")
+            _log("info", f"Updated title for {requested_id}.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not edit title in file.{Colors.RESET}")
+        _log("error", f"Could not edit title in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:del|delete)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
         match = re.match(r"^\s*(?:del|delete)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: del <task_id|subtask_id|task_id:n#>{Colors.RESET}")
+            _log("error", f"Usage: del <task_id|subtask_id|task_id:n#>")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
         if not _confirm_action(f"Delete {requested_id}?"):
-            print(f"{Colors.DIM}Delete cancelled.{Colors.RESET}")
+            _log("info", f"Delete cancelled.")
             return CommandOutcome(updated_tasks, view_state)
 
         note_target = find_note_by_id(updated_tasks, requested_id)
@@ -1310,15 +1308,15 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 _save_undo_snapshot(context, snapshot)
                 refreshed = context.refresh_tasks()
                 clear_screen()
-                print(f"{Colors.DIM}Deleted note {requested_id}.{Colors.RESET}")
+                _log("info", f"Deleted note {requested_id}.")
                 _render(refreshed, view_state)
                 return CommandOutcome(refreshed, view_state)
-            print(f"{Colors.ERROR}Could not delete note in file.{Colors.RESET}")
+            _log("error", f"Could not delete note in file.")
             return CommandOutcome(updated_tasks, view_state)
 
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None:
-            print(f"{Colors.ERROR}ID {requested_id} not found.{Colors.RESET}")
+            _log("error", f"ID {requested_id} not found.")
             return CommandOutcome(updated_tasks, view_state)
 
         if isinstance(target, Subtask):
@@ -1332,11 +1330,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Deleted {requested_id}.{Colors.RESET}")
+            _log("info", f"Deleted {requested_id}.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not delete item in file.{Colors.RESET}")
+        _log("error", f"Could not delete item in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:mv|move|reschedule)\b", raw_command, re.IGNORECASE):
@@ -1345,14 +1343,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         id_only_match = re.match(r"^\s*(?:mv|move|reschedule)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
 
         if not match and not id_only_match:
-            print(f"{Colors.ERROR}Usage: mv <task_id> [date]{Colors.RESET}")
+            _log("error", f"Usage: mv <task_id> [date]")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = (match.group(1) if match else id_only_match.group(1)).strip()
 
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Move supports parent task IDs only.{Colors.RESET}")
+            _log("error", f"Move supports parent task IDs only.")
             return CommandOutcome(updated_tasks, view_state)
 
         if match:
@@ -1364,17 +1362,17 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(updated_tasks, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(updated_tasks, view_state)
             date_input = result["Date"].strip()
 
         target_date = parse_date_input(date_input)
         if target_date is None:
-            print(f"{Colors.ERROR}Invalid date: {date_input}{Colors.RESET}")
+            _log("error", f"Invalid date: {date_input}")
             return CommandOutcome(updated_tasks, view_state)
 
         if not _confirm_action(f"Move task {requested_id} to {target_date.strftime('%d/%m/%Y')}?"):
-            print(f"{Colors.DIM}Move cancelled.{Colors.RESET}")
+            _log("info", f"Move cancelled.")
             return CommandOutcome(updated_tasks, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -1382,11 +1380,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Moved task {requested_id} to {target_date.strftime('%d/%m/%Y')}.{Colors.RESET}")
+            _log("info", f"Moved task {requested_id} to {target_date.strftime('%d/%m/%Y')}.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not move task in file.{Colors.RESET}")
+        _log("error", f"Could not move task in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:dup|duplicate)\b", raw_command, re.IGNORECASE):
@@ -1397,18 +1395,18 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             re.IGNORECASE,
         )
         if not match:
-            print(f"{Colors.ERROR}Usage: dup <task_id> [dd/mm/yyyy]{Colors.RESET}")
+            _log("error", f"Usage: dup <task_id> [dd/mm/yyyy]")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Duplicate supports parent task IDs only.{Colors.RESET}")
+            _log("error", f"Duplicate supports parent task IDs only.")
             return CommandOutcome(updated_tasks, view_state)
 
         target_date = _try_parse_date(match.group(2)) if match.group(2) else None
         if match.group(2) and target_date is None:
-            print(f"{Colors.ERROR}Invalid date. Use dd/mm/yyyy.{Colors.RESET}")
+            _log("error", f"Invalid date. Use dd/mm/yyyy.")
             return CommandOutcome(updated_tasks, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -1416,11 +1414,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Duplicated task {requested_id}.{Colors.RESET}")
+            _log("info", f"Duplicated task {requested_id}.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not duplicate task in file.{Colors.RESET}")
+        _log("error", f"Could not duplicate task in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     # ─── Add Subtask ───────────────────────────────────────────────────
@@ -1430,14 +1428,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         id_only_match = re.match(r"^\s*sub\s+(\S+)\s*$", raw_command, re.IGNORECASE)
 
         if not match and not id_only_match:
-            print(f"{Colors.ERROR}Usage: sub <id> [subtask title]{Colors.RESET}")
+            _log("error", f"Usage: sub <id> [subtask title]")
             return CommandOutcome(refreshed, view_state)
 
         task_id = match.group(1) if match else id_only_match.group(1)
         target = find_task_by_id(refreshed, task_id)
 
         if not target or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Task {task_id} not found (must be parent task).{Colors.RESET}")
+            _log("error", f"Task {task_id} not found (must be parent task).")
             return CommandOutcome(refreshed, view_state)
 
         if match:
@@ -1458,13 +1456,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(refreshed, view_state)
             sub_title = result["Title"].strip()
             if not sub_title:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.ERROR}Subtask title cannot be empty.{Colors.RESET}")
+                _log("error", f"Subtask title cannot be empty.")
                 return CommandOutcome(refreshed, view_state)
             sub_state = result.get("State") or DEFAULT_STATE
             # Build inline metadata
@@ -1483,10 +1481,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Subtask added to task {task_id}.{Colors.RESET}")
+            _log("info", f"Subtask added to task {task_id}.")
             _render(refreshed, view_state)
         else:
-            print(f"{Colors.ERROR}Could not add subtask.{Colors.RESET}")
+            _log("error", f"Could not add subtask.")
 
         return CommandOutcome(refreshed, view_state)
 
@@ -1494,17 +1492,17 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         updated_tasks = context.refresh_tasks()
         match = re.match(r"^\s*(?:das|done\s+all\s+subtasks)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: das <task_id>{Colors.RESET}")
+            _log("error", f"Usage: das <task_id>")
             return CommandOutcome(updated_tasks, view_state)
 
         requested_id = match.group(1).strip()
         target = find_task_by_id(updated_tasks, requested_id)
         if target is None or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Done-all-subtasks supports parent task IDs only.{Colors.RESET}")
+            _log("error", f"Done-all-subtasks supports parent task IDs only.")
             return CommandOutcome(updated_tasks, view_state)
 
         if not target.subtasks:
-            print(f"{Colors.ERROR}Task {requested_id} has no subtasks.{Colors.RESET}")
+            _log("error", f"Task {requested_id} has no subtasks.")
             return CommandOutcome(updated_tasks, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -1512,30 +1510,30 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}All subtasks in {requested_id} updated to DONE.{Colors.RESET}")
+            _log("info", f"All subtasks in {requested_id} updated to DONE.")
             _render(refreshed, view_state)
             maybe_closed = _maybe_autoclose_parent(context, requested_id, view_state)
             if maybe_closed is not None:
                 refreshed = maybe_closed
             return CommandOutcome(refreshed, view_state)
 
-        print(f"{Colors.ERROR}Could not update subtasks in file.{Colors.RESET}")
+        _log("error", f"Could not update subtasks in file.")
         return CommandOutcome(updated_tasks, view_state)
 
     if re.match(r"^\s*(?:ar|archive)\b", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*(?:ar|archive)(?:\s+(\d{1,2}/\d{1,2}/\d{4}))?\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: ar [dd/mm/yyyy]{Colors.RESET}")
+            _log("error", f"Usage: ar [dd/mm/yyyy]")
             return CommandOutcome(tasks_by_date, view_state)
 
         before_date = _try_parse_date(match.group(1)) if match.group(1) else None
         if match.group(1) and before_date is None:
-            print(f"{Colors.ERROR}Invalid date. Use dd/mm/yyyy.{Colors.RESET}")
+            _log("error", f"Invalid date. Use dd/mm/yyyy.")
             return CommandOutcome(tasks_by_date, view_state)
 
         date_label = before_date.strftime('%d/%m/%Y') if before_date else 'all dates'
         if not _confirm_action(f"Archive finished tasks up to {date_label}?"):
-            print(f"{Colors.DIM}Archive cancelled.{Colors.RESET}")
+            _log("info", f"Archive cancelled.")
             return CommandOutcome(tasks_by_date, view_state)
 
         archive_path = _default_archive_path(context.journal_path)
@@ -1545,7 +1543,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _save_undo_snapshot(context, snapshot)
         refreshed = context.refresh_tasks()
         clear_screen()
-        print(f"{Colors.DIM}Archived {moved} finished task(s) to {archive_path}.{Colors.RESET}")
+        _log("info", f"Archived {moved} finished task(s) to {archive_path}.")
         _render(refreshed, view_state)
         return CommandOutcome(refreshed, view_state)
 
@@ -1574,7 +1572,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if command in ("r", "refresh"):
         refreshed = context.refresh_tasks()
         clear_screen()
-        print(f"{Colors.DIM}Refreshed!{Colors.RESET}")
+        _log("info", f"Refreshed!")
         _render(refreshed, view_state)
         return CommandOutcome(refreshed, view_state)
 
@@ -1588,7 +1586,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # List templates
             templates = get_templates()
             if not templates:
-                print(f"{Colors.DIM}No templates saved. Use 'tpl save <name>' after creating a task to save it as template.{Colors.RESET}")
+                _log("info", f"No templates saved. Use 'tpl save <name>' after creating a task to save it as template.")
                 return CommandOutcome(refreshed, view_state)
             print(f"\n{Colors.HEADER}{Colors.BOLD}Templates{Colors.RESET}")
             for name, data in templates.items():
@@ -1602,7 +1600,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     extra.append(f"{subtask_count} subtasks")
                 suffix = f" ({', '.join(extra)})" if extra else ""
                 print(f"  {Colors.BOLD}{name}{Colors.RESET}: {data.get('title', '?')}{suffix}")
-            return CommandOutcome(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
         # tpl save <name> — save last created task as template
         save_match = re.match(r"^save\s+(\S+)$", arg, re.IGNORECASE)
@@ -1620,14 +1618,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(refreshed, view_state)
 
             title = result["Title"].strip()
             if not title:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.ERROR}Title cannot be empty.{Colors.RESET}")
+                _log("error", f"Title cannot be empty.")
                 return CommandOutcome(refreshed, view_state)
 
             template_data = {"title": title}
@@ -1649,9 +1647,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if save_template(tpl_name, template_data):
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.DIM}Template '{tpl_name}' saved.{Colors.RESET}")
+                _log("info", f"Template '{tpl_name}' saved.")
             else:
-                print(f"{Colors.ERROR}Could not save template.{Colors.RESET}")
+                _log("error", f"Could not save template.")
             return CommandOutcome(refreshed, view_state)
 
         # tpl del <name>
@@ -1659,15 +1657,15 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if del_match:
             tpl_name = del_match.group(1)
             if delete_template(tpl_name):
-                print(f"{Colors.DIM}Template '{tpl_name}' deleted.{Colors.RESET}")
+                _log("info", f"Template '{tpl_name}' deleted.")
             else:
-                print(f"{Colors.ERROR}Template '{tpl_name}' not found.{Colors.RESET}")
+                _log("error", f"Template '{tpl_name}' not found.")
             return CommandOutcome(refreshed, view_state)
 
         # tpl <name> — use template to create task
         tpl_data = get_template(arg)
         if not tpl_data:
-            print(f"{Colors.ERROR}Template '{arg}' not found. Use 'tpl' to list.{Colors.RESET}")
+            _log("error", f"Template '{arg}' not found. Use 'tpl' to list.")
             return CommandOutcome(refreshed, view_state)
 
         tpl_title = tpl_data.get("title", arg)
@@ -1696,11 +1694,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
             updated_tasks = context.refresh_tasks()
             clear_screen()
-            print(f"{Colors.DIM}Task created from template '{arg}'.{Colors.RESET}")
+            _log("info", f"Task created from template '{arg}'.")
             _render(updated_tasks, view_state)
             return CommandOutcome(updated_tasks, view_state)
 
-        print(f"{Colors.ERROR}Could not create task from template.{Colors.RESET}")
+        _log("error", f"Could not create task from template.")
         return CommandOutcome(refreshed, view_state)
 
     # ─── Time Tracking ─────────────────────────────────────────────────
@@ -1708,14 +1706,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*(?:tt|time)\s+(\S+)\s+(.+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: tt <id> <time|start|stop>{Colors.RESET}")
+            _log("error", f"Usage: tt <id> <time|start|stop>")
             return CommandOutcome(refreshed, view_state)
 
         task_id = match.group(1)
         time_arg = match.group(2).strip().lower()
         target = find_task_by_id(refreshed, task_id)
         if not target or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Task {task_id} not found (must be parent task).{Colors.RESET}")
+            _log("error", f"Task {task_id} not found (must be parent task).")
             return CommandOutcome(refreshed, view_state)
 
         if time_arg == "start":
@@ -1723,22 +1721,22 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if not hasattr(context, '_time_tracking'):
                 context._time_tracking = {}
             context._time_tracking[task_id] = time.time()
-            print(f"{Colors.DIM}Timer started for task {task_id}.{Colors.RESET}")
+            _log("info", f"Timer started for task {task_id}.")
             return CommandOutcome(refreshed, view_state)
 
         if time_arg == "stop":
             if not hasattr(context, '_time_tracking') or task_id not in context._time_tracking:
-                print(f"{Colors.ERROR}No timer running for task {task_id}. Use 'tt {task_id} start' first.{Colors.RESET}")
+                _log("error", f"No timer running for task {task_id}. Use 'tt {task_id} start' first.")
                 return CommandOutcome(refreshed, view_state)
             elapsed = time.time() - context._time_tracking.pop(task_id)
             elapsed_minutes = max(1, int(elapsed / 60 + 0.5))
             time_arg = format_time_spent(elapsed_minutes)
-            print(f"{Colors.DIM}Timer stopped: {time_arg} elapsed.{Colors.RESET}")
+            _log("info", f"Timer stopped: {time_arg} elapsed.")
 
         # Parse and add time
         new_minutes = parse_time_spent(time_arg)
         if new_minutes is None:
-            print(f"{Colors.ERROR}Invalid time: {time_arg}. Use format like 2h, 30m, 1h30m.{Colors.RESET}")
+            _log("error", f"Invalid time: {time_arg}. Use format like 2h, 30m, 1h30m.")
             return CommandOutcome(refreshed, view_state)
 
         # Update the journal line
@@ -1746,9 +1744,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         existing_time = target.time_spent or 0
         if _log_time_to_task(context, target, new_minutes):
             _save_undo_snapshot(context, snapshot)
-            print(f"{Colors.DIM}Logged {format_time_spent(new_minutes)} to task {task_id} (total: {format_time_spent(existing_time + new_minutes)}).{Colors.RESET}")
+            _log("info", f"Logged {format_time_spent(new_minutes)} to task {task_id} (total: {format_time_spent(existing_time + new_minutes)}).")
         else:
-            print(f"{Colors.ERROR}Could not update time in journal.{Colors.RESET}")
+            _log("error", f"Could not update time in journal.")
 
         updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, view_state)
@@ -1759,7 +1757,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*(?:block|blocker)\s+del\s+(\S+)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: block del <blocked_id> <blocker_id>{Colors.RESET}")
+            _log("error", f"Usage: block del <blocked_id> <blocker_id>")
             return CommandOutcome(refreshed, view_state)
 
         blocked_id = match.group(1)
@@ -1769,10 +1767,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         blocker_task = find_task_by_id(refreshed, blocker_id)
 
         if not blocked_task or isinstance(blocked_task, Subtask):
-            print(f"{Colors.ERROR}Task {blocked_id} not found.{Colors.RESET}")
+            _log("error", f"Task {blocked_id} not found.")
             return CommandOutcome(refreshed, view_state)
         if not blocker_task or isinstance(blocker_task, Subtask):
-            print(f"{Colors.ERROR}Task {blocker_id} not found.{Colors.RESET}")
+            _log("error", f"Task {blocker_id} not found.")
             return CommandOutcome(refreshed, view_state)
 
         from tm_features import remove_blocker_metadata, remove_blocks_metadata
@@ -1798,13 +1796,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _notify_post_write()
             _save_undo_snapshot(context, snapshot)
-            from tm_log import log as _log
             _log("info", f"Removed blocker: {blocker_id} no longer blocks {blocked_id}.")
             clear_screen()
             refreshed = context.refresh_tasks()
             _render(refreshed, view_state)
         else:
-            print(f"{Colors.ERROR}Could not remove blocker.{Colors.RESET}")
+            _log("error", f"Could not remove blocker.")
 
         return CommandOutcome(context.refresh_tasks(), view_state)
 
@@ -1829,7 +1826,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                                 blocked_tasks.append((task, blockers))
 
             if not blocked_tasks:
-                print(f"{Colors.DIM}No blocked tasks found.{Colors.RESET}")
+                _log("info", f"No blocked tasks found.")
                 return CommandOutcome(refreshed, view_state)
 
             # Show list picker (vertical, multi-select)
@@ -1884,7 +1881,6 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _notify_post_write()
             _save_undo_snapshot(context, snapshot)
-            from tm_log import log as _log
             _log("info", f"Removed {total_removed} blocker(s) from {len(selected_indices)} task(s).")
             clear_screen()
             refreshed = context.refresh_tasks()
@@ -1895,7 +1891,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             target = find_task_by_id(refreshed, task_id)
 
         if not target or isinstance(target, Subtask):
-            print(f"{Colors.ERROR}Task {task_id} not found.{Colors.RESET}")
+            _log("error", f"Task {task_id} not found.")
             return CommandOutcome(refreshed, view_state)
 
         from tm_features import (
@@ -1907,18 +1903,18 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
 
         if not target.source_line:
-            print(f"{Colors.ERROR}Could not locate task in file.{Colors.RESET}")
+            _log("error", f"Could not locate task in file.")
             return CommandOutcome(refreshed, view_state)
 
         idx = target.source_line - 1
         if idx < 0 or idx >= len(lines):
-            print(f"{Colors.ERROR}Could not locate task in file.{Colors.RESET}")
+            _log("error", f"Could not locate task in file.")
             return CommandOutcome(refreshed, view_state)
 
         # Get blocker titles before removing
         blockers = extract_blockers_from_line(lines[idx])
         if not blockers:
-            print(f"{Colors.DIM}Task {task_id} has no blockers.{Colors.RESET}")
+            _log("info", f"Task {task_id} has no blockers.")
             return CommandOutcome(refreshed, view_state)
 
         # Remove all blockedby: from this task
@@ -1935,7 +1931,6 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
         _notify_post_write()
         _save_undo_snapshot(context, snapshot)
-        from tm_log import log as _log
         _log("info", f"Removed {len(blockers)} blocker(s) from task {task_id}.")
         clear_screen()
         refreshed = context.refresh_tasks()
@@ -1957,14 +1952,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(refreshed, view_state)
             blocked_id = result["Blocked ID"].strip()
             blocker_id = result["Blocker ID"].strip()
             if not blocked_id or not blocker_id:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.ERROR}Both IDs are required.{Colors.RESET}")
+                _log("error", f"Both IDs are required.")
                 return CommandOutcome(refreshed, view_state)
         else:
             blocked_id = match.group(1)
@@ -1974,10 +1969,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         blocker_task = find_task_by_id(refreshed, blocker_id)
 
         if not blocked_task or isinstance(blocked_task, Subtask):
-            print(f"{Colors.ERROR}Task {blocked_id} not found.{Colors.RESET}")
+            _log("error", f"Task {blocked_id} not found.")
             return CommandOutcome(refreshed, view_state)
         if not blocker_task or isinstance(blocker_task, Subtask):
-            print(f"{Colors.ERROR}Task {blocker_id} not found.{Colors.RESET}")
+            _log("error", f"Task {blocker_id} not found.")
             return CommandOutcome(refreshed, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -2001,10 +1996,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             Path(context.journal_path).write_text("\n".join(lines), encoding="utf-8")
             _notify_post_write()
             _save_undo_snapshot(context, snapshot)
-            from tm_log import log as _log
             _log("info", f"Task {blocked_id} is now blocked by task {blocker_id}.")
         else:
-            print(f"{Colors.ERROR}Could not update dependency.{Colors.RESET}")
+            _log("error", f"Could not update dependency.")
 
         updated_tasks = context.refresh_tasks()
         clear_screen()
@@ -2023,7 +2017,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if task_id:
             target = find_task_by_id(refreshed, task_id)
             if not target:
-                print(f"{Colors.ERROR}Task {task_id} not found.{Colors.RESET}")
+                _log("error", f"Task {task_id} not found.")
                 return CommandOutcome(refreshed, view_state)
             task_title = target.title
 
@@ -2034,7 +2028,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             snapshot = read_journal_snapshot(context.journal_path)
             if _log_time_to_task(context, target, elapsed):
                 _save_undo_snapshot(context, snapshot)
-                print(f"{Colors.DIM}Logged {format_time_spent(elapsed)} to task {task_id}.{Colors.RESET}")
+                _log("info", f"Logged {format_time_spent(elapsed)} to task {task_id}.")
 
         updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, view_state)
@@ -2046,7 +2040,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         days = int(match.group(1)) if match and match.group(1) else 14
         chart = generate_burndown(refreshed, days)
         print(f"\n{Colors.HEADER}{chart}{Colors.RESET}")
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     # ─── Kanban view ───────────────────────────────────────────────────
     if command in ("kb", "kanban"):
@@ -2065,7 +2059,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # List all tags
             all_tags = get_all_tags(refreshed)
             if not all_tags:
-                print(f"{Colors.DIM}No tags found in tasks.{Colors.RESET}")
+                _log("info", f"No tags found in tasks.")
                 return CommandOutcome(refreshed, view_state, skip_redraw=True)
             print(f"\n{Colors.HEADER}{Colors.BOLD}Project Tags{Colors.RESET}")
             print(f"{Colors.HEADER}{'─' * 40}{Colors.RESET}")
@@ -2078,7 +2072,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         tag = tag_arg.lstrip("#")
         tasks = get_tasks_by_tag(refreshed, tag)
         if not tasks:
-            print(f"{Colors.DIM}No tasks found with tag #{tag}.{Colors.RESET}")
+            _log("info", f"No tasks found with tag #{tag}.")
             return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
         tw = shutil.get_terminal_size((80, 24)).columns
@@ -2113,7 +2107,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(refreshed, view_state)
             fmt = result["Format"]
             filepath = result.get("File path", "").strip() or None
@@ -2131,7 +2125,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             content = export_to_markdown(refreshed)
             ext = ".md"
         else:
-            print(f"{Colors.ERROR}Unsupported format: {fmt}. Use json, csv, or md.{Colors.RESET}")
+            _log("error", f"Unsupported format: {fmt}. Use json, csv, or md.")
             return CommandOutcome(refreshed, view_state)
 
         if not filepath:
@@ -2140,28 +2134,28 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         try:
             Path(filepath).write_text(content, encoding="utf-8")
-            print(f"{Colors.DIM}Exported to: {filepath}{Colors.RESET}")
+            _log("info", f"Exported to: {filepath}")
         except OSError as exc:
-            print(f"{Colors.ERROR}Export failed: {exc}{Colors.RESET}")
+            _log("error", f"Export failed: {exc}")
         return CommandOutcome(refreshed, view_state)
 
     # ─── Import ────────────────────────────────────────────────────────
     if re.match(r"^\s*import\b", raw_command, re.IGNORECASE):
         match = re.match(r"^\s*import\s+(.+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            print(f"{Colors.ERROR}Usage: import <filepath>{Colors.RESET}")
+            _log("error", f"Usage: import <filepath>")
             return CommandOutcome(tasks_by_date, view_state)
 
         import_path = match.group(1).strip()
         try:
             json_text = Path(import_path).read_text(encoding="utf-8")
         except OSError as exc:
-            print(f"{Colors.ERROR}Cannot read file: {exc}{Colors.RESET}")
+            _log("error", f"Cannot read file: {exc}")
             return CommandOutcome(tasks_by_date, view_state)
 
         new_lines = import_from_json(json_text)
         if not new_lines:
-            print(f"{Colors.ERROR}Could not parse JSON or file is empty.{Colors.RESET}")
+            _log("error", f"Could not parse JSON or file is empty.")
             return CommandOutcome(tasks_by_date, view_state)
 
         snapshot = read_journal_snapshot(context.journal_path)
@@ -2173,11 +2167,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             refreshed = context.refresh_tasks()
             clear_screen()
             task_count = sum(1 for line in new_lines if line.strip().startswith("-"))
-            print(f"{Colors.DIM}Imported {task_count} task(s) from {import_path}.{Colors.RESET}")
+            _log("info", f"Imported {task_count} task(s) from {import_path}.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
         except OSError as exc:
-            print(f"{Colors.ERROR}Import failed: {exc}{Colors.RESET}")
+            _log("error", f"Import failed: {exc}")
             return CommandOutcome(tasks_by_date, view_state)
 
     # ─── Weekly Report ─────────────────────────────────────────────────
@@ -2187,7 +2181,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         days = int(match.group(1)) if match and match.group(1) else int(get_setting("weekly_report_days", 7))
         report = generate_weekly_report(refreshed, days)
         print(f"\n{report}")
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     # ─── Sort ──────────────────────────────────────────────────────────
     if re.match(r"^\s*sort\b", raw_command, re.IGNORECASE):
@@ -2207,14 +2201,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result is None:
                 clear_screen()
                 _render(tasks_by_date, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
+                _log("info", f"Cancelled.")
                 return CommandOutcome(tasks_by_date, view_state)
             sort_by = result["Sort by"]
             direction = result["Direction"]
         else:
             sort_by = match.group(1).lower()
             if sort_by not in ("priority", "due_date", "state", "none"):
-                print(f"{Colors.ERROR}Invalid sort: {sort_by}. Use priority, due_date, state, or none.{Colors.RESET}")
+                _log("error", f"Invalid sort: {sort_by}. Use priority, due_date, state, or none.")
                 return CommandOutcome(tasks_by_date, view_state)
             direction = match.group(2).lower() if match.group(2) else "asc"
 
@@ -2227,7 +2221,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             sort_direction=direction,
         )
         updated_tasks = _refresh_and_render(context, next_view)
-        print(f"{Colors.DIM}Sort: {sort_by} {direction}{Colors.RESET}")
+        _log("info", f"Sort: {sort_by} {direction}")
         return CommandOutcome(updated_tasks, next_view)
 
     if command in ("h", "help", "?"):
@@ -2261,7 +2255,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if command == "sync":
         from tm_sync import sync_push_blocking, is_configured
         if not is_configured():
-            print(f"{Colors.DIM}Sync not configured. Use 'config sync' to set up.{Colors.RESET}")
+            _log("info", f"Sync not configured. Use 'config sync' to set up.")
         else:
             sync_push_blocking()
         return CommandOutcome(tasks_by_date, view_state)
@@ -2286,7 +2280,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 if init_sync(journals_dir, settings, script_dir):
                     register_post_write_hook(sync_push_async)
 
-            print(f"{Colors.DIM}Sync configuration saved to .ttm_config{Colors.RESET}")
+            _log("info", f"Sync configuration saved to .ttm_config")
         return CommandOutcome(tasks_by_date, view_state)
 
     if command == "sync status":
@@ -2315,5 +2309,5 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         updated_tasks = _refresh_and_render(context, view_state)
         return CommandOutcome(updated_tasks, view_state)
 
-    print(f"{Colors.ERROR}Unknown command. Type 'help' for available commands.{Colors.RESET}")
+    _log("error", "Unknown command. Type 'help' for available commands.")
     return CommandOutcome(tasks_by_date, view_state)
