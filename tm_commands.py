@@ -1831,30 +1831,25 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 print(f"{Colors.DIM}No blocked tasks found.{Colors.RESET}")
                 return CommandOutcome(refreshed, view_state)
 
-            # Show selection form
-            from tm_form import show_form, SelectField
+            # Show list picker (vertical, all visible)
+            from tm_form import show_list_picker
             import shutil as _shutil
             _cols = _shutil.get_terminal_size().columns
-            _max_opt = _cols - 8  # margin for form chrome
+            # Max text width: terminal - 10 (borders, indicator, padding)
+            _max_opt = max(20, _cols - 10)
             options = []
             for t, b in blocked_tasks:
                 label = f"[{t.task_id}] {_strip_tags(t.title)} (← {', '.join(b)})"
                 if len(label) > _max_opt:
                     label = label[:_max_opt - 1] + "…"
                 options.append(label)
-            form_fields = [
-                SelectField("Unblock task", options, selected=0),
-            ]
-            result = show_form("Unblock — select task", form_fields)
-            if result is None:
+
+            selected_idx = show_list_picker("Unblock — select task", options)
+            if selected_idx is None:
                 clear_screen()
                 _render(refreshed, view_state)
-                print(f"{Colors.DIM}Cancelled.{Colors.RESET}")
                 return CommandOutcome(refreshed, view_state)
 
-            # Find which task was selected
-            selected_label = result["Unblock task"]
-            selected_idx = options.index(selected_label) if selected_label in options else 0
             target, _ = blocked_tasks[selected_idx]
             task_id = target.task_id
         else:

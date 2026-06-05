@@ -182,6 +182,152 @@ class SelectField:
         return val
 
 
+# ─── List Picker ───────────────────────────────────────────────────────────────
+
+
+def show_list_picker(
+    title: str,
+    options: List[str],
+    selected: int = 0,
+) -> Optional[int]:
+    """Full-screen vertical list picker. Returns selected index or None if cancelled.
+
+    Shows ALL options at once with ▸ indicator on the selected one.
+    Navigation: Up/Down to move, Enter to accept, Esc to cancel.
+    Scrolls if options exceed terminal height.
+    """
+
+    def _term_size():
+        try:
+            sz = os.get_terminal_size()
+            return sz.columns, sz.lines
+        except (ValueError, OSError):
+            return 80, 24
+
+    cursor = max(0, min(selected, len(options) - 1))
+
+    _PICK_BG = "\033[48;2;28;28;38m"
+    _BD = "\033[36m"
+    _R = "\033[0m"
+
+    def _draw():
+        tw, th = _term_size()
+        # Box width: fit content or cap at terminal width - 4
+        max_opt_len = max((len(o) for o in options), default=10)
+        box_w = min(max_opt_len + 6, tw - 4)  # 6 = borders(2) + indicator(2) + padding(2)
+        inner_w = box_w - 2
+
+        # How many options fit (leave room for title, borders, help)
+        max_visible = th - 6  # top + title + sep + bottom + help + 1 margin
+        if max_visible < 3:
+            max_visible = 3
+
+        # Scroll window
+        if len(options) <= max_visible:
+            scroll_top = 0
+            visible = options
+            vis_range = range(len(options))
+        else:
+            # Keep cursor visible with some context
+            half = max_visible // 2
+            scroll_top = cursor - half
+            if scroll_top < 0:
+                scroll_top = 0
+            if scroll_top + max_visible > len(options):
+                scroll_top = len(options) - max_visible
+            vis_range = range(scroll_top, scroll_top + max_visible)
+            visible = [options[i] for i in vis_range]
+
+        total_rows = len(visible) + 5  # top + title + sep + options + bottom
+        col_off = max(1, (tw - box_w) // 2)
+        start_row = max(1, (th - total_rows) // 2)
+        rc = col_off + box_w - 1
+
+        row = start_row
+        # Top border
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}┌{'─' * (inner_w)}┐{_R}")
+        row += 1
+        # Title
+        t_text = f" {title}"
+        t_padded = t_text[:inner_w].ljust(inner_w)
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}│{_PICK_BG}\033[1m\033[97m{t_padded}\033[22m{_BD}│{_R}")
+        row += 1
+        # Sep
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}├{'─' * (inner_w)}┤{_R}")
+        row += 1
+
+        # Options
+        avail_text = inner_w - 4  # "▸ " or "  " prefix (2) + right pad (2)
+        for vi, opt_idx in enumerate(vis_range):
+            is_sel = (opt_idx == cursor)
+            # Truncate text to fit
+            text = options[opt_idx]
+            if len(text) > avail_text:
+                text = text[:avail_text - 1] + "…"
+            text_padded = text.ljust(avail_text)
+
+            # Draw filled line
+            sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}│{_PICK_BG}{' ' * inner_w}{_BD}│{_R}")
+            # Draw content
+            sys.stdout.write(f"\033[{row};{col_off + 1}H{_PICK_BG}")
+            if is_sel:
+                sys.stdout.write(f" \033[93m▸ \033[7m\033[97m{text_padded}\033[27m\033[22m")
+            else:
+                sys.stdout.write(f"   \033[37m{text_padded}\033[0m")
+            # Right border
+            sys.stdout.write(f"\033[{row};{rc}H{_PICK_BG}{_BD}│{_R}")
+            row += 1
+
+        # Scroll indicators
+        if len(options) > max_visible:
+            info = f" {cursor + 1}/{len(options)} "
+            if scroll_top > 0:
+                info = "↑" + info
+            if scroll_top + max_visible < len(options):
+                info = info + "↓"
+            info_padded = info.center(inner_w)
+            sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}│{_PICK_BG}\033[2m{info_padded}\033[22m{_BD}│{_R}")
+            row += 1
+
+        # Bottom
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}└{'─' * (inner_w)}┘{_R}")
+        row += 1
+        # Help
+        help_text = "↑↓: move  Enter: select  Esc: cancel"
+        help_col = max(1, (tw - len(help_text)) // 2)
+        sys.stdout.write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
+        sys.stdout.flush()
+
+    # Clear + hide cursor
+    sys.stdout.write("\033[2J\033[H\033[?25l")
+    sys.stdout.flush()
+
+    result = None
+    try:
+        while True:
+            _draw()
+            key = _read_key()
+            if key == "ESC":
+                break
+            elif key == "UP":
+                cursor = (cursor - 1) % len(options)
+            elif key == "DOWN" or key == "TAB":
+                cursor = (cursor + 1) % len(options)
+            elif key == "ENTER":
+                result = cursor
+                break
+    except (KeyboardInterrupt, EOFError):
+        pass
+    except Exception:
+        # Non-interactive stdin (piped input) or termios error — can't read keys
+        pass
+    finally:
+        sys.stdout.write("\033[?25h\033[2J\033[H")
+        sys.stdout.flush()
+
+    return result
+
+
 # ─── Form Display ──────────────────────────────────────────────────────────────
 
 # Dark grey-blue box background to stand out from terminal black

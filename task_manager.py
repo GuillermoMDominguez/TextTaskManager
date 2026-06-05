@@ -11,12 +11,13 @@ from tm_commands import CommandContext, ViewState, execute_command
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH
 from tm_email import load_email_config
 from tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
-from tm_log import set_visible as set_log_visible
+from tm_log import log as tm_log_msg, render_log, set_visible as set_log_visible
 from tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
 from tm_settings import load_settings
 from tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown
 from tm_ui import (
     Colors,
+    clear_screen,
     display_tasks,
     enable_command_history,
     enable_windows_ansi,
@@ -419,54 +420,38 @@ def main() -> None:
 
     while True:
         try:
-            import shutil as _shutil
-            _rows, _ = _shutil.get_terminal_size()
-
-            # Draw log bar at absolute bottom (row _rows)
-            from tm_log import render_log
-            render_log()
-
-            # Move cursor to fixed prompt row (rows-1), clear it
-            sys.stdout.write(f"\033[{_rows - 1};1H\033[2K")
-            sys.stdout.flush()
-
-            # \001/\002 wrap ANSI so readline calculates width correctly
-            prompt = f"\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            # Prompt flows naturally after content
+            prompt = f"\n\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
             raw_command = input(prompt).strip()
-
-            # Clear the prompt line (remove "typed" text so only one prompt exists)
-            sys.stdout.write(f"\033[{_rows - 1};1H\033[2K")
-            sys.stdout.flush()
-
             remember_command(raw_command)
 
             try:
                 outcome = execute_command(raw_command, tasks_by_date, view_state, command_context)
             except JournalError as exc:
-                from tm_log import log as _log
-                _log("error", str(exc))
-                continue
+                tm_log_msg("error", str(exc))
+                outcome = None
             except Exception as exc:
                 import traceback
                 Path("ttm_crash.log").write_text(
                     f"COMMAND ERROR ({raw_command}):\n{traceback.format_exc()}",
                     encoding="utf-8",
                 )
-                from tm_log import log as _log
-                _log("error", f"Unexpected error. See ttm_crash.log")
-                continue
+                tm_log_msg("error", "Unexpected error. See ttm_crash.log")
+                outcome = None
 
-            tasks_by_date = outcome.tasks_by_date
-            view_state = outcome.view_state
+            if outcome:
+                tasks_by_date = outcome.tasks_by_date
+                view_state = outcome.view_state
 
-            if outcome.should_exit:
-                save_command_history(str(history_path))
-                # Clear bottom area before exit message
-                sys.stdout.write(f"\033[{_rows - 1};1H\033[2K")
-                sys.stdout.write(f"\033[{_rows};1H\033[2K")
-                sys.stdout.write(f"\033[{_rows - 1};1H")
-                print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
-                break
+                if outcome.should_exit:
+                    save_command_history(str(history_path))
+                    print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
+                    break
+
+            # Always re-render: clean screen, fresh content, one prompt next iteration
+            clear_screen()
+            display_tasks(tasks_by_date, view_state.show_done)
+            render_log()
 
         except KeyboardInterrupt:
             save_command_history(str(history_path))
