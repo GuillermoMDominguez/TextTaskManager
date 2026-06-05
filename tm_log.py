@@ -33,7 +33,7 @@ def log(category: str, message: str) -> None:
 
 
 def setup_scroll_region() -> None:
-    """Set terminal scroll region to exclude the bottom 2 lines (divider + log).
+    """Set terminal scroll region to exclude the bottom 3 lines (prompt + divider + log).
 
     Call this after every clear_screen(). Only activates if visible AND there's
     a message to show.
@@ -41,15 +41,15 @@ def setup_scroll_region() -> None:
     if not _visible or not _message:
         return
     rows, _ = shutil.get_terminal_size()
-    # Scroll region: line 1 to (rows - 2), leaving 2 lines at bottom
-    sys.stdout.write(f"\033[1;{rows - 2}r")
-    # Move cursor to top of scroll region
+    # Scroll region: line 1 to (rows - 3), leaving 3 lines at bottom:
+    #   rows-2 = prompt, rows-1 = divider, rows = log
+    sys.stdout.write(f"\033[1;{rows - 3}r")
     sys.stdout.write("\033[1;1H")
     sys.stdout.flush()
 
 
 def render_log() -> None:
-    """Draw the bottom bar at the fixed bottom of the terminal."""
+    """Draw the bottom bar (divider + log) and prompt separator at the fixed bottom."""
     if not _visible or not _message:
         return
 
@@ -57,35 +57,33 @@ def render_log() -> None:
 
     rows, cols = shutil.get_terminal_size()
 
-    # Ensure scroll region is active (excludes bottom 2 lines)
-    sys.stdout.write(f"\033[1;{rows - 2}r")
+    # Ensure scroll region is active (excludes bottom 3 lines: prompt + divider + log)
+    sys.stdout.write(f"\033[1;{rows - 3}r")
 
     # Save cursor position
     sys.stdout.write("\033[s")
 
-    # Move to the second-to-last row (divider line)
+    # Row layout: rows-2 = prompt (handled by main loop), rows-1 = divider, rows = log
     divider_row = rows - 1
     bar_row = rows
 
     # Draw subtle divider
-    sys.stdout.write(f"\033[{divider_row};1H")
+    sys.stdout.write(f"\033[{divider_row};1H\033[2K")
     divider = "┄" * cols
     sys.stdout.write(f"{Colors.DIM}{divider}{Colors.RESET}")
 
     # Draw log message on last row
-    sys.stdout.write(f"\033[{bar_row};1H")
+    sys.stdout.write(f"\033[{bar_row};1H\033[2K")
     ts = time.strftime("%H:%M:%S", time.localtime(_timestamp))
     icon = _category_icon(_category)
     color = _category_color(_category)
     content = f" {ts} {color}{icon} {_message}{Colors.RESET}"
-    # Pad/truncate to terminal width
-    # Strip ANSI for length calc
     visible_len = len(f" {ts} {icon} {_message}")
     padding = " " * max(0, cols - visible_len)
     sys.stdout.write(f"{Colors.DIM}{content}{padding}")
 
     # Restore cursor position (back in scroll region)
-    sys.stdout.write(f"\033[u")
+    sys.stdout.write("\033[u")
     sys.stdout.flush()
 
 

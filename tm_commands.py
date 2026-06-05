@@ -1832,7 +1832,15 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
             # Show selection form
             from tm_form import show_form, SelectField
-            options = [f"[{t.task_id}] {_strip_tags(t.title)} (blocked by: {', '.join(b)})" for t, b in blocked_tasks]
+            import shutil as _shutil
+            _cols = _shutil.get_terminal_size().columns
+            _max_opt = _cols - 8  # margin for form chrome
+            options = []
+            for t, b in blocked_tasks:
+                label = f"[{t.task_id}] {_strip_tags(t.title)} (← {', '.join(b)})"
+                if len(label) > _max_opt:
+                    label = label[:_max_opt - 1] + "…"
+                options.append(label)
             form_fields = [
                 SelectField("Unblock task", options, selected=0),
             ]
