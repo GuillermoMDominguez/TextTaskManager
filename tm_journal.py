@@ -636,7 +636,11 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
 
 
 def add_note_to_task_in_file(filepath: str, task: Task, note: str) -> bool:
-    """Persist a note line (': ...') inside a task block."""
+    """Persist a note line (': ...') inside a task block.
+
+    Inserts the note AFTER existing metadata/notes but BEFORE subtasks,
+    so the parser associates it with the parent task (not a subtask).
+    """
     if task.source_line is None:
         return False
 
@@ -653,17 +657,26 @@ def add_note_to_task_in_file(filepath: str, task: Task, note: str) -> bool:
 
         task_line = lines[line_index]
         indent = _task_line_indent(task_line, "-")
+        # Child content (notes, subtasks) is indented one level deeper
+        child_indent = indent + "    "
 
+        # Walk forward past metadata (-- lines), tag-only lines, and existing
+        # notes (: lines), but STOP at subtask lines (+) or new tasks (-).
         insert_idx = line_index + 1
         while insert_idx < len(lines):
             stripped = lines[insert_idx].strip()
+            if not stripped:
+                break
             if stripped.startswith("##"):
                 break
             if stripped.startswith("-") and not stripped.startswith("--"):
                 break
+            if stripped.startswith("+"):
+                # Subtask — insert BEFORE this line
+                break
             insert_idx += 1
 
-        lines.insert(insert_idx, f"{indent}: {clean_note}\n")
+        lines.insert(insert_idx, f"{child_indent}: {clean_note}\n")
 
         _write_lines(filepath, lines)
 

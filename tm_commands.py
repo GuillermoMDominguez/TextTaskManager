@@ -1206,19 +1206,21 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 new_priority = normalize_priority_input(result["Priority"]) if result.get("Priority", "").strip() else None
 
                 snapshot = read_journal_snapshot(context.journal_path)
-                # Update title
+                # Mutate the target object with all new values so that
+                # every file-write function uses consistent data.
+                target.title = new_title if new_title else target.title
                 target.due_date = new_due
                 target.priority = new_priority
-                original_full = title_no_tags + (" " + tags if tags else "")
-                if new_title and new_title != original_full:
-                    edit_task_title_in_file(context.journal_path, target, new_title)
-                # Update state if changed
-                if new_state != target.state:
-                    target.due_date = new_due
-                    target.priority = new_priority
-                    update_task_state_in_file(context.journal_path, target, new_state)
-                # Update metadata
-                update_task_metadata_in_file(context.journal_path, target, new_due, new_priority)
+                target.state = new_state
+                # Use update_task_state_in_file which: re-reads the file,
+                # extracts raw_title from the line, removes stale continuation
+                # metadata (-- STATE, -- due:, -- priority:), and renders a
+                # single clean line with all values.  Always call it (even if
+                # state didn't change) so continuation lines are cleaned up.
+                # First write the title (in case it changed):
+                edit_task_title_in_file(context.journal_path, target, target.title)
+                # Then consolidate state+metadata (cleans continuations):
+                update_task_state_in_file(context.journal_path, target, new_state)
                 # Add note if provided
                 note_text = result.get("Note", "").strip()
                 if note_text:
