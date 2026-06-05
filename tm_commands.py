@@ -820,12 +820,12 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if command in ("a", "all"):
         next_view = ViewState(show_done=True, search_query=view_state.search_query, sort_by=view_state.sort_by, sort_direction=view_state.sort_direction)
-        updated_tasks = _refresh_and_render(context, next_view)
+        updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, next_view)
 
     if command in ("p", "pending"):
         next_view = ViewState(search_query=view_state.search_query, sort_by=view_state.sort_by, sort_direction=view_state.sort_direction)
-        updated_tasks = _refresh_and_render(context, next_view)
+        updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, next_view)
 
     if command in ("s", "stats"):
@@ -2236,8 +2236,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             only_in_progress=True,
             only_testing=False,
             search_query=view_state.search_query,
+            sort_by=view_state.sort_by,
+            sort_direction=view_state.sort_direction,
         )
-        updated_tasks = _refresh_and_render(context, next_view)
+        updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, next_view)
 
     if command in ("t", "testing"):
@@ -2246,8 +2248,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             only_in_progress=False,
             only_testing=True,
             search_query=view_state.search_query,
+            sort_by=view_state.sort_by,
+            sort_direction=view_state.sort_direction,
         )
-        updated_tasks = _refresh_and_render(context, next_view)
+        updated_tasks = context.refresh_tasks()
         return CommandOutcome(updated_tasks, next_view)
 
     if command == "":

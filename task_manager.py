@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from tm_commands import CommandContext, ViewState, execute_command
 from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
+from tm_features import sort_tasks
 from tm_email import load_email_config
 from tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
 from tm_log import log as tm_log_msg, render_log, set_visible as set_log_visible
@@ -387,6 +388,15 @@ def main() -> None:
         tasks_cache = tasks
         return tasks
 
+    def _render_view(tasks_by_date: dict, view_state) -> None:
+        """Render tasks respecting all view_state flags (sort, filter, search)."""
+        render_data = tasks_by_date
+        if view_state.sort_by != "none":
+            render_data = {}
+            for date, tasks in tasks_by_date.items():
+                render_data[date] = sort_tasks(list(tasks), view_state.sort_by, view_state.sort_direction)
+        display_tasks(render_data, view_state.show_done, view_state.only_in_progress, view_state.only_testing, view_state.search_query)
+
     print(f"{Colors.HEADER}{Colors.BOLD}")
     title = f"Task Manager v{APP_VERSION}"
     from tm_ui import _term_width
@@ -409,7 +419,7 @@ def main() -> None:
         sort_by=settings.get("sort_by", "none"),
         sort_direction=settings.get("sort_direction", "asc"),
     )
-    display_tasks(tasks_by_date, view_state.show_done)
+    _render_view(tasks_by_date, view_state)
     command_context = CommandContext(
         journal_path=journal_path,
         email_config=email_config,
@@ -454,7 +464,7 @@ def main() -> None:
 
             # Re-render: clean screen, fresh content, one prompt next iteration
             clear_screen()
-            display_tasks(tasks_by_date, view_state.show_done)
+            _render_view(tasks_by_date, view_state)
             render_log()
 
         except KeyboardInterrupt:
