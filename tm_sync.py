@@ -86,11 +86,19 @@ def sync_pull(interactive: bool = True) -> bool:
     # Check if local branch has any commits yet
     has_head = _run_git(["rev-parse", "HEAD"]) is not None
     if not has_head:
-        # Fresh repo with no local commits — reset to remote branch
-        reset = _run_git(["reset", "--hard", f"origin/{branch}"])
-        if reset is None:
-            # Try checkout as fallback (remote might also be empty)
-            _run_git(["checkout", "-B", branch, f"origin/{branch}"])
+        # Fresh repo — commit local files first so they're not lost
+        _run_git(["add", "-A"])
+        status = _run_git(["status", "--porcelain"])
+        if status and status.strip():
+            # Ensure git identity exists for commit (use fallback if not configured)
+            _ensure_git_identity()
+            _run_git(["commit", "-m", "local: preserve existing journals"])
+        # Now try to rebase onto remote (merges both histories)
+        pull_result = _run_git(["pull", "--rebase", "origin", branch])
+        if pull_result is None:
+            # Rebase failed — try merge instead
+            _run_git(["rebase", "--abort"])
+            _run_git(["pull", "--no-rebase", "origin", branch, "--allow-unrelated-histories"])
         return True
 
     # Check if there are remote changes
@@ -394,8 +402,21 @@ def _is_git_repo(path: Path) -> bool:
     return (path / ".git").is_dir()
 
 
+def _ensure_git_identity() -> None:
+    """Set git user.name/email locally if not configured (prevents commit failures)."""
+    name = _run_git(["config", "user.name"])
+    if not name or not name.strip():
+        _run_git(["config", "user.name", "TTM Sync"])
+    email = _run_git(["config", "user.email"])
+    if not email or not email.strip():
+        _run_git(["config", "user.email", "ttm@local"])
+
+
 def _git_init(journals_dir: Path, remote_url: str, branch: str) -> None:
-    """Initialize a new git repo in journals directory and pull existing content."""
+    """Initialize a new git repo in journals directory, preserving local files."""
+    # Backup existing local journal files BEFORE any git operation
+    local_files = {p.name: p.read_bytes() for p in journals_dir.glob("*.txt") if p.is_file()}
+
     _run_git(["init"])
     _run_git(["remote", "add", "origin", remote_url])
 
@@ -409,6 +430,9 @@ def _git_init(journals_dir: Path, remote_url: str, branch: str) -> None:
     if fetch_ok is not None:
         # Remote has content — set local branch to track it
         _run_git(["checkout", "-b", branch, f"origin/{branch}"])
+        # Restore local files that were overwritten (local takes priority)
+        for name, content in local_files.items():
+            (journals_dir / name).write_bytes(content)
     else:
         # No remote content or no connection — start fresh local branch
         _run_git(["checkout", "-b", branch])
@@ -468,12 +492,16 @@ def _do_push(verbose: bool = False) -> bool:
         return True
 
     # Commit
+    _ensure_git_identity()
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     commit_result = _run_git(["commit", "-m", f"sync: {timestamp}"])
     if commit_result is None:
         detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
         _print_sync(f"Commit failed: {detail}")
         return False
+
+    # Pull before push to handle diverged histories
+    _run_git(["pull", "--rebase", "origin", branch])
 
     # Push
     push_result = _run_git(["push", "origin", branch])
