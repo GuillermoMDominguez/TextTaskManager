@@ -28,6 +28,7 @@ _secrets: Optional[dict] = None
 _last_push_time: float = 0.0
 _push_timer: Optional[threading.Timer] = None
 _push_lock = threading.Lock()
+_last_git_error: str = ""
 
 DEBOUNCE_SECONDS = 5
 SECRETS_FILE = ".ttm_secrets"
@@ -75,7 +76,11 @@ def sync_pull(interactive: bool = True) -> bool:
     # Fetch first
     result = _run_git(["fetch", "origin", branch])
     if result is None:
-        _print_sync("No connection — working offline")
+        detail = _last_git_error.split("\n")[0] if _last_git_error else ""
+        msg = "No connection — working offline"
+        if detail:
+            msg += f" ({detail})"
+        _print_sync(msg)
         return False
 
     # Check if there are remote changes
@@ -396,6 +401,7 @@ def _run_git(args: list, timeout: int = 30) -> Optional[str]:
     if _journals_dir is None:
         return None
 
+    global _last_git_error
     cmd = ["git"] + args
     env = dict(__import__("os").environ)
     # Prevent git from opening interactive credential prompts
@@ -411,9 +417,12 @@ def _run_git(args: list, timeout: int = 30) -> Optional[str]:
             env=env,
         )
         if result.returncode == 0:
+            _last_git_error = ""
             return result.stdout
+        _last_git_error = (result.stderr or result.stdout or "").strip()
         return None
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        _last_git_error = str(exc)
         return None
 
 
@@ -444,15 +453,15 @@ def _do_push(verbose: bool = False) -> bool:
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     commit_result = _run_git(["commit", "-m", f"sync: {timestamp}"])
     if commit_result is None:
-        if verbose:
-            _print_sync("Commit failed")
+        detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
+        _print_sync(f"Commit failed: {detail}")
         return False
 
     # Push
     push_result = _run_git(["push", "origin", branch])
     if push_result is None:
-        if verbose:
-            _print_sync("Push failed — will retry later")
+        detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
+        _print_sync(f"Push failed: {detail}")
         return False
 
     if verbose:
