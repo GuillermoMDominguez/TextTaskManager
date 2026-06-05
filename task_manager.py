@@ -450,7 +450,6 @@ def main() -> None:
 
                 if outcome.skip_redraw:
                     # Command printed its own output (help, kb, stats) — don't overwrite
-                    render_log()
                     continue
 
             # Re-render: clean screen, fresh content, one prompt next iteration
