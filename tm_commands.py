@@ -1815,11 +1815,11 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # No ID given — show interactive list of blocked tasks
             from tm_features import extract_blockers_from_line
 
+            lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
             blocked_tasks = []
             for tasks in refreshed.values():
                 for task in tasks:
                     if task.source_line:
-                        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
                         idx = task.source_line - 1
                         if 0 <= idx < len(lines):
                             blockers = extract_blockers_from_line(lines[idx])
@@ -1832,7 +1832,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
             # Show selection form
             from tm_form import show_form, SelectField
-            options = [f"[{t.display_id}] {_strip_tags(t.title)} (blocked by: {', '.join(b)})" for t, b in blocked_tasks]
+            options = [f"[{t.task_id}] {_strip_tags(t.title)} (blocked by: {', '.join(b)})" for t, b in blocked_tasks]
             form_fields = [
                 SelectField("Unblock task", options, selected=0),
             ]
@@ -1847,7 +1847,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             selected_label = result["Unblock task"]
             selected_idx = options.index(selected_label) if selected_label in options else 0
             target, _ = blocked_tasks[selected_idx]
-            task_id = target.display_id
+            task_id = target.task_id
         else:
             task_id = match.group(1)
             target = find_task_by_id(refreshed, task_id)

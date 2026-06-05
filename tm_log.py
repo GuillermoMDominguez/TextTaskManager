@@ -57,6 +57,9 @@ def render_log() -> None:
 
     rows, cols = shutil.get_terminal_size()
 
+    # Ensure scroll region is active (excludes bottom 2 lines)
+    sys.stdout.write(f"\033[1;{rows - 2}r")
+
     # Save cursor position
     sys.stdout.write("\033[s")
 
