@@ -448,7 +448,12 @@ def main() -> None:
                     print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
                     break
 
-            # Always re-render: clean screen, fresh content, one prompt next iteration
+                if outcome.skip_redraw:
+                    # Command printed its own output (help, kb, stats) — don't overwrite
+                    render_log()
+                    continue
+
+            # Re-render: clean screen, fresh content, one prompt next iteration
             clear_screen()
             display_tasks(tasks_by_date, view_state.show_done)
             render_log()

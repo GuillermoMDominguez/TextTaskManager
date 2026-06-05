@@ -308,6 +308,7 @@ class CommandOutcome:
     tasks_by_date: dict
     view_state: ViewState
     should_exit: bool = False
+    skip_redraw: bool = False  # True = command printed its own output, don't clear
 
 
 def _render(tasks_by_date: dict, view_state: ViewState) -> None:
@@ -829,7 +830,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if command in ("s", "stats"):
         updated_tasks = context.refresh_tasks()
         display_stats(updated_tasks)
-        return CommandOutcome(updated_tasks, view_state)
+        return CommandOutcome(updated_tasks, view_state, skip_redraw=True)
 
     if re.match(r"^\s*(?:se|send\s+email)\b", raw_command, re.IGNORECASE):
         updated_tasks = context.refresh_tasks()
@@ -2052,7 +2053,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         refreshed = context.refresh_tasks()
         print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board{Colors.RESET}\n")
         print(render_kanban(refreshed))
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     # ─── Project/Tag view ──────────────────────────────────────────────
     if re.match(r"^\s*(?:pj|project)\b", raw_command, re.IGNORECASE):
@@ -2065,20 +2066,20 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             all_tags = get_all_tags(refreshed)
             if not all_tags:
                 print(f"{Colors.DIM}No tags found in tasks.{Colors.RESET}")
-                return CommandOutcome(refreshed, view_state)
+                return CommandOutcome(refreshed, view_state, skip_redraw=True)
             print(f"\n{Colors.HEADER}{Colors.BOLD}Project Tags{Colors.RESET}")
             print(f"{Colors.HEADER}{'─' * 40}{Colors.RESET}")
             for tag, count in sorted(all_tags.items(), key=lambda x: x[1], reverse=True):
                 print(f"  #{tag:<20} {count} task(s)")
             print(f"{Colors.HEADER}{'─' * 40}{Colors.RESET}")
-            return CommandOutcome(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
         # Show tasks for specific tag
         tag = tag_arg.lstrip("#")
         tasks = get_tasks_by_tag(refreshed, tag)
         if not tasks:
             print(f"{Colors.DIM}No tasks found with tag #{tag}.{Colors.RESET}")
-            return CommandOutcome(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
         tw = shutil.get_terminal_size((80, 24)).columns
         print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} #{tag} ({len(tasks)} tasks) {'─' * max(0, tw - len(tag) - 18)}{Colors.RESET}")
@@ -2095,7 +2096,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 st_color = _get_state_color_inline(st.state)
                 st_due = f" [DUE:{st.due_date.strftime('%d/%m/%Y')}]" if st.due_date else ""
                 print(f"       + [{st.task_id}] {st_color}{st.state:<{11}}{Colors.RESET} {_title_without_tags_cmd(st.title)}{Colors.DIM}{st_due}{Colors.RESET}")
-        return CommandOutcome(refreshed, view_state)
+        return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     # ─── Export ────────────────────────────────────────────────────────
     if re.match(r"^\s*export\b", raw_command, re.IGNORECASE):
@@ -2231,7 +2232,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     if command in ("h", "help", "?"):
         print_help()
-        return CommandOutcome(tasks_by_date, view_state)
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     if command in ("i", "progress"):
         next_view = ViewState(
@@ -2291,7 +2292,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
     if command == "sync status":
         from tm_sync import sync_status
         print(f"  {sync_status()}")
-        return CommandOutcome(tasks_by_date, view_state)
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     # ─── Log commands ──────────────────────────────────────────────────
     if command in ("show log", "log show", "log on"):

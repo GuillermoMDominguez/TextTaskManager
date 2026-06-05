@@ -234,7 +234,18 @@ def parse_subtask_line(line: str) -> Optional[Subtask]:
     current_state = DEFAULT_STATE
 
     parts = re.split(r"\s*(?:--|->)\s*", content)
-    subtask.title = parts[0].strip()
+    raw_title = parts[0].strip()
+
+    # Extract inline [priority=X] from title
+    inline_prio = re.search(r"\[(?:priority|prio|p)\s*=\s*([A-Za-z]+)\]", raw_title, re.IGNORECASE)
+    if inline_prio:
+        prio_val = _parse_priority_value(inline_prio.group(1))
+        if prio_val is not None:
+            subtask.priority = prio_val
+        raw_title = raw_title[:inline_prio.start()].rstrip() + raw_title[inline_prio.end():]
+        raw_title = raw_title.strip()
+
+    subtask.title = raw_title
     if not subtask.title:
         return None
 
@@ -247,6 +258,14 @@ def parse_subtask_line(line: str) -> Optional[Subtask]:
         due_match = re.match(r"^(?:due|d)\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", part, re.IGNORECASE)
         if due_match:
             subtask.due_date = _parse_due_value(due_match.group(1))
+            continue
+
+        # Check for priority in subtask metadata
+        prio_match = re.match(r"^(?:priority|prio|p)\s*[:=]\s*([A-Za-z]+)$", part, re.IGNORECASE)
+        if prio_match:
+            prio_val = _parse_priority_value(prio_match.group(1))
+            if prio_val is not None:
+                subtask.priority = prio_val
             continue
 
         for alias, canonical in STATE_ALIASES.items():

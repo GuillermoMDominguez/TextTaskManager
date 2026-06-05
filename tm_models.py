@@ -33,6 +33,7 @@ class Subtask:
     task_id: Optional[str] = None
     source_line: Optional[int] = None
     due_date: Optional[datetime] = None
+    priority: Optional[str] = None
 
     def is_finished(self) -> bool:
         """Check if subtask is in a finished state."""
