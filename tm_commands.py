@@ -56,7 +56,6 @@ from tm_journal import (
     update_subtask_state_in_file,
     update_task_state_in_file,
     write_journal,
-    _notify_post_write,
 )
 from tm_logic import (
     build_pending_email_body,
@@ -390,56 +389,58 @@ def _log_time_to_task(context: CommandContext, task: "Task", minutes: int) -> bo
     if task.source_line is None:
         return False
 
-    lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
-    line_index = task.source_line - 1
-    if line_index >= len(lines):
-        return False
+    from tm_journal import file_lock
+    with file_lock:
+        lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
+        line_index = task.source_line - 1
+        if line_index >= len(lines):
+            return False
 
-    task_line = lines[line_index]
+        task_line = lines[line_index]
 
-    # Calculate existing time: check inline first, then continuation lines
-    existing = extract_time_spent_from_line(task_line)
-    if existing is None:
-        # Check continuation lines for spent:
-        for j in range(line_index + 1, len(lines)):
-            cline = lines[j]
-            if not cline or not cline[0].isspace():
-                break
-            if re.search(r"--\s*(?:spent|time)\s*[:=]\s*(\S+)", cline, re.IGNORECASE):
-                existing = extract_time_spent_from_line(cline)
-                # Remove old continuation spent line, we'll re-add updated
-                lines.pop(j)
-                break
+        # Calculate existing time: check inline first, then continuation lines
+        existing = extract_time_spent_from_line(task_line)
+        if existing is None:
+            # Check continuation lines for spent:
+            for j in range(line_index + 1, len(lines)):
+                cline = lines[j]
+                if not cline or not cline[0].isspace():
+                    break
+                if re.search(r"--\s*(?:spent|time)\s*[:=]\s*(\S+)", cline, re.IGNORECASE):
+                    existing = extract_time_spent_from_line(cline)
+                    # Remove old continuation spent line, we'll re-add updated
+                    lines.pop(j)
+                    break
 
-    total = (existing or 0) + minutes
+        total = (existing or 0) + minutes
 
-    # Determine if task uses multiline metadata (next line is indented --)
-    uses_multiline = False
-    if line_index + 1 < len(lines):
-        next_line = lines[line_index + 1]
-        if re.match(r"^\s+--\s*", next_line) or re.match(r"^\s+#", next_line):
-            uses_multiline = True
+        # Determine if task uses multiline metadata (next line is indented --)
+        uses_multiline = False
+        if line_index + 1 < len(lines):
+            next_line = lines[line_index + 1]
+            if re.match(r"^\s+--\s*", next_line) or re.match(r"^\s+#", next_line):
+                uses_multiline = True
 
-    if uses_multiline:
-        # Insert as continuation line after the task line (before other content)
-        indent = "    "
-        from tm_features import format_time_spent
-        spent_line = f"{indent}-- spent:{format_time_spent(total)}"
-        # Find insertion point: after last -- line
-        insert_at = line_index + 1
-        for j in range(line_index + 1, len(lines)):
-            cline = lines[j]
-            if re.match(r"^\s+--\s", cline) or re.match(r"^\s+#", cline):
-                insert_at = j + 1
-            else:
-                break
-        lines.insert(insert_at, spent_line)
-    else:
-        # Inline: append or update on task line
-        lines[line_index] = update_time_in_line(task_line, total)
+        if uses_multiline:
+            # Insert as continuation line after the task line (before other content)
+            indent = "    "
+            from tm_features import format_time_spent
+            spent_line = f"{indent}-- spent:{format_time_spent(total)}"
+            # Find insertion point: after last -- line
+            insert_at = line_index + 1
+            for j in range(line_index + 1, len(lines)):
+                cline = lines[j]
+                if re.match(r"^\s+--\s", cline) or re.match(r"^\s+#", cline):
+                    insert_at = j + 1
+                else:
+                    break
+            lines.insert(insert_at, spent_line)
+        else:
+            # Inline: append or update on task line
+            lines[line_index] = update_time_in_line(task_line, total)
 
-    write_journal(context.journal_path, "\n".join(lines))
-    return True
+        write_journal(context.journal_path, "\n".join(lines))
+        return True
 
 
 def _parse_meta_command(
@@ -925,12 +926,14 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             # Add note if provided via form
             if result is not None and result.get("Note", "").strip():
                 updated_tasks = context.refresh_tasks()
-                # Find the just-created task by title match
+                # Find the just-created task — last one with matching title
+                # (avoids attaching to wrong task if duplicate titles exist)
                 created_task = None
                 for tasks in updated_tasks.values():
                     for t in tasks:
                         if t.title.strip() == task_title.strip():
-                            created_task = t
+                            if created_task is None or (t.source_line or 0) > (created_task.source_line or 0):
+                                created_task = t
                 if created_task:
                     add_note_to_task_in_file(context.journal_path, created_task, result["Note"].strip())
             updated_tasks = context.refresh_tasks()
@@ -1740,6 +1743,44 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         _log("error", f"Could not create task from template.")
         return CommandOutcome(refreshed, view_state)
 
+    # ─── Recurrence ────────────────────────────────────────────────────
+    recur_match = re.match(r"^\s*(?:recur|rec)\s+(\S+)\s*(.*)$", raw_command, re.IGNORECASE)
+    if recur_match:
+        requested_id = recur_match.group(1).strip()
+        recur_value = recur_match.group(2).strip().lower()
+
+        target = find_task_by_id(updated_tasks, requested_id)
+        if target is None or isinstance(target, Subtask):
+            _log("error", f"Task {requested_id} not found.")
+            return CommandOutcome(updated_tasks, view_state)
+
+        from tm_config import VALID_RECURRENCES, RECURRENCE_ALIASES
+        if recur_value in ("none", "off", "clear", ""):
+            new_recurrence = ""  # empty string = remove recurrence
+        else:
+            # Resolve aliases
+            normalized = RECURRENCE_ALIASES.get(recur_value.upper(), recur_value)
+            if normalized not in VALID_RECURRENCES:
+                _log("error", f"Invalid recurrence. Valid: {', '.join(VALID_RECURRENCES)} (or none).")
+                return CommandOutcome(updated_tasks, view_state)
+            new_recurrence = normalized
+
+        snapshot = read_journal_snapshot(context.journal_path)
+        if update_task_metadata_in_file(
+            context.journal_path, target, target.due_date, target.priority,
+            recurrence=new_recurrence
+        ):
+            _save_undo_snapshot(context, snapshot)
+            refreshed = context.refresh_tasks()
+            clear_screen()
+            label = new_recurrence or "none"
+            _log("info", f"Task {requested_id} recurrence set to {label}.")
+            _render(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state)
+
+        _log("error", f"Could not update recurrence for task {requested_id}.")
+        return CommandOutcome(updated_tasks, view_state)
+
     # ─── Time Tracking ─────────────────────────────────────────────────
     if re.match(r"^\s*(?:tt|time)\b", raw_command, re.IGNORECASE):
         refreshed = context.refresh_tasks()
@@ -2195,9 +2236,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         snapshot = read_journal_snapshot(context.journal_path)
         try:
-            with open(context.journal_path, "a", encoding="utf-8") as f:
-                f.writelines(new_lines)
-            _notify_post_write()
+            from tm_journal import file_lock
+            with file_lock:
+                existing = context.journal_path.read_text(encoding="utf-8")
+                write_journal(context.journal_path, existing + "".join(new_lines))
             _save_undo_snapshot(context, snapshot)
             refreshed = context.refresh_tasks()
             clear_screen()

@@ -46,10 +46,16 @@ def compute_next_recurrence_date(current_date: datetime, recurrence: str) -> dat
         if month > 12:
             month = 1
             year += 1
-        day = min(current_date.day, 28)
+        import calendar
+        max_day = calendar.monthrange(year, month)[1]
+        day = min(current_date.day, max_day)
         return current_date.replace(year=year, month=month, day=day)
     elif recurrence == "yearly":
-        return current_date.replace(year=current_date.year + 1)
+        try:
+            return current_date.replace(year=current_date.year + 1)
+        except ValueError:
+            # Feb 29 in a leap year → Feb 28 in non-leap year
+            return current_date.replace(year=current_date.year + 1, day=28)
     return current_date + timedelta(weeks=1)
 
 
@@ -613,13 +619,10 @@ def find_task_by_title_match(tasks_by_date: dict, title: str) -> Optional[Task]:
 
 
 def is_task_blocked(task: Task, tasks_by_date: dict) -> bool:
-    """Check if a task has unresolved blockers (by title lookup)."""
-    if not hasattr(task, "_raw_line"):
+    """Check if a task has unresolved blockers."""
+    if not task.blocked_by:
         return False
-    blockers = extract_blockers_from_line(getattr(task, "_raw_line", ""))
-    if not blockers:
-        return False
-    for blocker_title in blockers:
+    for blocker_title in task.blocked_by:
         blocker = find_task_by_title_match(tasks_by_date, blocker_title)
         if blocker and not blocker.is_finished():
             return True

@@ -386,7 +386,7 @@ def main() -> None:
         except JournalError:
             if tasks_cache is None:
                 raise
-            raise
+            return tasks_cache
         assign_task_ids(tasks)
         tasks_cache = tasks
         return tasks
@@ -431,19 +431,114 @@ def main() -> None:
         max_undo=settings.get("max_undo", 20),
     )
 
+    # ─── Prompt builder ────────────────────────────────────────────────
+    import time as _time_mod
+    import re as _re_mod
+
+    _prompt_format = settings.get("prompt_format", "{user} {time} > ")
+    _prompt_colors = settings.get("prompt_colors", {})
+
+    # Named color presets (ANSI basic + common names)
+    _NAMED_COLORS = {
+        "black": "\033[30m", "red": "\033[31m", "green": "\033[32m",
+        "yellow": "\033[33m", "blue": "\033[34m", "magenta": "\033[35m",
+        "cyan": "\033[36m", "white": "\033[37m", "gray": "\033[90m",
+        "grey": "\033[90m", "bright_red": "\033[91m", "bright_green": "\033[92m",
+        "bright_yellow": "\033[93m", "bright_blue": "\033[94m",
+        "bright_magenta": "\033[95m", "bright_cyan": "\033[96m",
+        "bright_white": "\033[97m", "dim": "\033[2m", "bold": "\033[1m",
+    }
+
+    def _parse_color(color_str: str) -> str:
+        """Parse a color value: named color, or 'R,G,B' for 24-bit."""
+        if not color_str:
+            return ""
+        # Check named colors first
+        name = color_str.strip().lower().replace(" ", "_")
+        if name in _NAMED_COLORS:
+            return _NAMED_COLORS[name]
+        # Try R,G,B format
+        try:
+            r, g, b = (int(x.strip()) for x in color_str.split(","))
+            return f"\033[38;2;{r};{g};{b}m"
+        except (ValueError, TypeError):
+            return ""
+
+    # Pre-resolve color escapes for each token
+    _token_colors = {
+        "user": _parse_color(_prompt_colors.get("user", "bright_green")),
+        "time": _parse_color(_prompt_colors.get("time", "green")),
+        "date": _parse_color(_prompt_colors.get("date", "green")),
+        "journal": _parse_color(_prompt_colors.get("journal", "green")),
+    }
+    _color_sep = _parse_color(_prompt_colors.get("separator", "gray"))
+    # Use plain \033[0m in prompt (no BG sequence — avoids true-color issues)
+    _prompt_reset = "\033[0m"
+
+    def _build_prompt_char() -> tuple:
+        """Build the input prompt from the configured format string.
+
+        Returns (colored, plain) — colored for sys.stdout.write display.
+        Supported placeholders: {user}, {time}, {date}, {journal}.
+        """
+        now = _time_mod.localtime()
+
+        values = {
+            "user": _sync_user,
+            "time": _time_mod.strftime("%H:%M", now),
+            "date": _time_mod.strftime(settings.get("date_format", "%d/%m/%Y"), now),
+            "journal": Path(journal_path).stem,
+        }
+
+        # Split format into segments: alternating literal / {token}
+        # We only switch foreground colors (no reset between tokens) to avoid
+        # clearing the background mid-prompt.
+        segments = _re_mod.split(r"(\{[^}]+\})", _prompt_format)
+
+        colored_parts: list = []
+        plain_parts: list = []
+        for seg in segments:
+            if seg.startswith("{") and seg.endswith("}"):
+                key = seg[1:-1]
+                value = values.get(key, "")
+                if not value:
+                    continue
+                color = _token_colors.get(key, _color_sep)
+                colored_parts.append(f"{color}{value}")
+                plain_parts.append(value)
+            elif seg:
+                colored_parts.append(f"{_color_sep}{seg}")
+                plain_parts.append(seg)
+
+        # Single reset at the very end
+        colored = "".join(colored_parts) + _prompt_reset
+        plain = "".join(plain_parts)
+
+        # Collapse double spaces from removed empty tokens
+        while "  " in plain:
+            plain = plain.replace("  ", " ")
+        if plain.startswith(" "):
+            plain = plain.lstrip(" ")
+            # Also strip leading separator segment from colored
+            leading_sep = f"{_color_sep} "
+            if colored.startswith(leading_sep):
+                colored = colored[len(leading_sep):]
+
+        return (colored, plain)
+
+    # ───────────────────────────────────────────────────────────────────
+
     while True:
         try:
-            # Build prompt — include status line above ">" if there's a message
+            # Build prompt — include status line above input if there's a message
             status = get_status_line()
-            if _sync_user:
-                prompt_char = f"\001{Colors.DIM}\002{_sync_user}\001{Colors.RESET}\002\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
-            else:
-                prompt_char = f"\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
+            colored, plain = _build_prompt_char()
             if status:
-                prompt = f"\n{status}\n{prompt_char}"
+                sys.stdout.write(f"\n{status}\n{colored}")
             else:
-                prompt = f"\n{prompt_char}"
-            raw_command = input(prompt).strip()
+                sys.stdout.write(f"\n{colored}")
+            sys.stdout.flush()
+            raw_command = input("").strip()
             remember_command(raw_command)
 
             try:

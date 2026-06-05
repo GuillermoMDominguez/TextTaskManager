@@ -3,7 +3,15 @@
 from tm_settings import get_setting
 
 VALID_STATES: list[str] = get_setting("states", ["BACKLOG", "IN PROGRESS", "WAITING", "TESTING", "DONE", "CANCELLED"])
-STATE_ALIASES: dict[str, str] = get_setting("state_aliases", {"IN TESTING": "TESTING"})
+STATE_ALIASES: dict[str, str] = get_setting("state_aliases", {
+    "IN TESTING": "TESTING",
+    "IP": "IN PROGRESS",
+    "BL": "BACKLOG",
+    "WT": "WAITING",
+    "DN": "DONE",
+    "CN": "CANCELLED",
+    "TS": "TESTING",
+})
 FINISHED_STATES: list[str] = get_setting("finished_states", ["DONE", "CANCELLED"])
 PROGRESS_STATES: list[str] = get_setting("progress_states", ["IN PROGRESS"])
 TESTING_STATES: list[str] = get_setting("testing_states", ["TESTING", "IN TESTING"])

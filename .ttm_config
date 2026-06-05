@@ -1,25 +1,18 @@
 {
-  "states": [
-    "BACKLOG",
-    "IN PROGRESS",
-    "WAITING",
-    "TESTING",
-    "DONE",
-    "CANCELLED"
-  ],
-  "finished_states": [
-    "DONE",
-    "CANCELLED"
-  ],
+  "states": ["BACKLOG", "IN PROGRESS", "WAITING", "TESTING", "DONE", "CANCELLED"],
+  "finished_states": ["DONE", "CANCELLED"],
+  "progress_states": ["IN PROGRESS"],
+  "testing_states": ["TESTING", "IN TESTING"],
   "state_aliases": {
-    "IN TESTING": "TESTING"
+    "IN TESTING": "TESTING",
+    "IP": "IN PROGRESS",
+    "BL": "BACKLOG",
+    "WT": "WAITING",
+    "DN": "DONE",
+    "CN": "CANCELLED",
+    "TS": "TESTING"
   },
-  "priorities": [
-    "LOW",
-    "MEDIUM",
-    "HIGH",
-    "URGENT"
-  ],
+  "priorities": ["LOW", "MEDIUM", "HIGH", "URGENT"],
   "priority_aliases": {
     "L": "LOW",
     "M": "MEDIUM",
@@ -27,21 +20,27 @@
     "U": "URGENT"
   },
   "default_state": "BACKLOG",
-  "kanban_columns": [
-    "BACKLOG",
-    "IN PROGRESS",
-    "WAITING",
-    "TESTING",
-    "DONE",
-    "CANCELLED"
-  ],
-  "date_format": "%d/%m/%Y",
   "default_priority": null,
+  "kanban_columns": ["BACKLOG", "IN PROGRESS", "WAITING", "TESTING", "DONE", "CANCELLED"],
+  "date_format": "%d/%m/%Y",
   "agenda_days": 7,
   "sort_by": "none",
   "sort_direction": "asc",
   "show_done_default": false,
   "weekly_report_days": 7,
+  "prompt_format": "{user} {time} > ",
+  "prompt_colors": {
+    "user": "bright_green",
+    "time": "green",
+    "date": "green",
+    "journal": "green",
+    "separator": "gray"
+  },
+  "colors_enabled": true,
+  "background_color": "0,0,0",
+  "max_undo": 20,
+  "show_log": true,
+  "templates": {},
   "email": {
     "smtp_host": "",
     "smtp_port": 587,
@@ -51,13 +50,9 @@
     "default_recipient": "",
     "subject_prefix": "[TaskManager]"
   },
-  "colors_enabled": true,
-  "background_color": "0,0,0",
-  "max_undo": 20,
-  "templates": {},
   "sync": {
     "enabled": true,
-    "remote": "https://github.com/Galerian84/journal.git",
+    "remote": "https://github.com/Galerian84/ttm-journal.git",
     "branch": "main"
   }
 }

@@ -879,10 +879,23 @@ def update_task_metadata_in_file(
     task: Task,
     due_date: Optional[datetime],
     priority: Optional[str],
+    recurrence: Optional[str] = None,
 ) -> bool:
-    """Update due date and/or priority metadata for a parent task."""
+    """Update due date, priority, and/or recurrence metadata for a parent task.
+
+    recurrence=None means keep existing, recurrence="" means remove,
+    recurrence="weekly" etc means set that value.
+    """
     if task.source_line is None:
         return False
+
+    # Determine effective recurrence
+    if recurrence is None:
+        effective_recurrence = task.recurrence  # keep existing
+    elif recurrence == "":
+        effective_recurrence = None  # remove
+    else:
+        effective_recurrence = recurrence  # set new value
 
     try:
         lines = _read_lines(filepath)
@@ -891,7 +904,7 @@ def update_task_metadata_in_file(
             return False
 
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, task.recurrence)
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence)
         _write_lines(filepath, lines)
         return True
     except Exception:

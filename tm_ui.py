@@ -131,6 +131,7 @@ _COMMANDS = [
     "kb", "kanban", "pj", "project", "sort",
     "tpl", "template", "tt", "time",
     "block", "blocker", "unblock",
+    "recur", "rec",
     "pom", "pomodoro", "bd", "burndown",
     "f", "find", "fc", "se", "send",
     "export", "import", "wr", "weekly",
@@ -148,6 +149,8 @@ _COMMAND_FLAGS = {
     "edit": ["--due", "--priority", "--tags"],
     "md": ["--due", "--priority", "--tags"],
     "meta": ["--due", "--priority", "--tags"],
+    "recur": ["daily", "weekly", "biweekly", "monthly", "yearly", "none"],
+    "rec": ["daily", "weekly", "biweekly", "monthly", "yearly", "none"],
     "sort": ["priority", "due_date", "state", "none", "asc", "desc"],
     "export": ["json", "csv", "md"],
     "block": ["del"],
@@ -245,28 +248,33 @@ def enable_windows_ansi() -> None:
 
 
 def set_terminal_background() -> None:
-    """Set terminal background to configured color. Works on Windows, Linux, macOS."""
+    """Set terminal background to configured color. Works on macOS/Linux/Win10+."""
     import sys
-    sys.stdout.write(_BG_SEQ)         # Set BG color
+    sys.stdout.write(_BG_SEQ)         # Inline BG for printed text
+    sys.stdout.write(_BG_OSC)         # OSC 11: changes the whole terminal window BG
     sys.stdout.write("\033[2J")       # Clear screen with new BG
     sys.stdout.write("\033[H")        # Move cursor to top-left
     sys.stdout.flush()
 
 
-_BG_SEQ = "\033[48;2;0;0;0m"  # Default; overwritten by init_background_color()
+_BG_SEQ = "\033[48;2;0;0;0m"  # Inline BG (only affects printed chars)
+_BG_OSC = ""                   # OSC 11 sequence (affects whole terminal window)
 
 
 def init_background_color(rgb_str: str = "0,0,0") -> None:
     """Configure the background color from an 'R,G,B' string (e.g. '0,0,0').
 
     Must be called before any output. Updates Colors.RESET to maintain BG.
+    Uses both inline BG (for text) and OSC 11 (for full terminal window).
     """
-    global _BG_SEQ
+    global _BG_SEQ, _BG_OSC
     try:
         parts = [int(x.strip()) for x in rgb_str.split(",")]
         if len(parts) == 3 and all(0 <= v <= 255 for v in parts):
             r, g, b = parts
             _BG_SEQ = f"\033[48;2;{r};{g};{b}m"
+            # OSC 11 sets the terminal's own background (fills whole window)
+            _BG_OSC = f"\033]11;rgb:{r:02x}/{g:02x}/{b:02x}\033\\"
     except (ValueError, AttributeError):
         pass  # Keep default black
     Colors.RESET = "\033[0m" + _BG_SEQ
@@ -549,5 +557,6 @@ def clear_screen() -> None:
 def reset_terminal_background() -> None:
     """Restore the terminal's default background on exit."""
     import sys
+    sys.stdout.write("\033]11;\033\\")  # OSC 11 reset (restore original BG)
     sys.stdout.write("\033[0m\033[2J\033[H")
     sys.stdout.flush()

@@ -526,7 +526,10 @@ def _do_push(verbose: bool = False) -> bool:
 
 def _do_push_background() -> None:
     """Background push (called by debounce timer)."""
-    _do_push(verbose=False)
+    try:
+        _do_push(verbose=False)
+    except Exception as exc:
+        _print_sync(f"Background sync error: {exc}")
 
 
 def _resolve_pull_conflict(branch: str) -> bool:
