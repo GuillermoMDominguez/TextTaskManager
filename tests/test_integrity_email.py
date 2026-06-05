@@ -2,7 +2,6 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
 import tempfile
@@ -10,8 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tm_integrity import check_and_fix_journal, _is_valid_date, _try_fix_date_header
-from tm_email import _to_bool, EmailResult, EmailConfig, load_email_config, _first_existing_config
+from src.tm_integrity import check_and_fix_journal, _is_valid_date, _try_fix_date_header
+from src.tm_email import _to_bool, EmailResult, EmailConfig, load_email_config, _first_existing_config
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

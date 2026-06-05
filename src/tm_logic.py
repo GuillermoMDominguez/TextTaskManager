@@ -5,8 +5,8 @@ import re
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple, Union
 
-from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
-from tm_models import Subtask, Task
+from .tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
+from .tm_models import Subtask, Task
 
 
 def normalize_state_input(state_input: str) -> Optional[str]:

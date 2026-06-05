@@ -2,12 +2,11 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import tempfile
 import unittest
 from datetime import datetime
-from tm_journal import (
+from src.tm_journal import (
     split_comments, append_unique_comments, parse_date, parse_task_line,
     parse_subtask_line, parse_journal, write_journal, add_task_to_file,
     update_task_state_in_file, add_note_to_task_in_file, edit_task_title_in_file,
@@ -15,7 +14,7 @@ from tm_journal import (
     JournalFileNotFoundError, JournalReadError,
     _write_lines, _read_lines, _post_write_hooks,
 )
-from tm_models import Task, Subtask
+from src.tm_models import Task, Subtask
 
 
 # ─── Parsing: split_comments ──────────────────────────────────────────────────

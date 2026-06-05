@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 
-from tm_config import DEFAULT_STATE, FINISHED_STATES, PROGRESS_STATES, TESTING_STATES
+from .tm_config import DEFAULT_STATE, FINISHED_STATES, PROGRESS_STATES, TESTING_STATES
 
 
 TAG_PATTERN = re.compile(r"(?<!\w)#([A-Za-z0-9_-]+)")

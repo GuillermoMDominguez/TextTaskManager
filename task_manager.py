@@ -7,16 +7,16 @@ import atexit
 from pathlib import Path
 from typing import List, Optional
 
-from tm_commands import CommandContext, ViewState, execute_command
-from tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
-from tm_features import sort_tasks
-from tm_email import load_email_config
-from tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
-from tm_log import log as tm_log_msg, get_status_line, set_visible as set_log_visible
-from tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
-from tm_settings import load_settings
-from tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown, get_sync_user
-from tm_ui import (
+from src.tm_commands import CommandContext, ViewState, execute_command
+from src.tm_config import APP_VERSION, BANNER_INNER_WIDTH, DEFAULT_STATE
+from src.tm_features import sort_tasks
+from src.tm_email import load_email_config
+from src.tm_journal import JournalError, parse_journal, add_task_to_file, register_post_write_hook
+from src.tm_log import log as tm_log_msg, get_status_line, set_visible as set_log_visible
+from src.tm_logic import assign_task_ids, normalize_state_input, normalize_priority_input, parse_date_input
+from src.tm_settings import load_settings
+from src.tm_sync import init_sync, sync_pull, sync_push_async, shutdown as sync_shutdown, get_sync_user
+from src.tm_ui import (
     Colors,
     clear_screen,
     display_tasks,
@@ -231,7 +231,7 @@ def main() -> None:
     settings = load_settings(script_dir)
     config_path = script_dir / ".ttm_config"
     if not config_path.exists():
-        from tm_settings import DEFAULT_SETTINGS, save_settings
+        from src.tm_settings import DEFAULT_SETTINGS, save_settings
         save_settings(DEFAULT_SETTINGS, script_dir)
         print(f"{Colors.DIM}Created default config: {config_path}{Colors.RESET}")
 
@@ -302,7 +302,7 @@ def main() -> None:
 
         recurrence = None
         if args.quick_recur:
-            from tm_logic import normalize_recurrence_input
+            from src.tm_logic import normalize_recurrence_input
             recurrence = normalize_recurrence_input(args.quick_recur)
             if not recurrence:
                 print(f"{Colors.ERROR}Invalid recurrence: {args.quick_recur}{Colors.RESET}")
@@ -317,7 +317,7 @@ def main() -> None:
 
     # ─── Check / Fix mode (non-interactive) ────────────────────────────
     if args.check or args.fix:
-        from tm_integrity import check_and_fix_journal
+        from src.tm_integrity import check_and_fix_journal
         journal_path = _resolve_journal_for_quick_ops(journals_dir, cache_path, args.journal)
         if journal_path is None or not journal_path.exists():
             print(f"{Colors.ERROR}No journal found.{Colors.RESET}")
@@ -359,7 +359,7 @@ def main() -> None:
     save_cached_journal(cache_path, selected_journal.name)
 
     # ─── Integrity check on load ──────────────────────────────────────
-    from tm_integrity import check_and_fix_journal
+    from src.tm_integrity import check_and_fix_journal
     issues, fixed = check_and_fix_journal(journal_path, auto_fix=True)
     if fixed > 0:
         print(f"{Colors.HEADER}Auto-fixed {fixed} issue(s) in journal:{Colors.RESET}")
@@ -402,7 +402,7 @@ def main() -> None:
 
     print(f"{Colors.HEADER}{Colors.BOLD}")
     title = f"Task Manager v{APP_VERSION}"
-    from tm_ui import _term_width
+    from src.tm_ui import _term_width
     bw = min(_term_width() - 4, 60)
     print(f"╔{'═' * bw}╗")
     print(f"║{title.center(bw)}║")
@@ -548,11 +548,11 @@ def main() -> None:
                 outcome = None
             except Exception as exc:
                 import traceback
-                Path("ttm_crash.log").write_text(
+                Path("src/ttm_crash.log").write_text(
                     f"COMMAND ERROR ({raw_command}):\n{traceback.format_exc()}",
                     encoding="utf-8",
                 )
-                tm_log_msg("error", "Unexpected error. See ttm_crash.log")
+                tm_log_msg("error", "Unexpected error. See src/ttm_crash.log")
                 outcome = None
 
             if outcome:

@@ -1,13 +1,11 @@
 """Comprehensive tests for private helper functions in tm_commands.py."""
 
 import sys
-import os
 import unittest
 from datetime import datetime
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tm_commands import (
+from src.tm_commands import (
     _strip_tags,
     _parse_meta_command,
     _strip_inline_tags,

@@ -11,8 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from tm_config import VALID_STATES, VALID_PRIORITIES
-from tm_journal import parse_date, _parse_due_value
+from .tm_config import VALID_STATES, VALID_PRIORITIES
+from .tm_journal import parse_date, _parse_due_value
 
 
 # Recurrence values accepted by the system

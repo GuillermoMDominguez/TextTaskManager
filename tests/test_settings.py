@@ -1,8 +1,6 @@
 """Comprehensive tests for tm_settings.py."""
 
 import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
 import tempfile
@@ -10,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import tm_settings
-from tm_settings import (
+from src import tm_settings
+from src.tm_settings import (
     DEFAULT_SETTINGS,
     _deep_merge,
     _find_config_file,
@@ -250,7 +248,7 @@ class TestSaveSettings(unittest.TestCase):
         self.assertTrue(written["new"])
 
     def test_saves_to_home_when_no_project_dir(self):
-        with patch("tm_settings.Path.home") as mock_home:
+        with patch("src.tm_settings.Path.home") as mock_home:
             with tempfile.TemporaryDirectory() as tmpdir:
                 mock_home.return_value = Path(tmpdir)
                 result = save_settings({"test": True})
@@ -365,8 +363,8 @@ class TestFindConfigFile(unittest.TestCase):
             empty_home.mkdir()
             # Patch all locations _find_config_file checks:
             # cwd, Path(__file__).parent (via module attribute), and home
-            with patch("tm_settings.Path.cwd", return_value=Path(tmpdir)):
-                with patch("tm_settings.Path.home", return_value=empty_home):
+            with patch("src.tm_settings.Path.cwd", return_value=Path(tmpdir)):
+                with patch("src.tm_settings.Path.home", return_value=empty_home):
                     # Patch __file__ so script_parent points to a dir with no config
                     original_file = tm_settings.__file__
                     try:
@@ -384,7 +382,7 @@ class TestFindConfigFile(unittest.TestCase):
             home.mkdir()
             (start / ".ttm_config").write_text('{"from": "start"}', encoding="utf-8")
             (home / ".ttm_config").write_text('{"from": "home"}', encoding="utf-8")
-            with patch("tm_settings.Path.home", return_value=home):
+            with patch("src.tm_settings.Path.home", return_value=home):
                 result = _find_config_file(start_dir=start)
         self.assertEqual(result, start / ".ttm_config")
 

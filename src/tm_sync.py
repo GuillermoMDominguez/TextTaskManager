@@ -194,7 +194,7 @@ def run_config_wizard(project_dir: Path, journals_dir: Path) -> Optional[dict]:
 
     Returns the sync config dict if successful, None if cancelled.
     """
-    from tm_ui import Colors
+    from .tm_ui import Colors
 
     print(f"\n{Colors.HEADER}{'═' * 50}{Colors.RESET}")
     print(f"{Colors.BOLD}  Journal Sync Configuration{Colors.RESET}")
@@ -486,7 +486,7 @@ def _do_push(verbose: bool = False) -> bool:
 
     # Acquire journal file lock during add+commit to prevent capturing
     # a partially-written file from the main thread
-    from tm_journal import file_lock as _journal_lock
+    from .tm_journal import file_lock as _journal_lock
     with _journal_lock:
         # Stage all changes
         _run_git(["add", "-A"])
@@ -534,7 +534,7 @@ def _do_push_background() -> None:
 
 def _resolve_pull_conflict(branch: str) -> bool:
     """Handle pull when there are local uncommitted changes."""
-    from tm_ui import Colors
+    from .tm_ui import Colors
 
     print(f"\n{Colors.HEADER}  Remote has changes and you have local modifications.{Colors.RESET}")
     print(f"    L = Keep local (stash, pull, re-apply local on top)")
@@ -628,7 +628,7 @@ def _create_gitlab_repo(token: str, repo_name: str) -> Tuple[bool, str]:
 def _print_sync(message: str) -> None:
     """Route sync messages through the system log."""
     try:
-        from tm_log import log
+        from .tm_log import log
         log("sync", message)
     except ImportError:
         pass

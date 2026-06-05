@@ -9,9 +9,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
-from tm_config import DEFAULT_STATE, FINISHED_STATES, VALID_PRIORITIES, VALID_RECURRENCES, RECURRENCE_ALIASES
-from tm_email import EmailConfig, EmailResult, send_email_report
-from tm_features import (
+from .tm_config import DEFAULT_STATE, FINISHED_STATES, VALID_PRIORITIES, VALID_RECURRENCES, RECURRENCE_ALIASES
+from .tm_email import EmailConfig, EmailResult, send_email_report
+from .tm_features import (
     compute_next_recurrence_date,
     export_to_csv,
     export_to_json,
@@ -35,7 +35,7 @@ from tm_features import (
     add_blocker_metadata,
     add_blocks_metadata,
 )
-from tm_journal import (
+from .tm_journal import (
     add_note_to_task_in_file,
     add_subtask_to_task,
     add_task_to_file,
@@ -57,7 +57,7 @@ from tm_journal import (
     update_task_state_in_file,
     write_journal,
 )
-from tm_logic import (
+from .tm_logic import (
     build_pending_email_body,
     find_note_by_id,
     find_task_by_id,
@@ -67,10 +67,10 @@ from tm_logic import (
     parse_date_input,
     parse_new_command_args,
 )
-from tm_models import Subtask, Task, extract_tags_from_text
-from tm_log import log as _log
-from tm_settings import get_setting
-from tm_ui import Colors, clear_screen, display_stats, display_tasks, print_help, prompt_for_state
+from .tm_models import Subtask, Task, extract_tags_from_text
+from .tm_log import log as _log
+from .tm_settings import get_setting
+from .tm_ui import Colors, clear_screen, display_stats, display_tasks, print_help, prompt_for_state
 
 _TAG_RE = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
 
@@ -337,7 +337,7 @@ def _render(tasks_by_date: dict, view_state: ViewState) -> None:
 
 def _get_state_color_inline(state: str) -> str:
     """Get color code for inline state display."""
-    from tm_ui import get_state_color
+    from .tm_ui import get_state_color
     return get_state_color(state)
 
 
@@ -389,7 +389,7 @@ def _log_time_to_task(context: CommandContext, task: "Task", minutes: int) -> bo
     if task.source_line is None:
         return False
 
-    from tm_journal import file_lock
+    from .tm_journal import file_lock
     with file_lock:
         lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
         line_index = task.source_line - 1
@@ -424,7 +424,7 @@ def _log_time_to_task(context: CommandContext, task: "Task", minutes: int) -> bo
         if uses_multiline:
             # Insert as continuation line after the task line (before other content)
             indent = "    "
-            from tm_features import format_time_spent
+            from .tm_features import format_time_spent
             spent_line = f"{indent}-- spent:{format_time_spent(total)}"
             # Find insertion point: after last -- line
             insert_at = line_index + 1
@@ -869,8 +869,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         result = None  # Will be set if interactive form is used
         if not task_title:
             # Show interactive form
-            from tm_form import show_form, TextField, SelectField
-            from tm_config import VALID_STATES, VALID_PRIORITIES
+            from .tm_form import show_form, TextField, SelectField
+            from .tm_config import VALID_STATES, VALID_PRIORITIES
 
             form_fields = [
                 TextField("Title", placeholder="Task title (required)"),
@@ -886,8 +886,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 result = show_form("New Task", form_fields)
             except Exception as exc:
                 import traceback
-                Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
-                _log("error", f"Form crashed. See ttm_crash.log")
+                Path("src/ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                _log("error", f"Form crashed. See src/ttm_crash.log")
                 clear_screen()
                 _render(tasks_by_date, view_state)
                 return CommandOutcome(tasks_by_date, view_state)
@@ -911,7 +911,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             if result.get("Priority", "").strip():
                 priority = normalize_priority_input(result["Priority"])
             if result.get("Recurrence", "").strip():
-                from tm_logic import normalize_recurrence_input
+                from .tm_logic import normalize_recurrence_input
                 recurrence = normalize_recurrence_input(result["Recurrence"].strip())
 
         if not task_title:
@@ -975,8 +975,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if not selected_state:
             if requested_state:
                 _log("error", f"Invalid state: {requested_state}")
-            from tm_form import show_form, SelectField
-            from tm_config import VALID_STATES as _VS
+            from .tm_form import show_form, SelectField
+            from .tm_config import VALID_STATES as _VS
             current_idx = _VS.index(target_task.state) if target_task.state in _VS else 0
             form_fields = [SelectField("State", _VS, selected=current_idx)]
             result = show_form(f"Change State — {_strip_tags(target_task.title)[:30]}", form_fields)
@@ -1056,7 +1056,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if match:
             note_text = match.group(2).strip()
         else:
-            from tm_form import show_form, TextField
+            from .tm_form import show_form, TextField
             form_fields = [TextField("Note", placeholder="Note text")]
             result = show_form(f"Add Note — {_strip_tags(target_task.title)[:30]}", form_fields)
             if result is None:
@@ -1166,16 +1166,16 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             note_target = find_note_by_id(updated_tasks, requested_id)
             if note_target is not None:
                 task, note_index, note_text = note_target
-                from tm_form import show_form, TextField
+                from .tm_form import show_form, TextField
                 form_fields = [TextField("Note", value=note_text)]
                 try:
                     result = show_form(f"Edit Note — {requested_id}", form_fields)
                 except Exception:
                     import traceback
-                    Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                    Path("src/ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
                     clear_screen()
                     _render(updated_tasks, view_state)
-                    _log("error", "Form crashed. See ttm_crash.log")
+                    _log("error", "Form crashed. See src/ttm_crash.log")
                     return CommandOutcome(updated_tasks, view_state)
                 if result is None:
                     clear_screen()
@@ -1201,8 +1201,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             target = find_task_by_id(updated_tasks, requested_id)
             if target and not isinstance(target, Subtask):
                 # Show interactive edit form for parent task
-                from tm_form import show_form, TextField, SelectField
-                from tm_config import VALID_STATES, VALID_PRIORITIES
+                from .tm_form import show_form, TextField, SelectField
+                from .tm_config import VALID_STATES, VALID_PRIORITIES
 
                 # Strip tags from title for the field, show tags separately
                 tags = " ".join(f"#{t}" for t in target.get_tags())
@@ -1224,10 +1224,10 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                     result = show_form(f"Edit — {_strip_tags(target.title)[:30]}", form_fields)
                 except Exception as exc:
                     import traceback
-                    Path("ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                    Path("src/ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
                     clear_screen()
                     _render(updated_tasks, view_state)
-                    _log("error", f"Form crashed. See ttm_crash.log")
+                    _log("error", f"Form crashed. See src/ttm_crash.log")
                     return CommandOutcome(updated_tasks, view_state)
                 if result is None:
                     clear_screen()
@@ -1398,7 +1398,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         if match:
             date_input = match.group(2).strip()
         else:
-            from tm_form import show_form, TextField
+            from .tm_form import show_form, TextField
             form_fields = [TextField("Date", placeholder="dd/mm/yyyy or tomorrow, monday...")]
             result = show_form(f"Move — {_strip_tags(target.title)[:30]}", form_fields)
             if result is None:
@@ -1485,8 +1485,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             sub_state = DEFAULT_STATE
         else:
             # Show interactive form
-            from tm_form import show_form, TextField, SelectField
-            from tm_config import VALID_STATES as _VS, VALID_PRIORITIES as _VP
+            from .tm_form import show_form, TextField, SelectField
+            from .tm_config import VALID_STATES as _VS, VALID_PRIORITIES as _VP
             form_fields = [
                 TextField("Title", placeholder="Subtask title (required)"),
                 SelectField("State", _VS, selected=_VS.index(DEFAULT_STATE) if DEFAULT_STATE in _VS else 0),
@@ -1648,8 +1648,8 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         save_match = re.match(r"^save\s+(\S+)$", arg, re.IGNORECASE)
         if save_match:
             tpl_name = save_match.group(1)
-            from tm_form import show_form, TextField, SelectField
-            from tm_config import VALID_STATES as _VS, VALID_PRIORITIES as _VP
+            from .tm_form import show_form, TextField, SelectField
+            from .tm_config import VALID_STATES as _VS, VALID_PRIORITIES as _VP
             form_fields = [
                 TextField("Title", placeholder="Template title (required)"),
                 SelectField("State", _VS, selected=_VS.index(DEFAULT_STATE) if DEFAULT_STATE in _VS else 0),
@@ -1754,7 +1754,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _log("error", f"Task {requested_id} not found.")
             return CommandOutcome(updated_tasks, view_state)
 
-        from tm_config import VALID_RECURRENCES, RECURRENCE_ALIASES
+        from .tm_config import VALID_RECURRENCES, RECURRENCE_ALIASES
         if recur_value in ("none", "off", "clear", ""):
             new_recurrence = ""  # empty string = remove recurrence
         else:
@@ -1853,7 +1853,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _log("error", f"Task {blocker_id} not found.")
             return CommandOutcome(refreshed, view_state)
 
-        from tm_features import remove_blocker_metadata, remove_blocks_metadata
+        from .tm_features import remove_blocker_metadata, remove_blocks_metadata
 
         snapshot = read_journal_snapshot(context.journal_path)
         lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
@@ -1891,7 +1891,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         if not match:
             # No ID given — show interactive list of blocked tasks
-            from tm_features import extract_blockers_from_line
+            from .tm_features import extract_blockers_from_line
 
             lines = Path(context.journal_path).read_text(encoding="utf-8").split("\n")
             blocked_tasks = []
@@ -1909,7 +1909,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 return CommandOutcome(refreshed, view_state)
 
             # Show list picker (vertical, multi-select)
-            from tm_form import show_list_picker
+            from .tm_form import show_list_picker
             import shutil as _shutil
             _cols = _shutil.get_terminal_size().columns
             # Max text width: terminal - 14 (borders, indicator, checkbox, padding)
@@ -1928,7 +1928,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
                 return CommandOutcome(refreshed, view_state)
 
             # Process all selected tasks
-            from tm_features import (
+            from .tm_features import (
                 extract_blockers_from_line, remove_all_blocker_metadata,
                 remove_blocks_metadata, find_task_by_title_match,
             )
@@ -1972,7 +1972,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             _log("error", f"Task {task_id} not found.")
             return CommandOutcome(refreshed, view_state)
 
-        from tm_features import (
+        from .tm_features import (
             extract_blockers_from_line, remove_all_blocker_metadata,
             remove_blocks_metadata, find_task_by_title_match,
         )
@@ -2018,7 +2018,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         refreshed = context.refresh_tasks()
         match = re.match(r"^\s*(?:block|blocker)\s+(\S+)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
         if not match:
-            from tm_form import show_form, TextField
+            from .tm_form import show_form, TextField
             # Pre-fill if partial ID was given
             partial = re.match(r"^\s*(?:block|blocker)\s+(\S+)\s*$", raw_command, re.IGNORECASE)
             form_fields = [
@@ -2174,7 +2174,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         match = re.match(r"^\s*export\s+(\w+)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
         if not match:
             # Show form
-            from tm_form import show_form, TextField, SelectField
+            from .tm_form import show_form, TextField, SelectField
             form_fields = [
                 SelectField("Format", ["json", "csv", "md"]),
                 TextField("File path", placeholder="(optional, auto-generated)"),
@@ -2236,7 +2236,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
         snapshot = read_journal_snapshot(context.journal_path)
         try:
-            from tm_journal import file_lock
+            from .tm_journal import file_lock
             with file_lock:
                 existing = context.journal_path.read_text(encoding="utf-8")
                 write_journal(context.journal_path, existing + "".join(new_lines))
@@ -2265,7 +2265,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         match = re.match(r"^\s*sort\s+(\w+)(?:\s+(asc|desc))?\s*$", raw_command, re.IGNORECASE)
         if not match:
             # Show form
-            from tm_form import show_form, SelectField
+            from .tm_form import show_form, SelectField
             _sort_options = ["priority", "due_date", "state", "none"]
             _dir_options = ["asc", "desc"]
             cur_sort_idx = _sort_options.index(view_state.sort_by) if view_state.sort_by in _sort_options else 3
@@ -2334,7 +2334,7 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
 
     # ─── Sync commands ─────────────────────────────────────────────────
     if command == "sync":
-        from tm_sync import sync_push_blocking, is_configured
+        from .tm_sync import sync_push_blocking, is_configured
         if not is_configured():
             _log("info", f"Sync not configured. Use 'config sync' to set up.")
             return CommandOutcome(tasks_by_date, view_state)
@@ -2345,9 +2345,9 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
             return CommandOutcome(updated_tasks, view_state)
 
     if command == "config sync":
-        from tm_sync import run_config_wizard, init_sync, sync_push_async, is_configured
-        from tm_settings import load_settings, save_settings
-        from tm_journal import register_post_write_hook
+        from .tm_sync import run_config_wizard, init_sync, sync_push_async, is_configured
+        from .tm_settings import load_settings, save_settings
+        from .tm_journal import register_post_write_hook
 
         script_dir = Path(context.journal_path).parent.parent
         journals_dir = Path(context.journal_path).parent
@@ -2368,13 +2368,13 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         return CommandOutcome(tasks_by_date, view_state)
 
     if command == "sync status":
-        from tm_sync import sync_status
+        from .tm_sync import sync_status
         print(f"  {sync_status()}")
         return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     # ─── Log commands ──────────────────────────────────────────────────
     if command == "log":
-        from tm_log import get_history
+        from .tm_log import get_history
         history = get_history()
         if not history:
             print("  (no log entries)")
@@ -2384,18 +2384,18 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     if command in ("show log", "log show", "log on"):
-        from tm_log import set_visible
+        from .tm_log import set_visible
         set_visible(True)
         _log("info", "Log enabled.")
         return CommandOutcome(tasks_by_date, view_state)
 
     if command in ("hide log", "log hide", "log off"):
-        from tm_log import set_visible
+        from .tm_log import set_visible
         set_visible(False)
         return CommandOutcome(tasks_by_date, view_state)
 
     if command in ("log clear", "clear log"):
-        from tm_log import clear
+        from .tm_log import clear
         clear()
         return CommandOutcome(tasks_by_date, view_state)
 

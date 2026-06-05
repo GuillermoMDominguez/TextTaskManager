@@ -1,7 +1,7 @@
 """System log — stores status messages and history, printed above the prompt.
 
 Usage:
-    from tm_log import log, get_status_line, get_history, set_visible
+    from .tm_log import log, get_status_line, get_history, set_visible
 
     log("sync", "Pushed successfully")
     # get_status_line() returns the last formatted line, or ""
@@ -37,7 +37,7 @@ def get_status_line() -> str:
     """Return the formatted status line, or empty string if nothing to show."""
     if not _visible or not _message:
         return ""
-    from tm_ui import Colors
+    from .tm_ui import Colors
     ts = time.strftime("%H:%M:%S", time.localtime(_timestamp))
     color = _category_color(_category)
     icon = _category_icon(_category)
@@ -46,7 +46,7 @@ def get_status_line() -> str:
 
 def get_history() -> list[str]:
     """Return all history entries as formatted strings."""
-    from tm_ui import Colors
+    from .tm_ui import Colors
     lines = []
     for ts, cat, msg in _history:
         t = time.strftime("%H:%M:%S", time.localtime(ts))
@@ -101,7 +101,7 @@ def _category_icon(category: str) -> str:
 
 
 def _category_color(category: str) -> str:
-    from tm_ui import Colors
+    from .tm_ui import Colors
     colors = {
         "sync": Colors.DIM,
         "error": Colors.ERROR,

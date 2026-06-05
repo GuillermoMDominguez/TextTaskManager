@@ -11,9 +11,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE
-from tm_models import Task, Subtask
-from tm_settings import get_setting
+from .tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE
+from .tm_models import Task, Subtask
+from .tm_settings import get_setting
 
 
 # ─── Recurrence ────────────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ def get_all_tags(tasks_by_date: dict) -> dict:
 
 def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> str:
     """Render a kanban board as a string for terminal output."""
-    from tm_ui import Colors, get_state_color
+    from .tm_ui import Colors, get_state_color
 
     if columns is None:
         columns = get_setting("kanban_columns", ["BACKLOG", "IN PROGRESS", "TESTING", "DONE"])
@@ -337,7 +337,7 @@ def import_from_json(json_text: str) -> List[str]:
 
 def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
     """Generate a weekly summary of completed tasks and current status."""
-    from tm_ui import Colors, get_state_color
+    from .tm_ui import Colors, get_state_color
 
     today = datetime.now().date()
     period_start = today - timedelta(days=days)
@@ -449,7 +449,7 @@ def get_template(name: str) -> Optional[dict]:
 
 def save_template(name: str, template_data: dict) -> bool:
     """Save a template to config."""
-    from tm_settings import load_settings, save_settings, _settings_path
+    from .tm_settings import load_settings, save_settings, _settings_path
     settings = load_settings()
     if "templates" not in settings:
         settings["templates"] = {}
@@ -466,7 +466,7 @@ def save_template(name: str, template_data: dict) -> bool:
 
 def delete_template(name: str) -> bool:
     """Delete a template from config."""
-    from tm_settings import load_settings, _settings_path
+    from .tm_settings import load_settings, _settings_path
     settings = load_settings()
     templates = settings.get("templates", {})
     # Case-insensitive find

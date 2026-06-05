@@ -1,7 +1,6 @@
 """Comprehensive tests for tm_features.py extended features."""
 
 import sys
-import os
 import json
 import csv
 import io
@@ -9,9 +8,8 @@ import unittest
 from datetime import datetime, timedelta
 from collections import OrderedDict
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tm_features import (
+from src.tm_features import (
     parse_time_spent, format_time_spent, extract_time_spent_from_line,
     update_time_in_line, get_total_time_spent,
     parse_recurrence, compute_next_recurrence_date, generate_recurring_task_line,
@@ -24,7 +22,7 @@ from tm_features import (
     find_task_by_title_match, is_task_blocked,
     extract_subtask_due_date, subtask_due_display,
 )
-from tm_models import Task, Subtask
+from src.tm_models import Task, Subtask
 
 
 # ─── Time Tracking Tests ──────────────────────────────────────────────────

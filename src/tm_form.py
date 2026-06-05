@@ -616,7 +616,7 @@ def show_form(
     except Exception as exc:
         import traceback
         try:
-            with open("ttm_crash.log", "w", encoding="utf-8") as f:
+            with open("src/ttm_crash.log", "w", encoding="utf-8") as f:
                 f.write(f"FORM LOOP ERROR:\n{traceback.format_exc()}")
         except Exception:
             pass

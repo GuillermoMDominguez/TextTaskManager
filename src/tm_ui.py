@@ -10,9 +10,9 @@ try:
 except ImportError:  # pragma: no cover - readline is unavailable on some platforms
     readline = None
 
-from tm_config import VALID_STATES
-from tm_logic import build_note_id, get_id_width, normalize_state_input, task_matches_search
-from tm_models import extract_tags_from_text
+from .tm_config import VALID_STATES
+from .tm_logic import build_note_id, get_id_width, normalize_state_input, task_matches_search
+from .tm_models import extract_tags_from_text
 
 
 TAG_CLEAN_PATTERN = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
@@ -70,7 +70,7 @@ def _format_task_meta_suffix(task) -> str:
     if getattr(task, "recurrence", None):
         chunks.append(f"[↻{task.recurrence}]")
     if getattr(task, "time_spent", None):
-        from tm_features import format_time_spent
+        from .tm_features import format_time_spent
         chunks.append(f"[⏱{format_time_spent(task.time_spent)}]")
     if getattr(task, "blocked_by", None):
         for b in task.blocked_by:

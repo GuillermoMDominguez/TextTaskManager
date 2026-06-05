@@ -1,15 +1,13 @@
 """Comprehensive tests for tm_models and tm_logic modules."""
 
 import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-from tm_models import Task, Subtask, extract_tags_from_text, TAG_PATTERN
-from tm_logic import (
+from src.tm_models import Task, Subtask, extract_tags_from_text, TAG_PATTERN
+from src.tm_logic import (
     normalize_state_input,
     normalize_priority_input,
     parse_date_input,

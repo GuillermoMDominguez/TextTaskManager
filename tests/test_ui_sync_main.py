@@ -2,7 +2,6 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import re
 import tempfile
@@ -11,13 +10,13 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from tm_ui import (
+from src.tm_ui import (
     get_state_color, _title_without_tags, _format_title_cell,
     _format_tags_suffix, _format_task_meta_suffix, _max_id_length,
     Colors, get_stats,
 )
-from tm_models import Task, Subtask
-import tm_sync
+from src.tm_models import Task, Subtask
+from src import tm_sync
 from task_manager import normalize_journal_name, list_journals, load_cached_journal, save_cached_journal
 
 

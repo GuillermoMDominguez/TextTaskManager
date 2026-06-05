@@ -8,8 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
-from tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
-from tm_models import Subtask, Task
+from .tm_config import DEFAULT_STATE, PRIORITY_ALIASES, RECURRENCE_ALIASES, STATE_ALIASES, VALID_PRIORITIES, VALID_RECURRENCES, VALID_STATES
+from .tm_models import Subtask, Task
 
 
 # ─── File lock (shared with tm_sync to prevent concurrent access) ──────────────
@@ -110,7 +110,7 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
 
     spent_match = re.match(r"^(?:spent|time)\s*[:=]\s*(\S+)$", chunk, re.IGNORECASE)
     if spent_match:
-        from tm_features import parse_time_spent
+        from .tm_features import parse_time_spent
         minutes = parse_time_spent(spent_match.group(1))
         if minutes is not None:
             task.time_spent = (task.time_spent or 0) + minutes
@@ -661,7 +661,7 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
 
         # Add spent if task had time tracked
         if task.time_spent:
-            from tm_features import format_time_spent
+            from .tm_features import format_time_spent
             new_line = new_line.rstrip("\n") + f" -- spent:{format_time_spent(task.time_spent)}\n"
 
         # Add blockers
