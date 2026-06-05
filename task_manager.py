@@ -419,15 +419,10 @@ def main() -> None:
 
     while True:
         try:
-            import shutil as _shutil
-            _rows, _ = _shutil.get_terminal_size()
-            _prompt_row = _rows - 2  # Fixed row above log divider
-
-            # Move cursor to the fixed prompt row and clear it
-            sys.stdout.write(f"\033[{_prompt_row};1H\033[2K")
+            # Prompt flows naturally after content; scroll region prevents
+            # it from ever reaching the log bar at the bottom.
+            sys.stdout.write("\n")
             sys.stdout.flush()
-
-            # \001/\002 wrap ANSI codes so readline calculates cursor width correctly
             prompt = f"\001{Colors.BOLD}\002>\001{Colors.RESET}\002 "
             raw_command = input(prompt).strip()
             remember_command(raw_command)

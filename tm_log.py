@@ -33,7 +33,7 @@ def log(category: str, message: str) -> None:
 
 
 def setup_scroll_region() -> None:
-    """Set terminal scroll region to exclude the bottom 3 lines (prompt + divider + log).
+    """Set terminal scroll region to exclude the bottom 2 lines (divider + log).
 
     Call this after every clear_screen(). Only activates if visible AND there's
     a message to show.
@@ -41,15 +41,15 @@ def setup_scroll_region() -> None:
     if not _visible or not _message:
         return
     rows, _ = shutil.get_terminal_size()
-    # Scroll region: line 1 to (rows - 3), leaving 3 lines at bottom:
-    #   rows-2 = prompt, rows-1 = divider, rows = log
-    sys.stdout.write(f"\033[1;{rows - 3}r")
+    # Scroll region: line 1 to (rows - 2), leaving 2 lines at bottom:
+    #   rows-1 = divider, rows = log
+    sys.stdout.write(f"\033[1;{rows - 2}r")
     sys.stdout.write("\033[1;1H")
     sys.stdout.flush()
 
 
 def render_log() -> None:
-    """Draw the bottom bar (divider + log) and prompt separator at the fixed bottom."""
+    """Draw the bottom bar (divider + log) at the fixed bottom of the terminal."""
     if not _visible or not _message:
         return
 
@@ -57,13 +57,13 @@ def render_log() -> None:
 
     rows, cols = shutil.get_terminal_size()
 
-    # Ensure scroll region is active (excludes bottom 3 lines: prompt + divider + log)
-    sys.stdout.write(f"\033[1;{rows - 3}r")
+    # Ensure scroll region is active (excludes bottom 2 lines: divider + log)
+    sys.stdout.write(f"\033[1;{rows - 2}r")
 
     # Save cursor position
     sys.stdout.write("\033[s")
 
-    # Row layout: rows-2 = prompt (handled by main loop), rows-1 = divider, rows = log
+    # Row layout: rows-1 = divider, rows = log
     divider_row = rows - 1
     bar_row = rows
 
