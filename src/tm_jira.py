@@ -27,6 +27,7 @@ from .tm_ui import Colors
 _jira_url: str = ""
 _jira_email: str = ""
 _jira_token: str = ""
+_jira_account_id: str = ""
 _auth: Optional[tuple] = None
 _headers = {"Accept": "application/json", "Content-Type": "application/json"}
 _project_dir: Optional[Path] = None
@@ -70,7 +71,7 @@ ALIASES = {
 
 def init_jira(project_dir: Path) -> bool:
     """Initialize Jira subsystem from secrets. Returns True if configured."""
-    global _jira_url, _jira_email, _jira_token, _auth, _project_dir
+    global _jira_url, _jira_email, _jira_token, _jira_account_id, _auth, _project_dir
 
     if requests is None:
         return False
@@ -86,6 +87,15 @@ def init_jira(project_dir: Path) -> bool:
         return False
 
     _auth = (_jira_email, _jira_token)
+
+    # Fetch accountId for mention detection (cached in secrets)
+    _jira_account_id = secrets.get("jira_account_id", "")
+    if not _jira_account_id:
+        _jira_account_id = _fetch_my_account_id() or ""
+        if _jira_account_id:
+            secrets["jira_account_id"] = _jira_account_id
+            _save_secrets(project_dir, secrets)
+
     return True
 
 
@@ -396,30 +406,78 @@ def _search_issues(text: str, max_results: int = 20):
     return _api_search(jql, fields, max_results)
 
 
+def _fetch_my_account_id() -> Optional[str]:
+    """Fetch current user's accountId from Jira /myself endpoint."""
+    try:
+        resp = requests.get(
+            f"{_jira_url}/rest/api/3/myself",
+            auth=_auth, headers=_headers, timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json().get("accountId")
+    except Exception:
+        return None
+
+
+def _adf_mentions_user(body: dict, account_id: str) -> bool:
+    """Check if an ADF body contains a @mention of the given accountId."""
+    if not body or not account_id:
+        return False
+    return _walk_adf_for_mention(body, account_id)
+
+
+def _walk_adf_for_mention(node, account_id: str) -> bool:
+    """Recursively walk ADF nodes looking for a mention of account_id."""
+    if isinstance(node, dict):
+        if node.get("type") == "mention":
+            attrs = node.get("attrs", {})
+            if attrs.get("id") == account_id:
+                return True
+        for child in node.get("content", []):
+            if _walk_adf_for_mention(child, account_id):
+                return True
+    elif isinstance(node, list):
+        for child in node:
+            if _walk_adf_for_mention(child, account_id):
+                return True
+    return False
+
+
 def _get_unread_comments():
-    """Fetch only comments not yet marked as read."""
+    """Fetch unread notifications: @mentions + comments on issues you reported.
+
+    Matches Jira web notification behavior more closely by only surfacing:
+    - Comments that @mention the current user (in ADF body)
+    - Comments on issues where the current user is the reporter
+    Skips all other comments on merely assigned/watched issues.
+    """
     data = _get_read_data()
     last_seen = data.get("last_seen")
     read_ids = set(data.get("read_ids", []))
 
     if last_seen:
         jql = (
-            "(assignee = currentUser() OR watcher = currentUser()) "
+            "(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()) "
             f"AND updated >= '{last_seen[:10]}' ORDER BY updated DESC"
         )
     else:
         jql = (
-            "(assignee = currentUser() OR watcher = currentUser()) "
+            "(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()) "
             "AND updated >= -3d ORDER BY updated DESC"
         )
 
-    search_data = _api_search(jql, ["summary", "status", "updated", "comment"], 20)
+    search_data = _api_search(jql, ["summary", "status", "updated", "comment", "reporter"], 20)
     if not search_data:
         return []
 
     unread = []
     for issue in search_data.get("issues", []):
-        comments = issue.get("fields", {}).get("comment", {}).get("comments", [])
+        fields = issue.get("fields", {})
+        comments = fields.get("comment", {}).get("comments", [])
+        # Check if current user is the reporter of this issue
+        reporter_email = fields.get("reporter", {}).get("emailAddress", "")
+        is_reporter = (_jira_email and reporter_email == _jira_email)
+
         for comment in comments:
             comment_id = comment.get("id", "")
             author = comment.get("author", {}).get("displayName", "")
@@ -427,7 +485,7 @@ def _get_unread_comments():
             created = comment.get("created", "")
 
             # Skip my own comments
-            if _jira_email in (email or ""):
+            if _jira_email and _jira_email in (email or ""):
                 continue
             # Skip already read
             if comment_id in read_ids:
@@ -436,13 +494,21 @@ def _get_unread_comments():
             if last_seen and created and created < last_seen:
                 continue
 
+            # Only surface if: user is @mentioned OR user is reporter
+            adf_body = comment.get("body", {})
+            is_mentioned = _adf_mentions_user(adf_body, _jira_account_id)
+
+            if not is_mentioned and not is_reporter:
+                continue
+
             unread.append({
                 "id": comment_id,
                 "key": issue["key"],
-                "summary": issue["fields"]["summary"],
+                "summary": fields["summary"],
                 "author": author,
                 "date": created[:16].replace("T", " ") if created else "",
-                "body": _extract_text(comment.get("body", {})),
+                "body": _extract_text(adf_body),
+                "reason": "mention" if is_mentioned else "reporter",
             })
 
     unread.sort(key=lambda x: x["date"], reverse=True)
@@ -506,7 +572,8 @@ def _display_unread(messages: list):
         return
 
     for i, m in enumerate(messages, 1):
-        print(f"  \033[93m{i:>2}.\033[0m {Colors.BOLD}{m['key']:<11}{Colors.RESET} \033[96m{m['author']}\033[0m  {Colors.DIM}{m['date']}{Colors.RESET}")
+        reason_tag = " \033[95m@\033[0m" if m.get("reason") == "mention" else ""
+        print(f"  \033[93m{i:>2}.\033[0m {Colors.BOLD}{m['key']:<11}{Colors.RESET} \033[96m{m['author']}\033[0m{reason_tag}  {Colors.DIM}{m['date']}{Colors.RESET}")
         print(f"      {m['summary']}")
         if m["body"]:
             body = m["body"]
