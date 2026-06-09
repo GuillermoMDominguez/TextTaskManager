@@ -929,10 +929,17 @@ def handle_email(
         _log("info", "No pending tasks to email.")
         return CommandOutcome(refreshed, view_state)
 
+    config = context.email_config
+    recipient = config.default_recipient or ""
+    if not recipient:
+        _log("error", "No recipient configured. Set 'default_recipient' in email config.")
+        return CommandOutcome(refreshed, view_state)
+
+    subject = f"{config.subject_prefix} Pending Tasks Report"
     body = build_pending_email_body(refreshed)
-    result: EmailResult = send_email_report(context.email_config, body)
+    result: EmailResult = send_email_report(recipient, subject, body, config)
     if result.success:
-        _log("info", f"Email sent to {context.email_config.to_address}.")
+        _log("info", f"Email sent to {recipient}.")
     else:
         _log("error", f"Email failed: {result.error}")
     return CommandOutcome(refreshed, view_state)
