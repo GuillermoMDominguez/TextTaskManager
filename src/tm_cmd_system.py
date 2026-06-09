@@ -102,15 +102,18 @@ def handle_jira(
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'jira <sub>' commands."""
-    if not command.startswith("jira"):
+    """Handle 'jira <sub>' or 'j <sub>' commands."""
+    if command.startswith("jira"):
+        sub = command[4:].strip()
+    elif command == "j" or command.startswith("j "):
+        sub = command[1:].strip()
+    else:
         return None
 
     from .tm_jira import execute as jira_execute, is_configured as jira_is_configured, init_jira
     script_dir = Path(context.journal_path).parent.parent
     if not jira_is_configured():
         init_jira(script_dir)
-    sub = command[4:].strip()  # strip "jira" prefix
     jira_execute(sub, tasks_by_date, context)
     return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 

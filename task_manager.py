@@ -561,16 +561,11 @@ def main() -> None:
                 sys.stdout.flush()
 
             if _is_libedit:
-                # macOS libedit: \001/\002 content is stripped and ANSI
-                # escapes never reach the terminal, so colors vanish.
-                # Only reliable approach: write colored prompt via stdout
-                # and use input("") so readline doesn't overwrite it.
-                # Trade-off: on history Up/Down the prompt disappears
-                # (readline clears from col 0), but the next loop
-                # iteration redraws it fresh with colors.
-                sys.stdout.write(raw_colored)
-                sys.stdout.flush()
-                raw_command = input("").strip()
+                # macOS libedit: use readline_colored prompt directly.
+                # libedit supports \001/\002 wrapping for non-printable chars
+                # since Python 3.9+. This keeps the cursor positioned correctly
+                # even when the user deletes all typed text.
+                raw_command = input(readline_colored).strip()
             else:
                 # GNU readline: \001/\002 wrappers work correctly — ANSI
                 # escapes pass through to terminal and are excluded from
