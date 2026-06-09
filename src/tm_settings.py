@@ -70,14 +70,14 @@ def _find_config_file(start_dir: Optional[Path] = None) -> Optional[Path]:
     candidates = []
     if start_dir:
         candidates.append(start_dir / ".ttm_config")
-    # Also check cwd and script directory
+    # Project root: parent of src/ where this file lives
+    project_root = Path(__file__).resolve().parent.parent
+    if project_root != start_dir:
+        candidates.append(project_root / ".ttm_config")
+    # Also check cwd
     cwd = Path.cwd()
-    if cwd not in (start_dir, None):
+    if cwd not in (start_dir, project_root):
         candidates.append(cwd / ".ttm_config")
-    # Check directory where tm_settings.py lives (project root)
-    script_parent = Path(__file__).parent
-    if script_parent not in (start_dir, cwd):
-        candidates.append(script_parent / ".ttm_config")
     candidates.append(Path.home() / ".ttm_config")
     for path in candidates:
         if path.exists():

@@ -222,7 +222,7 @@ def main() -> None:
     """Main entry point for the task manager."""
     enable_windows_ansi()
 
-    script_dir = Path(__file__).parent
+    script_dir = Path(__file__).resolve().parent
     journals_dir = script_dir / "journals"
     cache_path = script_dir / ".last_journal"
     history_path = script_dir / ".task_manager_history"
