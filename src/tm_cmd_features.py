@@ -277,7 +277,7 @@ def handle_recurrence(
         return CommandOutcome(refreshed, view_state)
 
     _log("error", f"Could not update recurrence for task {requested_id}.")
-    return CommandOutcome(updated_tasks, view_state)
+    return CommandOutcome(tasks_by_date, view_state)
 
 
 def handle_time_tracking(
