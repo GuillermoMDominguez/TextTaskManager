@@ -40,7 +40,6 @@ DEFAULT_SETTINGS = {
         "separator": "gray",
     },
     "colors_enabled": True,
-    "background_color": "0,0,0",
     "max_undo": 20,
     "show_log": True,
     "templates": {},

@@ -22,7 +22,6 @@ from src.tm_ui import (
     display_tasks,
     enable_command_history,
     enable_windows_ansi,
-    init_background_color,
     set_terminal_background,
     reset_terminal_background,
     remember_command,
@@ -235,8 +234,7 @@ def main() -> None:
         save_settings(DEFAULT_SETTINGS, script_dir)
         print(f"{Colors.DIM}Created default config: {config_path}{Colors.RESET}")
 
-    # Apply background color from config and set terminal
-    init_background_color(settings.get("background_color", "0,0,0"))
+    # Clear screen on startup and register cleanup
     set_terminal_background()
     atexit.register(reset_terminal_background)
 

@@ -138,6 +138,10 @@ _COMMANDS = [
     "ck", "check", "u", "undo", "r",
     "p", "ip", "t", "d", "w",
     "sync", "config sync", "sync status",
+    "jira", "jira active", "jira todo", "jira progress", "jira review",
+    "jira blocked", "jira done", "jira cancelled", "jira overdue",
+    "jira find", "jira notify", "jira mark", "jira move", "jira open",
+    "jira full", "jira status", "jira help", "config jira",
     "show log", "hide log", "clear log",
     "help", "h", "q", "quit",
 ]
@@ -248,15 +252,14 @@ def enable_windows_ansi() -> None:
 
 
 def set_terminal_background() -> None:
-    """Set terminal background to configured color. Works on macOS/Linux/Win10+."""
+    """Clear screen on startup (no forced background — uses terminal native)."""
     import sys
-    sys.stdout.write(_BG_SEQ)         # Inline BG for printed text
-    sys.stdout.write("\033[2J")       # Clear screen with new BG
+    sys.stdout.write("\033[2J")       # Clear screen
     sys.stdout.write("\033[H")        # Move cursor to top-left
     sys.stdout.flush()
 
 
-_BG_SEQ = "\033[48;5;232m"  # Inline BG (256-color fallback — near-black)
+_BG_SEQ = ""  # No forced background — terminal native
 
 
 def _supports_truecolor() -> bool:
@@ -266,52 +269,15 @@ def _supports_truecolor() -> bool:
 
 
 def init_background_color(rgb_str: str = "0,0,0") -> None:
-    """Configure the background color from an 'R,G,B' string (e.g. '0,0,0').
+    """No-op: background is now always transparent (terminal native).
 
-    Must be called before any output. Updates Colors.RESET to maintain BG.
-    Uses 24-bit truecolor if supported, otherwise falls back to closest
-    256-color approximation.
+    Kept for API compatibility. The background_color setting is ignored.
     """
-    global _BG_SEQ
-    try:
-        parts = [int(x.strip()) for x in rgb_str.split(",")]
-        if len(parts) == 3 and all(0 <= v <= 255 for v in parts):
-            r, g, b = parts
-            if _supports_truecolor():
-                _BG_SEQ = f"\033[48;2;{r};{g};{b}m"
-            else:
-                # Approximate to 256-color: use color cube or greyscale
-                _BG_SEQ = _rgb_to_256_bg(r, g, b)
-    except (ValueError, AttributeError):
-        pass  # Keep default
-    Colors.RESET = "\033[0m" + _BG_SEQ
-
-
-def _rgb_to_256_bg(r: int, g: int, b: int) -> str:
-    """Convert RGB to the closest 256-color background escape sequence.
-
-    For very dark colors (near-black), uses the greyscale ramp (232-255).
-    """
-    # Greyscale ramp: colors 232-255 map to grey levels 8, 18, 28, ..., 238
-    if r == g == b:
-        if r < 4:
-            idx = 16  # pure black
-        elif r > 248:
-            idx = 231  # pure white
-        else:
-            idx = round((r - 8) / 10) + 232
-            idx = max(232, min(255, idx))
-        return f"\033[48;5;{idx}m"
-    # Color cube: 6x6x6 (indices 16-231)
-    ri = round(r / 255 * 5)
-    gi = round(g / 255 * 5)
-    bi = round(b / 255 * 5)
-    idx = 16 + 36 * ri + 6 * gi + bi
-    return f"\033[48;5;{idx}m"
+    pass
 
 
 class Colors:
-    RESET = "\033[0m" + _BG_SEQ
+    RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
 
@@ -542,6 +508,8 @@ def print_help() -> None:
         ("sync", "Force push journal to remote"),
         ("sync status", "Show sync status"),
         ("config sync", "Set up journal sync (guided)"),
+        ("jira <cmd>", "Jira commands (jira help for details)"),
+        ("config jira", "Set up Jira credentials (guided)"),
         ("show log / hide log", "Toggle system log bar"),
         ("clear log", "Clear log messages"),
         ("h / help", "Show this help message"),
@@ -585,7 +553,7 @@ def clear_screen() -> None:
 
 
 def reset_terminal_background() -> None:
-    """Restore the terminal's default background on exit."""
+    """Reset terminal state on exit."""
     import sys
-    sys.stdout.write("\033[0m\033[2J\033[H")
+    sys.stdout.write("\033[0m")
     sys.stdout.flush()

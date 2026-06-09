@@ -2372,6 +2372,22 @@ def execute_command(raw_command: str, tasks_by_date: dict, view_state: ViewState
         print(f"  {sync_status()}")
         return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
+    # ─── Jira commands ─────────────────────────────────────────────────
+    if command == "config jira":
+        from .tm_jira import run_config_wizard, init_jira
+        script_dir = Path(context.journal_path).parent.parent
+        run_config_wizard(script_dir)
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+    if command.startswith("jira"):
+        from .tm_jira import execute as jira_execute, is_configured as jira_is_configured, init_jira
+        script_dir = Path(context.journal_path).parent.parent
+        if not jira_is_configured():
+            init_jira(script_dir)
+        sub = command[4:].strip()  # strip "jira" prefix
+        jira_execute(sub)
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
     # ─── Log commands ──────────────────────────────────────────────────
     if command == "log":
         from .tm_log import get_history

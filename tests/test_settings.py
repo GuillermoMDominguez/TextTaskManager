@@ -438,10 +438,6 @@ class TestDefaultSettingsStructure(unittest.TestCase):
         self.assertIn("prompt_colors", DEFAULT_SETTINGS)
         self.assertIsInstance(DEFAULT_SETTINGS["prompt_colors"], dict)
 
-    def test_has_background_color_key(self):
-        self.assertIn("background_color", DEFAULT_SETTINGS)
-        self.assertIsInstance(DEFAULT_SETTINGS["background_color"], str)
-
     def test_has_max_undo_key(self):
         self.assertIn("max_undo", DEFAULT_SETTINGS)
         self.assertIsInstance(DEFAULT_SETTINGS["max_undo"], int)
