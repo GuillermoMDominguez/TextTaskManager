@@ -34,14 +34,25 @@ def log(category: str, message: str) -> None:
 
 
 def get_status_line() -> str:
-    """Return the formatted status line, or empty string if nothing to show."""
+    """Return the formatted status line, or empty string if nothing to show.
+
+    The message is consumed after retrieval (shown once, then cleared)
+    so it doesn't persist across loop iterations — especially important
+    for skip_redraw commands (e.g. jira) where clear_screen() is not called.
+    """
+    global _message, _category, _timestamp
     if not _visible or not _message:
         return ""
     from .tm_ui import Colors
     ts = time.strftime("%H:%M:%S", time.localtime(_timestamp))
     color = _category_color(_category)
     icon = _category_icon(_category)
-    return f"{Colors.DIM}┄ {ts} {color}{icon} {_message}{Colors.RESET}"
+    line = f"{Colors.DIM}┄ {ts} {color}{icon} {_message}{Colors.RESET}"
+    # Consume: clear current message so it only displays once
+    _message = ""
+    _category = ""
+    _timestamp = 0.0
+    return line
 
 
 def get_history() -> list[str]:
