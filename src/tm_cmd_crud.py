@@ -732,6 +732,20 @@ def handle_subtask(raw_command: str, tasks_by_date: dict, view_state: ViewState,
         due_str = result.get("Due date", "").strip()
         prio_str = result.get("Priority", "").strip()
         tags_str = result.get("Tags", "").strip()
+        # Validate due date if provided
+        if due_str and parse_date_input(due_str) is None:
+            clear_screen()
+            _render(refreshed, view_state)
+            _log("error", f"Invalid due date format: {due_str}")
+            return CommandOutcome(refreshed, view_state)
+        # Validate priority if provided
+        if prio_str:
+            from .tm_config import VALID_PRIORITIES as _ALL_PRIOS
+            if prio_str.upper() not in (p.upper() for p in _ALL_PRIOS):
+                clear_screen()
+                _render(refreshed, view_state)
+                _log("error", f"Invalid priority: {prio_str}. Valid: {', '.join(_ALL_PRIOS)}")
+                return CommandOutcome(refreshed, view_state)
         if tags_str:
             sub_title += " " + " ".join(t if t.startswith("#") else f"#{t}" for t in tags_str.split())
         if due_str:

@@ -640,9 +640,15 @@ def _mark_all_read():
 
 def _mark_read_by_ids(ids_to_mark: list):
     data = _get_read_data()
-    read_ids = set(data.get("read_ids", []))
-    read_ids.update(ids_to_mark)
-    data["read_ids"] = list(read_ids)[-500:]
+    existing = data.get("read_ids", [])
+    # Maintain insertion order — newest at end; deduplicate preserving order
+    seen = set(existing)
+    for new_id in ids_to_mark:
+        if new_id not in seen:
+            existing.append(new_id)
+            seen.add(new_id)
+    # Keep only the 500 most recent entries
+    data["read_ids"] = existing[-500:]
     _save_read_data(data)
 
 
@@ -670,6 +676,9 @@ def _api_search(jql: str, fields: list, max_results: int = 50):
     except requests.exceptions.Timeout:
         print(f"  {Colors.ERROR}Jira: Connection timed out{Colors.RESET}")
         return None
+    except (ValueError, json.JSONDecodeError):
+        print(f"  {Colors.ERROR}Jira: Invalid response from server{Colors.RESET}")
+        return None
 
 
 def _api_get(endpoint: str):
@@ -687,6 +696,9 @@ def _api_get(endpoint: str):
         return None
     except requests.exceptions.Timeout:
         print(f"  {Colors.ERROR}Jira: Connection timed out{Colors.RESET}")
+        return None
+    except (ValueError, json.JSONDecodeError):
+        print(f"  {Colors.ERROR}Jira: Invalid response from server{Colors.RESET}")
         return None
 
 
@@ -707,6 +719,9 @@ def _api_post(endpoint: str, payload: dict = None):
         return None
     except requests.exceptions.Timeout:
         print(f"  {Colors.ERROR}Jira: Connection timed out{Colors.RESET}")
+        return None
+    except (ValueError, json.JSONDecodeError):
+        print(f"  {Colors.ERROR}Jira: Invalid response from server{Colors.RESET}")
         return None
 
 
