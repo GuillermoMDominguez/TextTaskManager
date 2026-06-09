@@ -2,8 +2,13 @@
 
 import copy
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any, Optional
+
+
+SECRETS_FILE = ".ttm_secrets"
 
 
 DEFAULT_SETTINGS = {
@@ -139,3 +144,46 @@ def _deep_merge(base: dict, override: dict) -> None:
             _deep_merge(base[key], value)
         else:
             base[key] = value
+
+
+# ─── Secrets management (.ttm_secrets) ─────────────────────────────────────────
+
+def load_secrets(project_dir: Path) -> dict:
+    """Load secrets from .ttm_secrets file."""
+    secrets_path = project_dir / SECRETS_FILE
+    if not secrets_path.exists():
+        return {}
+    try:
+        with open(secrets_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_secrets(project_dir: Path, secrets: dict) -> bool:
+    """Save secrets to .ttm_secrets with restrictive file permissions (owner-only).
+
+    Returns True if saved successfully.
+    """
+    secrets_path = project_dir / SECRETS_FILE
+    try:
+        # Write to temp file then rename for atomicity
+        tmp_path = secrets_path.with_suffix(".tmp")
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(secrets, f, indent=2)
+        except BaseException:
+            os.close(fd) if not f.closed else None
+            raise
+        os.replace(str(tmp_path), str(secrets_path))
+        # Ensure final file also has correct permissions (in case replace didn't preserve)
+        os.chmod(str(secrets_path), stat.S_IRUSR | stat.S_IWUSR)
+        return True
+    except OSError:
+        # Clean up temp file on failure
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False

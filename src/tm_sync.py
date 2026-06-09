@@ -11,6 +11,7 @@ are no-ops. The rest of the application is unaffected.
 """
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -18,6 +19,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
+
+from .tm_settings import load_secrets, save_secrets
 
 
 # ─── Module state ──────────────────────────────────────────────────────────────
@@ -27,11 +30,11 @@ _journals_dir: Optional[Path] = None
 _secrets: Optional[dict] = None
 _last_push_time: float = 0.0
 _push_timer: Optional[threading.Timer] = None
-_push_lock = threading.Lock()
+_push_lock = threading.Lock()          # Guards timer scheduling
+_push_exec_lock = threading.Lock()     # Guards _do_push execution (prevents concurrent runs)
 _last_git_error: str = ""
 
 DEBOUNCE_SECONDS = 5
-SECRETS_FILE = ".ttm_secrets"
 
 
 # ─── Public API ────────────────────────────────────────────────────────────────
@@ -50,7 +53,7 @@ def init_sync(journals_dir: Path, settings: dict, project_dir: Path) -> bool:
 
     _sync_config = sync_cfg
     _journals_dir = journals_dir
-    _secrets = _load_secrets(project_dir)
+    _secrets = load_secrets(project_dir)
 
     # Ensure journals dir is a git repo with the configured remote
     if not _is_git_repo(journals_dir):
@@ -70,11 +73,8 @@ def sync_pull(interactive: bool = True) -> bool:
     branch = _sync_config.get("branch", "main")
     remote_url = _resolve_remote_url()
 
-    # Ensure remote URL is up to date (token may have changed)
-    _run_git(["remote", "set-url", "origin", remote_url])
-
-    # Fetch first
-    result = _run_git(["fetch", "origin", branch])
+    # Fetch using auth URL directly (token never persisted to .git/config)
+    result = _run_git(["fetch", remote_url, f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
     if result is None:
         detail = _last_git_error.split("\n")[0] if _last_git_error else ""
         msg = "No connection — working offline"
@@ -94,11 +94,11 @@ def sync_pull(interactive: bool = True) -> bool:
             _ensure_git_identity()
             _run_git(["commit", "-m", "local: preserve existing journals"])
         # Now try to rebase onto remote (merges both histories)
-        pull_result = _run_git(["pull", "--rebase", "origin", branch])
+        pull_result = _run_git(["pull", "--rebase", remote_url, branch])
         if pull_result is None:
             # Rebase failed — try merge instead
             _run_git(["rebase", "--abort"])
-            _run_git(["pull", "--no-rebase", "origin", branch, "--allow-unrelated-histories"])
+            _run_git(["pull", "--no-rebase", remote_url, branch, "--allow-unrelated-histories"])
         return True
 
     # Check if there are remote changes
@@ -114,7 +114,7 @@ def sync_pull(interactive: bool = True) -> bool:
         return _resolve_pull_conflict(branch)
 
     # Simple fast-forward pull
-    pull_result = _run_git(["pull", "--rebase", "origin", branch])
+    pull_result = _run_git(["pull", "--rebase", remote_url, branch])
     if pull_result is None:
         _print_sync("Pull failed — working with local version")
         return False
@@ -285,8 +285,8 @@ def run_config_wizard(project_dir: Path, journals_dir: Path) -> Optional[dict]:
     # Save secrets if token was provided
     if token:
         secrets = {"sync_token": token}
-        _save_secrets(project_dir, secrets)
-        print(f"\n  {Colors.DIM}Token saved to .ttm_secrets (git-ignored){Colors.RESET}")
+        save_secrets(project_dir, secrets)
+        print(f"\n  {Colors.DIM}Token saved to .ttm_secrets (git-ignored, mode 600){Colors.RESET}")
 
     # Initialize the local git repo and do first push
     print(f"\n  Initializing sync...")
@@ -298,12 +298,13 @@ def run_config_wizard(project_dir: Path, journals_dir: Path) -> Optional[dict]:
     remote_with_auth = _resolve_remote_url()
 
     if not _is_git_repo(journals_dir):
-        _git_init(journals_dir, remote_with_auth, branch)
+        # Store plain URL in git config; auth URL only used for network ops
+        _git_init(journals_dir, remote_url, branch)
     else:
-        _run_git(["remote", "set-url", "origin", remote_with_auth])
+        _run_git(["remote", "set-url", "origin", remote_url])
 
     # Check if remote already has content (existing backup from another machine)
-    fetch_result = _run_git(["fetch", "origin", branch])
+    fetch_result = _run_git(["fetch", remote_with_auth, f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
     remote_has_content = False
     if fetch_result is not None:
         # Check if the remote branch exists and has commits
@@ -330,23 +331,23 @@ def run_config_wizard(project_dir: Path, journals_dir: Path) -> Optional[dict]:
             # Merge: commit local, then pull with rebase
             _run_git(["add", "-A"])
             _run_git(["commit", "-m", "Local journal before merge", "--allow-empty"])
-            merge_result = _run_git(["pull", "--rebase", "origin", branch])
+            merge_result = _run_git(["pull", "--rebase", remote_with_auth, branch])
             if merge_result is None:
                 _run_git(["rebase", "--abort"])
                 print(f"  {Colors.ERROR}Merge conflict — keeping local version.{Colors.RESET}")
-            _run_git(["push", "-u", "origin", branch])
+            _run_git(["push", remote_with_auth, f"{branch}:refs/heads/{branch}"])
             print(f"\n  {Colors.BOLD}Journals merged.{Colors.RESET}")
         else:
             # Push: force-push local over remote
             _run_git(["add", "-A"])
             _run_git(["commit", "-m", "Initial journal sync", "--allow-empty"])
-            _run_git(["push", "--force", "-u", "origin", branch])
+            _run_git(["push", "--force", remote_with_auth, f"{branch}:refs/heads/{branch}"])
             print(f"\n  {Colors.BOLD}Local journal pushed (remote overwritten).{Colors.RESET}")
     else:
         # Fresh remote — initial commit and push
         _run_git(["add", "-A"])
         _run_git(["commit", "-m", "Initial journal sync", "--allow-empty"])
-        push_result = _run_git(["push", "-u", "origin", branch])
+        push_result = _run_git(["push", remote_with_auth, f"{branch}:refs/heads/{branch}"])
         if push_result is not None:
             print(f"\n  {Colors.BOLD}Initial sync completed.{Colors.RESET}")
         else:
@@ -363,26 +364,6 @@ def run_config_wizard(project_dir: Path, journals_dir: Path) -> Optional[dict]:
 
 def _is_active() -> bool:
     return _sync_config is not None and _journals_dir is not None
-
-
-def _load_secrets(project_dir: Path) -> dict:
-    secrets_path = project_dir / SECRETS_FILE
-    if not secrets_path.exists():
-        return {}
-    try:
-        with open(secrets_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _save_secrets(project_dir: Path, secrets: dict) -> None:
-    secrets_path = project_dir / SECRETS_FILE
-    try:
-        with open(secrets_path, "w", encoding="utf-8") as f:
-            json.dump(secrets, f, indent=2)
-    except OSError:
-        pass
 
 
 def _resolve_remote_url() -> str:
@@ -428,8 +409,9 @@ def _git_init(journals_dir: Path, remote_url: str, branch: str) -> None:
     if not gitignore_path.exists():
         gitignore_path.write_text("# Journal sync repo\n", encoding="utf-8")
 
-    # Try to fetch and checkout existing remote content
-    fetch_ok = _run_git(["fetch", "origin", branch])
+    # Try to fetch and checkout existing remote content (use auth URL for private repos)
+    auth_url = _resolve_remote_url()
+    fetch_ok = _run_git(["fetch", auth_url, f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
     if fetch_ok is not None:
         # Remote has content — set local branch to track it
         _run_git(["checkout", "-b", branch, f"origin/{branch}"])
@@ -448,7 +430,7 @@ def _run_git(args: list, timeout: int = 30) -> Optional[str]:
 
     global _last_git_error
     cmd = ["git"] + args
-    env = dict(__import__("os").environ)
+    env = dict(os.environ)
     # Prevent git from opening interactive credential prompts
     env["GIT_TERMINAL_PROMPT"] = "0"
     try:
@@ -476,13 +458,23 @@ def _do_push(verbose: bool = False) -> bool:
     if not _is_active():
         return False
 
+    # Prevent concurrent push operations (background timer vs manual sync)
+    if not _push_exec_lock.acquire(blocking=False):
+        if verbose:
+            _print_sync("Sync already in progress")
+        return False
+    try:
+        return _do_push_inner(verbose)
+    finally:
+        _push_exec_lock.release()
+
+
+def _do_push_inner(verbose: bool) -> bool:
+    """Inner push logic (caller must hold _push_exec_lock)."""
     _print_sync("Syncing...")
 
     branch = _sync_config.get("branch", "main")
-
-    # Ensure remote URL is current
     remote_url = _resolve_remote_url()
-    _run_git(["remote", "set-url", "origin", remote_url])
 
     # Acquire journal file lock during add+commit to prevent capturing
     # a partially-written file from the main thread
@@ -508,10 +500,15 @@ def _do_push(verbose: bool = False) -> bool:
             return False
 
     # Pull before push to handle diverged histories (no lock needed — network op)
-    _run_git(["pull", "--rebase", "origin", branch])
+    pull_result = _run_git(["pull", "--rebase", remote_url, branch])
+    if pull_result is None:
+        # Rebase failed — abort to restore clean state
+        _run_git(["rebase", "--abort"])
+        _print_sync("Rebase conflict during push — local commit preserved, manual sync needed")
+        return False
 
-    # Push
-    push_result = _run_git(["push", "origin", branch])
+    # Push using auth URL directly (token never stored in .git/config)
+    push_result = _run_git(["push", remote_url, branch])
     if push_result is None:
         detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
         _print_sync(f"Push failed: {detail}")
@@ -536,6 +533,8 @@ def _resolve_pull_conflict(branch: str) -> bool:
     """Handle pull when there are local uncommitted changes."""
     from .tm_ui import Colors
 
+    remote_url = _resolve_remote_url()
+
     print(f"\n{Colors.HEADER}  Remote has changes and you have local modifications.{Colors.RESET}")
     print(f"    L = Keep local (stash, pull, re-apply local on top)")
     print(f"    R = Use remote (discard local uncommitted changes)")
@@ -547,7 +546,7 @@ def _resolve_pull_conflict(branch: str) -> bool:
         # Commit local, then rebase
         _run_git(["add", "-A"])
         _run_git(["commit", "-m", "local changes before pull"])
-        result = _run_git(["pull", "--rebase", "origin", branch])
+        result = _run_git(["pull", "--rebase", remote_url, branch])
         if result is None:
             # Rebase conflict — abort and inform user
             _run_git(["rebase", "--abort"])
@@ -557,7 +556,7 @@ def _resolve_pull_conflict(branch: str) -> bool:
         return True
     elif choice == "R":
         _run_git(["checkout", "--", "."])
-        _run_git(["pull", "origin", branch])
+        _run_git(["pull", remote_url, branch])
         _print_sync("Updated to remote version")
         return True
     else:

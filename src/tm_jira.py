@@ -19,6 +19,7 @@ try:
 except ImportError:
     requests = None  # type: ignore
 
+from .tm_settings import load_secrets, save_secrets
 from .tm_ui import Colors
 
 
@@ -32,7 +33,6 @@ _auth: Optional[tuple] = None
 _headers = {"Accept": "application/json", "Content-Type": "application/json"}
 _project_dir: Optional[Path] = None
 
-SECRETS_FILE = ".ttm_secrets"
 LAST_SEEN_FILE = ".jira_last_seen"
 
 # Store last notify results for mark command
@@ -77,7 +77,7 @@ def init_jira(project_dir: Path) -> bool:
         return False
 
     _project_dir = project_dir
-    secrets = _load_secrets(project_dir)
+    secrets = load_secrets(project_dir)
 
     _jira_url = secrets.get("jira_url", "").rstrip("/")
     _jira_email = secrets.get("jira_email", "")
@@ -94,7 +94,7 @@ def init_jira(project_dir: Path) -> bool:
         _jira_account_id = _fetch_my_account_id() or ""
         if _jira_account_id:
             secrets["jira_account_id"] = _jira_account_id
-            _save_secrets(project_dir, secrets)
+            save_secrets(project_dir, secrets)
 
     return True
 
@@ -116,7 +116,7 @@ def run_config_wizard(project_dir: Path) -> bool:
     print(f"  {Colors.HEADER}{'─' * 50}{Colors.RESET}\n")
 
     # Load existing secrets to preserve other keys
-    secrets = _load_secrets(project_dir)
+    secrets = load_secrets(project_dir)
     existing_url = secrets.get("jira_url", "")
     existing_email = secrets.get("jira_email", "")
 
@@ -180,7 +180,7 @@ def run_config_wizard(project_dir: Path) -> bool:
     secrets["jira_url"] = jira_url
     secrets["jira_email"] = jira_email
     secrets["jira_api_token"] = jira_token
-    _save_secrets(project_dir, secrets)
+    save_secrets(project_dir, secrets)
 
     # Activate module
     init_jira(project_dir)
@@ -734,26 +734,6 @@ def _walk_adf(node, texts: list):
 
 
 # ─── Private helpers ───────────────────────────────────────────────────────────
-
-def _load_secrets(project_dir: Path) -> dict:
-    secrets_path = project_dir / SECRETS_FILE
-    if not secrets_path.exists():
-        return {}
-    try:
-        with open(secrets_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _save_secrets(project_dir: Path, secrets: dict):
-    secrets_path = project_dir / SECRETS_FILE
-    try:
-        with open(secrets_path, "w", encoding="utf-8") as f:
-            json.dump(secrets, f, indent=2)
-    except OSError:
-        pass
-
 
 def _prompt(text: str, default: str = "") -> str:
     try:
