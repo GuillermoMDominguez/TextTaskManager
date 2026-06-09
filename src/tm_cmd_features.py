@@ -916,30 +916,40 @@ def handle_email(
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'email' command (send pending tasks report)."""
-    if not re.match(r"^\s*(?:se|send|email)\b", raw_command, re.IGNORECASE):
+    """Handle 'se|send email|email' command (send pending tasks report)."""
+    if not re.match(r"^\s*(?:se|send\s+email|email)\b", raw_command, re.IGNORECASE):
         return None
 
     from .tm_email import send_email_report, EmailResult
     from .tm_logic import build_pending_email_body, get_pending_tasks
+    from datetime import datetime as _dt
 
     refreshed = context.refresh_tasks()
     pending = get_pending_tasks(refreshed)
     if not pending:
-        _log("info", "No pending tasks to email.")
+        _log("info", "No pending tasks to send.")
         return CommandOutcome(refreshed, view_state)
+
+    # Extract recipient from command args, fall back to config, then prompt
+    match = re.match(r"^\s*(?:se|send\s+email|email)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
+    recipient = match.group(1).strip() if match and match.group(1) else None
+    if not recipient:
+        recipient = context.email_config.default_recipient
+    while not recipient:
+        try:
+            answer = input(f"{Colors.BOLD}Recipient email: {Colors.RESET}").strip()
+        except (EOFError, KeyboardInterrupt):
+            _log("info", "Cancelled.")
+            return CommandOutcome(refreshed, view_state)
+        if answer:
+            recipient = answer
 
     config = context.email_config
-    recipient = config.default_recipient or ""
-    if not recipient:
-        _log("error", "No recipient configured. Set 'default_recipient' in email config.")
-        return CommandOutcome(refreshed, view_state)
-
-    subject = f"{config.subject_prefix} Pending Tasks Report"
+    subject = f"{config.subject_prefix} Pending tasks {_dt.now().strftime('%d/%m/%Y')}"
     body = build_pending_email_body(refreshed)
     result: EmailResult = send_email_report(recipient, subject, body, config)
     if result.success:
-        _log("info", f"Email sent to {recipient}.")
+        _log("info", f"{result.message}")
     else:
-        _log("error", f"Email failed: {result.error}")
+        _log("error", f"{result.message}")
     return CommandOutcome(refreshed, view_state)
