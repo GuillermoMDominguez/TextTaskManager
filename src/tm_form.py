@@ -12,7 +12,69 @@ Navigation:
 
 import sys
 import os
+import signal
 from typing import List, Optional, Dict, Any
+
+
+# ─── Terminal capability detection ─────────────────────────────────────────────
+
+_RESIZE_PENDING = False
+
+
+def _on_sigwinch(*_):
+    """Signal handler for terminal resize events."""
+    global _RESIZE_PENDING
+    _RESIZE_PENDING = True
+
+
+# Register SIGWINCH handler (Unix only) for form redraw on resize
+if hasattr(signal, "SIGWINCH"):
+    signal.signal(signal.SIGWINCH, _on_sigwinch)
+
+
+def _supports_unicode() -> bool:
+    """Check if the terminal supports Unicode output."""
+    encoding = getattr(sys.stdout, "encoding", "") or ""
+    # Normalize: "UTF-8", "utf-8", "utf_8", "utf8" all → "utf8"
+    normalized = encoding.lower().replace("-", "").replace("_", "")
+    return normalized == "utf8"
+
+
+# Box-drawing characters with ASCII fallback
+if _supports_unicode():
+    _BOX_TL = "┌"
+    _BOX_TR = "┐"
+    _BOX_BL = "└"
+    _BOX_BR = "┘"
+    _BOX_H = "─"
+    _BOX_V = "│"
+    _BOX_LT = "├"
+    _BOX_RT = "┤"
+    _ARROW_R = "▸"
+    _ARROW_L = "◂"
+    _ARROW_SEL = "▸"
+    _CHECK_ON = "☑"
+    _CHECK_OFF = "☐"
+    _ELLIPSIS = "…"
+    _SCROLL_UP = "↑"
+    _SCROLL_DN = "↓"
+else:
+    _BOX_TL = "+"
+    _BOX_TR = "+"
+    _BOX_BL = "+"
+    _BOX_BR = "+"
+    _BOX_H = "-"
+    _BOX_V = "|"
+    _BOX_LT = "+"
+    _BOX_RT = "+"
+    _ARROW_R = ">"
+    _ARROW_L = "<"
+    _ARROW_SEL = ">"
+    _CHECK_ON = "[x]"
+    _CHECK_OFF = "[ ]"
+    _ELLIPSIS = "~"
+    _SCROLL_UP = "^"
+    _SCROLL_DN = "v"
 
 
 # ─── Cross-platform key reading ───────────────────────────────────────────────
@@ -42,57 +104,59 @@ if os.name == "nt":
 else:
     import tty
     import termios
+    import select as _select_mod
 
     def _read_key() -> str:
-        """Read a single keypress on Unix/macOS."""
+        """Read a single keypress on Unix/macOS.
+
+        Handles multi-byte UTF-8 characters and uses select() for
+        reliable escape sequence detection (works over SSH/tmux).
+        """
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
             ch = os.read(fd, 1)
+            if not ch:
+                return ""
             if ch == b"\x1b":
-                # Read rest of escape sequence using os.read with timeout
-                import fcntl
-                # Set non-blocking
-                flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-                fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-                try:
-                    import time
-                    time.sleep(0.02)  # Brief wait for sequence bytes
+                # Use select() to wait for escape sequence bytes —
+                # more reliable than sleep, especially over SSH/tmux
+                readable, _, _ = _select_mod.select([fd], [], [], 0.1)
+                if readable:
+                    import fcntl
+                    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+                    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
                     try:
-                        seq = os.read(fd, 10)
-                    except (OSError, BlockingIOError):
-                        seq = b""
-                finally:
-                    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+                        try:
+                            seq = os.read(fd, 10)
+                        except (OSError, BlockingIOError):
+                            seq = b""
+                    finally:
+                        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+                else:
+                    seq = b""
 
-                if seq == b"[A":
+                if seq == b"[A" or seq == b"OA":
                     return "UP"
-                elif seq == b"[B":
+                elif seq == b"[B" or seq == b"OB":
                     return "DOWN"
-                elif seq == b"[C":
+                elif seq == b"[C" or seq == b"OC":
                     return "RIGHT"
-                elif seq == b"[D":
+                elif seq == b"[D" or seq == b"OD":
                     return "LEFT"
                 elif seq == b"[Z":
                     return "SHIFT_TAB"
                 elif seq == b"[3~":
                     return "DELETE"
-                elif seq == b"[H" or seq == b"[1~" or seq == b"OH":
+                elif seq in (b"[H", b"[1~", b"OH"):
                     return "HOME"
-                elif seq == b"[F" or seq == b"[4~" or seq == b"OF":
+                elif seq in (b"[F", b"[4~", b"OF"):
                     return "END"
-                elif seq == b"OA":
-                    return "UP"
-                elif seq == b"OB":
-                    return "DOWN"
-                elif seq == b"OC":
-                    return "RIGHT"
-                elif seq == b"OD":
-                    return "LEFT"
                 elif seq == b"":
                     return "ESC"
-                return "ESC"
+                # Unknown escape sequence (e.g. Ctrl+Arrow) — ignore
+                return ""
             if ch == b"\r" or ch == b"\n":
                 return "ENTER"
             if ch == b"\t":
@@ -101,7 +165,34 @@ else:
                 return "BACKSPACE"
             if len(ch) == 1 and ch[0] < 32:
                 return ""
-            return ch.decode("utf-8", errors="ignore")
+            # ── Multi-byte UTF-8 handling ──────────────────────────────
+            # Determine how many continuation bytes are needed based on
+            # the leading bits of the first byte.
+            first_byte = ch[0]
+            if first_byte < 0x80:
+                # ASCII — single byte
+                return ch.decode("utf-8", errors="replace")
+            elif first_byte < 0xC0:
+                # Unexpected continuation byte — discard
+                return ""
+            elif first_byte < 0xE0:
+                remaining = 1  # 2-byte sequence (e.g. ñ, á, é)
+            elif first_byte < 0xF0:
+                remaining = 2  # 3-byte sequence (e.g. CJK)
+            else:
+                remaining = 3  # 4-byte sequence (e.g. emoji)
+            # Read the remaining continuation bytes
+            for _ in range(remaining):
+                readable, _, _ = _select_mod.select([fd], [], [], 0.05)
+                if readable:
+                    extra = os.read(fd, 1)
+                    if extra:
+                        ch += extra
+                    else:
+                        break
+                else:
+                    break
+            return ch.decode("utf-8", errors="replace")
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
@@ -230,8 +321,8 @@ class SelectField:
     def render(self, active: bool) -> str:
         opt = self._options[self.selected]
         if active:
-            left = "◂" if len(self._options) > 1 else " "
-            right = "▸" if len(self._options) > 1 else " "
+            left = _ARROW_L if len(self._options) > 1 else " "
+            right = _ARROW_R if len(self._options) > 1 else " "
             return f"\033[2m{left}\033[22m \033[7m\033[97m {opt} \033[27m\033[22m \033[2m{right}\033[22m \033[2m[space]\033[22m"
         else:
             return f"\033[97m{opt}\033[22m"
@@ -278,7 +369,7 @@ def show_list_picker(
     cursor = max(0, min(selected, len(options) - 1))
     checked: set = set()  # indices of checked items (multi mode)
 
-    _PICK_BG = "\033[48;2;28;28;38m"
+    _PICK_BG = "\033[48;5;235m"  # 256-color dark grey (universal)
     _BD = "\033[36m"
     _R = "\033[0m"
 
@@ -316,20 +407,20 @@ def show_list_picker(
 
         row = start_row
         # Top border
-        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u250c{'\u2500' * inner_w}\u2510{_R}")
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_TL}{_BOX_H * inner_w}{_BOX_TR}{_R}")
         row += 1
         # Title
         t_text = f" {title}"
         t_padded = t_text[:inner_w].ljust(inner_w)
-        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u2502{_PICK_BG}\033[1m\033[97m{t_padded}\033[22m{_BD}\u2502{_R}")
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_V}{_PICK_BG}\033[1m\033[97m{t_padded}\033[22m{_BD}{_BOX_V}{_R}")
         row += 1
         # Sep
-        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u251c{'\u2500' * inner_w}\u2524{_R}")
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_LT}{_BOX_H * inner_w}{_BOX_RT}{_R}")
         row += 1
 
         # Options
-        # Available text: inner_w - cursor_indicator(3) - checkbox(3 if multi) - right_pad(1)
-        check_w = 3 if multi else 0
+        # Available text: inner_w - cursor_indicator(3) - checkbox - right_pad(1)
+        check_w = (len(_CHECK_ON) + 1) if multi else 0  # checkbox char(s) + space
         avail_text = inner_w - 4 - check_w
         for opt_idx in vis_range:
             is_cur = (opt_idx == cursor)
@@ -338,28 +429,28 @@ def show_list_picker(
             # Truncate text
             text = options[opt_idx]
             if len(text) > avail_text:
-                text = text[:avail_text - 1] + "\u2026"
+                text = text[:avail_text - 1] + _ELLIPSIS
             text_padded = text.ljust(avail_text)
 
             # Build checkbox string
             if multi:
                 if is_chk:
-                    chk = "\033[92m\u2611 \033[0m" + _PICK_BG
+                    chk = f"\033[92m{_CHECK_ON} \033[0m" + _PICK_BG
                 else:
-                    chk = "\033[2m\u2610 \033[22m"
+                    chk = f"\033[2m{_CHECK_OFF} \033[22m"
             else:
                 chk = ""
 
             # Draw filled line
-            sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u2502{_PICK_BG}{' ' * inner_w}{_BD}\u2502{_R}")
+            sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_V}{_PICK_BG}{' ' * inner_w}{_BD}{_BOX_V}{_R}")
             # Draw content
             sys.stdout.write(f"\033[{row};{col_off + 1}H{_PICK_BG}")
             if is_cur:
-                sys.stdout.write(f" \033[93m\u25b8 {chk}\033[7m\033[97m{text_padded}\033[27m\033[22m")
+                sys.stdout.write(f" \033[93m{_ARROW_SEL} {chk}\033[7m\033[97m{text_padded}\033[27m\033[22m")
             else:
                 sys.stdout.write(f"   {chk}\033[37m{text_padded}\033[0m")
             # Right border
-            sys.stdout.write(f"\033[{row};{rc}H{_PICK_BG}{_BD}\u2502{_R}")
+            sys.stdout.write(f"\033[{row};{rc}H{_PICK_BG}{_BD}{_BOX_V}{_R}")
             row += 1
 
         # Scroll indicators
@@ -367,15 +458,15 @@ def show_list_picker(
             scroll_top_actual = list(vis_range)[0] if vis_range else 0
             info = f" {cursor + 1}/{len(options)} "
             if scroll_top_actual > 0:
-                info = "\u2191" + info
+                info = _SCROLL_UP + info
             if scroll_top_actual + max_visible < len(options):
-                info = info + "\u2193"
+                info = info + _SCROLL_DN
             info_padded = info.center(inner_w)
-            sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u2502{_PICK_BG}\033[2m{info_padded}\033[22m{_BD}\u2502{_R}")
+            sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_V}{_PICK_BG}\033[2m{info_padded}\033[22m{_BD}{_BOX_V}{_R}")
             row += 1
 
         # Sep before buttons
-        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u251c{'\u2500' * inner_w}\u2524{_R}")
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_LT}{_BOX_H * inner_w}{_BOX_RT}{_R}")
         row += 1
 
         # Buttons row
@@ -387,20 +478,20 @@ def show_list_picker(
         cancel_label = " Cancel "
 
         btn_line = f"  \033[32m\033[7m{accept_label}\033[27m\033[0m{_PICK_BG}  \033[2m{cancel_label}\033[22m"
-        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u2502{_PICK_BG}{' ' * inner_w}{_BD}\u2502{_R}")
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_V}{_PICK_BG}{' ' * inner_w}{_BD}{_BOX_V}{_R}")
         sys.stdout.write(f"\033[{row};{col_off + 1}H{_PICK_BG}{btn_line}")
-        sys.stdout.write(f"\033[{row};{rc}H{_PICK_BG}{_BD}\u2502{_R}")
+        sys.stdout.write(f"\033[{row};{rc}H{_PICK_BG}{_BD}{_BOX_V}{_R}")
         row += 1
 
         # Bottom
-        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}\u2514{'\u2500' * inner_w}\u2518{_R}")
+        sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_BL}{_BOX_H * inner_w}{_BOX_BR}{_R}")
         row += 1
 
         # Help
         if multi:
-            help_text = "\u2191\u2193: move  Space: check/uncheck  Enter: accept  Esc: cancel"
+            help_text = f"{_SCROLL_UP}{_SCROLL_DN}: move  Space: check/uncheck  Enter: accept  Esc: cancel"
         else:
-            help_text = "\u2191\u2193: move  Enter: select  Esc: cancel"
+            help_text = f"{_SCROLL_UP}{_SCROLL_DN}: move  Enter: select  Esc: cancel"
         help_col = max(1, (tw - len(help_text)) // 2)
         sys.stdout.write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
         sys.stdout.flush()
@@ -412,6 +503,12 @@ def show_list_picker(
     result = None
     try:
         while True:
+            # Handle terminal resize
+            global _RESIZE_PENDING
+            if _RESIZE_PENDING:
+                _RESIZE_PENDING = False
+                sys.stdout.write("\033[2J\033[H")
+                sys.stdout.flush()
             _draw()
             key = _read_key()
             if key == "ESC":
@@ -446,8 +543,8 @@ def show_list_picker(
 
 # ─── Form Display ──────────────────────────────────────────────────────────────
 
-# Dark grey-blue box background to stand out from terminal black
-_FORM_BG = "\033[48;2;28;28;38m"
+# Dark grey box background — uses 256-color for universal terminal support
+_FORM_BG = "\033[48;5;235m"
 _BORDER_COLOR = "\033[36m"
 _RST = "\033[0m"
 
@@ -502,21 +599,21 @@ def show_form(
 
         row = start_row
         # Top
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}┌{'─' * (box_w - 2)}┐{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_TL}{_BOX_H * (box_w - 2)}{_BOX_TR}{_RST}")
         row += 1
         # Title
         t = f" {title}"
         t_padded = t + " " * (box_w - 2 - len(t))
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}\033[1m\033[97m{t_padded}\033[22m{_BORDER_COLOR}│{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_FORM_BG}\033[1m\033[97m{t_padded}\033[22m{_BORDER_COLOR}{_BOX_V}{_RST}")
         row += 1
         # Sep
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}├{'─' * (box_w - 2)}┤{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_LT}{_BOX_H * (box_w - 2)}{_BOX_RT}{_RST}")
         row += 1
 
         # Fields
         for i, field in enumerate(fields):
             is_active = (i == active_idx)
-            indicator = "▸" if is_active else " "
+            indicator = _ARROW_SEL if is_active else " "
             lbl = field.label + ":"
             lbl_padded = lbl.ljust(13)
 
@@ -524,7 +621,7 @@ def show_form(
                 lines = field.render_lines(is_active, value_width)
                 for line_idx, line_text in enumerate(lines):
                     # Fill background
-                    _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+                    _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}{_BOX_V}{_RST}")
                     _write(f"\033[{row};{col_off + 1}H{_FORM_BG}")
                     if line_idx == 0:
                         # First line: show indicator + label
@@ -537,22 +634,22 @@ def show_form(
                         padding = " " * 17  # indicator(2) + label(13) + space(2)
                         _write(f"{padding}{line_text}{_FORM_BG}")
                     # Right border
-                    _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
+                    _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_RST}")
                     row += 1
             else:
                 rendered = field.render(is_active)
                 # Fill background
-                _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+                _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}{_BOX_V}{_RST}")
                 _write(f"\033[{row};{col_off + 1}H{_FORM_BG}")
                 if is_active:
                     _write(f"\033[93m{indicator} \033[1m{lbl_padded}\033[22m\033[93m {rendered}{_FORM_BG}")
                 else:
                     _write(f" {indicator} \033[37m{lbl_padded}\033[0m{_FORM_BG} {rendered}{_FORM_BG}")
-                _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
+                _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_RST}")
                 row += 1
 
         # Sep
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}├{'─' * (box_w - 2)}┤{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_LT}{_BOX_H * (box_w - 2)}{_BOX_RT}{_RST}")
         row += 1
 
         # Buttons
@@ -568,17 +665,17 @@ def show_form(
             can = f"\033[2m Cancel \033[22m"
 
         # Fill line then draw buttons
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}│{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}│{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_FORM_BG}{' ' * inner_w}{_BORDER_COLOR}{_BOX_V}{_RST}")
         _write(f"\033[{row};{col_off + 1}H{_FORM_BG}   {acc}{_FORM_BG}  {can}{_FORM_BG}")
-        _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}│{_RST}")
+        _write(f"\033[{row};{rc}H{_FORM_BG}{_BORDER_COLOR}{_BOX_V}{_RST}")
         row += 1
 
         # Bottom
-        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}└{'─' * (box_w - 2)}┘{_RST}")
+        _write(f"\033[{row};{col_off}H{_FORM_BG}{_BORDER_COLOR}{_BOX_BL}{_BOX_H * (box_w - 2)}{_BOX_BR}{_RST}")
         row += 1
 
         # Help
-        help_text = "↑↓/Tab: navigate  ←→/Space: options  Enter: accept  Esc: cancel"
+        help_text = f"{_SCROLL_UP}{_SCROLL_DN}/Tab: navigate  <>/Space: options  Enter: accept  Esc: cancel"
         help_col = max(1, (tw - len(help_text)) // 2)
         _write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
 
@@ -588,9 +685,38 @@ def show_form(
     _write("\033[2J\033[H\033[?25l")
     _flush()
 
+    # Save and install SIGTSTP handler for clean suspend/resume (B6)
+    _prev_sigtstp = None
+    _prev_sigcont = None
+    if hasattr(signal, "SIGTSTP"):
+        def _on_sigtstp(*_):
+            # Restore terminal before suspending
+            _write("\033[?25h\033[0m\033[2J\033[H")
+            _flush()
+            # Re-raise with default handler to actually suspend
+            signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGTSTP)
+
+        def _on_sigcont(*_):
+            # Re-register our handler and trigger redraw
+            signal.signal(signal.SIGTSTP, _on_sigtstp)
+            global _RESIZE_PENDING
+            _RESIZE_PENDING = True
+
+        _prev_sigtstp = signal.getsignal(signal.SIGTSTP)
+        signal.signal(signal.SIGTSTP, _on_sigtstp)
+        _prev_sigcont = signal.getsignal(signal.SIGCONT)
+        signal.signal(signal.SIGCONT, _on_sigcont)
+
     cancelled = True
     try:
         while True:
+            # Handle terminal resize (B5)
+            global _RESIZE_PENDING
+            if _RESIZE_PENDING:
+                _RESIZE_PENDING = False
+                _write("\033[2J\033[H")
+                _flush()
             _draw()
             key = _read_key()
 
@@ -621,6 +747,10 @@ def show_form(
         except Exception:
             pass
     finally:
+        # Restore signal handlers
+        if hasattr(signal, "SIGTSTP") and _prev_sigtstp is not None:
+            signal.signal(signal.SIGTSTP, _prev_sigtstp)
+            signal.signal(signal.SIGCONT, _prev_sigcont)
         # Show cursor and clear screen for redraw
         _write("\033[?25h\033[2J\033[H")
         _flush()

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE
+from .tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE, VALID_RECURRENCES
 from .tm_models import Task, Subtask
 from .tm_settings import get_setting
 
@@ -19,7 +19,6 @@ from .tm_settings import get_setting
 # ─── Recurrence ────────────────────────────────────────────────────────────
 
 RECUR_PATTERN = re.compile(r"recur(?:rence)?[:=]\s*(\w+)", re.IGNORECASE)
-VALID_RECURRENCES = ("daily", "weekly", "biweekly", "monthly", "yearly")
 
 
 def parse_recurrence(text: str) -> Optional[str]:

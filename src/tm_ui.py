@@ -251,33 +251,63 @@ def set_terminal_background() -> None:
     """Set terminal background to configured color. Works on macOS/Linux/Win10+."""
     import sys
     sys.stdout.write(_BG_SEQ)         # Inline BG for printed text
-    sys.stdout.write(_BG_OSC)         # OSC 11: changes the whole terminal window BG
     sys.stdout.write("\033[2J")       # Clear screen with new BG
     sys.stdout.write("\033[H")        # Move cursor to top-left
     sys.stdout.flush()
 
 
-_BG_SEQ = "\033[48;2;0;0;0m"  # Inline BG (only affects printed chars)
-_BG_OSC = ""                   # OSC 11 sequence (affects whole terminal window)
+_BG_SEQ = "\033[48;5;232m"  # Inline BG (256-color fallback — near-black)
+
+
+def _supports_truecolor() -> bool:
+    """Detect if the terminal supports 24-bit (truecolor) output."""
+    colorterm = os.environ.get("COLORTERM", "").lower()
+    return colorterm in ("truecolor", "24bit")
 
 
 def init_background_color(rgb_str: str = "0,0,0") -> None:
     """Configure the background color from an 'R,G,B' string (e.g. '0,0,0').
 
     Must be called before any output. Updates Colors.RESET to maintain BG.
-    Uses both inline BG (for text) and OSC 11 (for full terminal window).
+    Uses 24-bit truecolor if supported, otherwise falls back to closest
+    256-color approximation.
     """
-    global _BG_SEQ, _BG_OSC
+    global _BG_SEQ
     try:
         parts = [int(x.strip()) for x in rgb_str.split(",")]
         if len(parts) == 3 and all(0 <= v <= 255 for v in parts):
             r, g, b = parts
-            _BG_SEQ = f"\033[48;2;{r};{g};{b}m"
-            # OSC 11 sets the terminal's own background (fills whole window)
-            _BG_OSC = f"\033]11;rgb:{r:02x}/{g:02x}/{b:02x}\033\\"
+            if _supports_truecolor():
+                _BG_SEQ = f"\033[48;2;{r};{g};{b}m"
+            else:
+                # Approximate to 256-color: use color cube or greyscale
+                _BG_SEQ = _rgb_to_256_bg(r, g, b)
     except (ValueError, AttributeError):
-        pass  # Keep default black
+        pass  # Keep default
     Colors.RESET = "\033[0m" + _BG_SEQ
+
+
+def _rgb_to_256_bg(r: int, g: int, b: int) -> str:
+    """Convert RGB to the closest 256-color background escape sequence.
+
+    For very dark colors (near-black), uses the greyscale ramp (232-255).
+    """
+    # Greyscale ramp: colors 232-255 map to grey levels 8, 18, 28, ..., 238
+    if r == g == b:
+        if r < 4:
+            idx = 16  # pure black
+        elif r > 248:
+            idx = 231  # pure white
+        else:
+            idx = round((r - 8) / 10) + 232
+            idx = max(232, min(255, idx))
+        return f"\033[48;5;{idx}m"
+    # Color cube: 6x6x6 (indices 16-231)
+    ri = round(r / 255 * 5)
+    gi = round(g / 255 * 5)
+    bi = round(b / 255 * 5)
+    idx = 16 + 36 * ri + 6 * gi + bi
+    return f"\033[48;5;{idx}m"
 
 
 class Colors:
@@ -557,6 +587,5 @@ def clear_screen() -> None:
 def reset_terminal_background() -> None:
     """Restore the terminal's default background on exit."""
     import sys
-    sys.stdout.write("\033]11;\033\\")  # OSC 11 reset (restore original BG)
     sys.stdout.write("\033[0m\033[2J\033[H")
     sys.stdout.flush()

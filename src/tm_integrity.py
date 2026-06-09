@@ -6,17 +6,18 @@ orphan subtasks/notes, malformed lines, duplicate blank lines, trailing whitespa
 Auto-fix repairs common issues from manual editing without losing data.
 """
 
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .tm_config import VALID_STATES, VALID_PRIORITIES
-from .tm_journal import parse_date, _parse_due_value
+from .tm_config import VALID_STATES, VALID_PRIORITIES, VALID_RECURRENCES
+from .tm_journal import parse_date, _parse_due_value, write_journal
 
 
-# Recurrence values accepted by the system
-_VALID_RECURRENCES = {"daily", "weekly", "biweekly", "monthly", "yearly"}
+# Recurrence values accepted by the system (reference from tm_config)
+_VALID_RECURRENCES = set(VALID_RECURRENCES)
 
 # Pattern to match a task line (starts with - but not --)
 _TASK_RE = re.compile(r"^-\s+(.+)")
@@ -147,11 +148,11 @@ def check_and_fix_journal(filepath: str, *, auto_fix: bool = False) -> Tuple[Lis
         issues.append(f"Line {line_num}: unrecognized line format.")
         fixed_lines.append(line)
 
-    # Write fixed content back
+    # Write fixed content back (atomically via write_journal)
     if auto_fix and fixes_applied > 0:
         fixed_content = "\n".join(fixed_lines)
         try:
-            path.write_text(fixed_content, encoding="utf-8")
+            write_journal(filepath, fixed_content)
         except OSError:
             pass  # Non-fatal, we still report findings
 
