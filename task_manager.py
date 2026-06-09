@@ -473,13 +473,24 @@ def main() -> None:
     # Use plain \033[0m in prompt (no BG sequence — avoids true-color issues)
     _prompt_reset = "\033[0m"
 
+    # Detect macOS libedit vs GNU readline for prompt strategy
+    try:
+        import readline as _readline_mod
+        _is_libedit = "libedit" in (_readline_mod.__doc__ or "")
+    except ImportError:
+        _readline_mod = None
+        _is_libedit = False
+
     def _build_prompt_char() -> tuple:
         """Build the input prompt from the configured format string.
 
-        Returns (readline_safe, plain):
+        Returns (readline_safe, raw_colored, plain):
         - readline_safe: colored prompt with ANSI escapes wrapped in \\001/\\002
-          so readline can correctly calculate cursor position during history
-          navigation (up/down arrows).
+          so GNU readline can correctly calculate cursor position during
+          history navigation (up/down arrows).
+        - raw_colored: bare ANSI escapes without \\001/\\002 wrappers (for
+          macOS libedit which strips \\001/\\002 content instead of passing
+          it through to the terminal).
         - plain: uncolored text for width calculations.
         Supported placeholders: {user}, {time}, {date}, {journal}.
         """
@@ -497,7 +508,8 @@ def main() -> None:
         # clearing the background mid-prompt.
         segments = _re_mod.split(r"(\{[^}]+\})", _prompt_format)
 
-        colored_parts: list = []
+        readline_parts: list = []
+        raw_parts: list = []
         plain_parts: list = []
         for seg in segments:
             if seg.startswith("{") and seg.endswith("}"):
@@ -506,14 +518,17 @@ def main() -> None:
                 if not value:
                     continue
                 color = _token_colors.get(key, _color_sep)
-                colored_parts.append(f"\001{color}\002{value}")
+                readline_parts.append(f"\001{color}\002{value}")
+                raw_parts.append(f"{color}{value}")
                 plain_parts.append(value)
             elif seg:
-                colored_parts.append(f"\001{_color_sep}\002{seg}")
+                readline_parts.append(f"\001{_color_sep}\002{seg}")
+                raw_parts.append(f"{_color_sep}{seg}")
                 plain_parts.append(seg)
 
-        # Single reset at the very end (also wrapped for readline)
-        colored = "".join(colored_parts) + f"\001{_prompt_reset}\002"
+        # Single reset at the very end
+        readline_colored = "".join(readline_parts) + f"\001{_prompt_reset}\002"
+        raw_colored = "".join(raw_parts) + _prompt_reset
         plain = "".join(plain_parts)
 
         # Collapse double spaces from removed empty tokens
@@ -521,12 +536,15 @@ def main() -> None:
             plain = plain.replace("  ", " ")
         if plain.startswith(" "):
             plain = plain.lstrip(" ")
-            # Also strip leading separator segment from colored
-            leading_sep = f"\001{_color_sep}\002 "
-            if colored.startswith(leading_sep):
-                colored = colored[len(leading_sep):]
+            # Also strip leading separator segment from both colored variants
+            leading_rl = f"\001{_color_sep}\002 "
+            if readline_colored.startswith(leading_rl):
+                readline_colored = readline_colored[len(leading_rl):]
+            leading_raw = f"{_color_sep} "
+            if raw_colored.startswith(leading_raw):
+                raw_colored = raw_colored[len(leading_raw):]
 
-        return (colored, plain)
+        return (readline_colored, raw_colored, plain)
 
     # ───────────────────────────────────────────────────────────────────
 
@@ -534,16 +552,30 @@ def main() -> None:
         try:
             # Build prompt — include status line above input if there's a message
             status = get_status_line()
-            colored, plain = _build_prompt_char()
+            readline_colored, raw_colored, plain = _build_prompt_char()
             if status:
                 sys.stdout.write(f"\n{status}\n")
                 sys.stdout.flush()
             else:
                 sys.stdout.write("\n")
                 sys.stdout.flush()
-            # Pass prompt to input() so readline knows its width and can
-            # correctly redraw when navigating history (up/down arrows).
-            raw_command = input(colored).strip()
+
+            if _is_libedit:
+                # macOS libedit: \001/\002 content is stripped and ANSI
+                # escapes never reach the terminal, so colors vanish.
+                # Only reliable approach: write colored prompt via stdout
+                # and use input("") so readline doesn't overwrite it.
+                # Trade-off: on history Up/Down the prompt disappears
+                # (readline clears from col 0), but the next loop
+                # iteration redraws it fresh with colors.
+                sys.stdout.write(raw_colored)
+                sys.stdout.flush()
+                raw_command = input("").strip()
+            else:
+                # GNU readline: \001/\002 wrappers work correctly — ANSI
+                # escapes pass through to terminal and are excluded from
+                # width calculations.
+                raw_command = input(readline_colored).strip()
             remember_command(raw_command)
 
             try:
