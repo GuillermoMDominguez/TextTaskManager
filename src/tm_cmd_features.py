@@ -929,7 +929,7 @@ def handle_email(
         _log("info", "No pending tasks to email.")
         return CommandOutcome(refreshed, view_state)
 
-    body = build_pending_email_body(pending)
+    body = build_pending_email_body(refreshed)
     result: EmailResult = send_email_report(context.email_config, body)
     if result.success:
         _log("info", f"Email sent to {context.email_config.to_address}.")
