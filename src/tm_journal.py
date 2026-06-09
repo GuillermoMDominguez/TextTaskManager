@@ -856,7 +856,7 @@ def add_subtask_to_task(filepath: str, task: "Task", subtask_title: str, state: 
 
 
 def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
-    """Rename a parent task while keeping state and children."""
+    """Rename a parent task while keeping state, children, and metadata (blockedby/blocks/spent)."""
     clean_title = new_title.strip()
     if task.source_line is None or not clean_title:
         return False
@@ -867,11 +867,49 @@ def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence)
+        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence)
+        # Preserve time tracking
+        if task.time_spent:
+            from .tm_features import format_time_spent
+            new_line = new_line.rstrip("\n") + f" -- spent:{format_time_spent(task.time_spent)}\n"
+        # Preserve dependency metadata
+        for b in (task.blocked_by or []):
+            new_line = new_line.rstrip("\n") + f" -- blockedby:{b}\n"
+        for b in (task.blocks or []):
+            new_line = new_line.rstrip("\n") + f" -- blocks:{b}\n"
+        lines[line_index] = new_line
         _write_lines(filepath, lines)
         return True
     except Exception:
         return False
+
+
+def update_dependency_references(filepath: str, old_title: str, new_title: str) -> None:
+    """Update blockedby:/blocks: references when a task is renamed.
+
+    Scans all lines for metadata referencing old_title and replaces with new_title.
+    Both values should already be tag-stripped (as stored by handle_block).
+    """
+    if not old_title or not new_title or old_title == new_title:
+        return
+    try:
+        lines = _read_lines(filepath)
+        changed = False
+        for i, line in enumerate(lines):
+            # Match blockedby:OldTitle or blocks:OldTitle (case-insensitive key, exact title)
+            new_line = re.sub(
+                r"((?:blockedby|blocks)\s*:\s*)" + re.escape(old_title) + r"(?=\s*(?:--|$|\n))",
+                lambda m: m.group(1) + new_title,
+                line,
+                flags=re.IGNORECASE,
+            )
+            if new_line != line:
+                lines[i] = new_line
+                changed = True
+        if changed:
+            _write_lines(filepath, lines)
+    except Exception:
+        pass  # Best-effort — don't fail the rename if ref update fails
 
 
 def update_task_metadata_in_file(

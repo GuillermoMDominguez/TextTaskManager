@@ -42,6 +42,7 @@ from .tm_journal import (
     mark_all_subtasks_done_in_file,
     move_task_to_date_in_file,
     read_journal_snapshot,
+    update_dependency_references,
     update_task_metadata_in_file,
     update_subtask_state_in_file,
     update_task_state_in_file,
@@ -515,6 +516,11 @@ def handle_edit(raw_command: str, tasks_by_date: dict, view_state: ViewState, co
     else:
         snapshot = read_journal_snapshot(context.journal_path)
         persisted = edit_task_title_in_file(context.journal_path, target, new_title)
+        # Update dependency references in other tasks (blockedby:/blocks: metadata)
+        if persisted:
+            old_stripped = _strip_tags(target.title)
+            new_stripped = _strip_tags(new_title)
+            update_dependency_references(context.journal_path, old_stripped, new_stripped)
 
     if persisted:
         _save_undo_snapshot(context, snapshot)

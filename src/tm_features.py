@@ -15,6 +15,9 @@ from .tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_S
 from .tm_models import Task, Subtask
 from .tm_settings import get_setting
 
+# Matches standalone hashtag tokens (#tag-name) for stripping in dependency lookups
+_TAG_RE = re.compile(r"(?<!\S)#[\w-]+(?!\S)")
+
 
 # ─── Recurrence ────────────────────────────────────────────────────────────
 
@@ -608,11 +611,18 @@ def remove_all_blocks_metadata(line: str) -> str:
 
 
 def find_task_by_title_match(tasks_by_date: dict, title: str) -> Optional[Task]:
-    """Find a task whose title matches (case-insensitive)."""
+    """Find a task whose title matches (case-insensitive).
+
+    Compares against both the full title and the tag-stripped title,
+    since blockedby/blocks metadata stores tag-stripped titles.
+    """
     lower = title.strip().lower()
     for tasks in tasks_by_date.values():
         for task in tasks:
             if task.title.strip().lower() == lower:
+                return task
+            stripped = " ".join(_TAG_RE.sub("", task.title).split()).lower()
+            if stripped == lower:
                 return task
     return None
 
