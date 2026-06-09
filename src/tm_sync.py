@@ -12,6 +12,7 @@ are no-ops. The rest of the application is unaffected.
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -35,6 +36,14 @@ _push_exec_lock = threading.Lock()     # Guards _do_push execution (prevents con
 _last_git_error: str = ""
 
 DEBOUNCE_SECONDS = 5
+
+# Pattern to strip embedded credentials from git error messages before display
+_TOKEN_URL_RE = re.compile(r"https?://[^@]+@")
+
+
+def _sanitize_error(msg: str) -> str:
+    """Remove embedded credentials (oauth2:TOKEN@host) from error messages."""
+    return _TOKEN_URL_RE.sub("https://", msg)
 
 
 # ─── Public API ────────────────────────────────────────────────────────────────
@@ -76,7 +85,7 @@ def sync_pull(interactive: bool = True) -> bool:
     # Fetch using auth URL directly (token never persisted to .git/config)
     result = _run_git(["fetch", remote_url, f"+refs/heads/{branch}:refs/remotes/origin/{branch}"])
     if result is None:
-        detail = _last_git_error.split("\n")[0] if _last_git_error else ""
+        detail = _sanitize_error(_last_git_error.split("\n")[0]) if _last_git_error else ""
         msg = "No connection — working offline"
         if detail:
             msg += f" ({detail})"
@@ -497,7 +506,7 @@ def _do_push_inner(verbose: bool) -> bool:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         commit_result = _run_git(["commit", "-m", f"sync: {timestamp}"])
         if commit_result is None:
-            detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
+            detail = _sanitize_error(_last_git_error.split("\n")[0]) if _last_git_error else "unknown error"
             _print_sync(f"Commit failed: {detail}")
             return False
 
@@ -512,7 +521,7 @@ def _do_push_inner(verbose: bool) -> bool:
     # Push using auth URL directly (token never stored in .git/config)
     push_result = _run_git(["push", remote_url, branch])
     if push_result is None:
-        detail = _last_git_error.split("\n")[0] if _last_git_error else "unknown error"
+        detail = _sanitize_error(_last_git_error.split("\n")[0]) if _last_git_error else "unknown error"
         _print_sync(f"Push failed: {detail}")
         return False
 
