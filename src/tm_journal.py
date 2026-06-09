@@ -1120,9 +1120,6 @@ def restore_journal_snapshot(filepath: str, snapshot: str) -> bool:
         return True
     except OSError:
         return False
-        return True
-    except OSError:
-        return False
 
 
 def lint_journal(filepath: str) -> List[str]:

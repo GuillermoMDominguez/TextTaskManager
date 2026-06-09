@@ -98,7 +98,9 @@ def sync_pull(interactive: bool = True) -> bool:
         if pull_result is None:
             # Rebase failed — try merge instead
             _run_git(["rebase", "--abort"])
-            _run_git(["pull", "--no-rebase", remote_url, branch, "--allow-unrelated-histories"])
+            merge_result = _run_git(["pull", "--no-rebase", remote_url, branch, "--allow-unrelated-histories"])
+            if merge_result is None:
+                return False
         return True
 
     # Check if there are remote changes

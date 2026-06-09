@@ -396,7 +396,7 @@ def _get_overdue(max_results: int = 20):
 
 
 def _search_issues(text: str, max_results: int = 20):
-    safe_text = text.replace('"', '\\"')
+    safe_text = text.replace("\\", "\\\\").replace('"', '\\"')
     jql = (
         f'assignee = currentUser() AND text ~ "{safe_text}" '
         f"AND statusCategory != Done "
@@ -415,7 +415,7 @@ def _fetch_my_account_id() -> Optional[str]:
         )
         resp.raise_for_status()
         return resp.json().get("accountId")
-    except Exception:
+    except (requests.RequestException, ValueError, KeyError):
         return None
 
 
@@ -485,7 +485,7 @@ def _get_unread_comments():
             created = comment.get("created", "")
 
             # Skip my own comments
-            if _jira_email and _jira_email in (email or ""):
+            if _jira_email and email == _jira_email:
                 continue
             # Skip already read
             if comment_id in read_ids:

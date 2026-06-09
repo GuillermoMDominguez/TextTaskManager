@@ -1,8 +1,23 @@
 {
-  "states": ["BACKLOG", "IN PROGRESS", "WAITING", "TESTING", "DONE", "CANCELLED"],
-  "finished_states": ["DONE", "CANCELLED"],
-  "progress_states": ["IN PROGRESS"],
-  "testing_states": ["TESTING", "IN TESTING"],
+  "states": [
+    "BACKLOG",
+    "IN PROGRESS",
+    "WAITING",
+    "TESTING",
+    "DONE",
+    "CANCELLED"
+  ],
+  "finished_states": [
+    "DONE",
+    "CANCELLED"
+  ],
+  "progress_states": [
+    "IN PROGRESS"
+  ],
+  "testing_states": [
+    "TESTING",
+    "IN TESTING"
+  ],
   "state_aliases": {
     "IN TESTING": "TESTING",
     "IP": "IN PROGRESS",
@@ -12,7 +27,12 @@
     "CN": "CANCELLED",
     "TS": "TESTING"
   },
-  "priorities": ["LOW", "MEDIUM", "HIGH", "URGENT"],
+  "priorities": [
+    "LOW",
+    "MEDIUM",
+    "HIGH",
+    "URGENT"
+  ],
   "priority_aliases": {
     "L": "LOW",
     "M": "MEDIUM",
@@ -21,7 +41,14 @@
   },
   "default_state": "BACKLOG",
   "default_priority": null,
-  "kanban_columns": ["BACKLOG", "IN PROGRESS", "WAITING", "TESTING", "DONE", "CANCELLED"],
+  "kanban_columns": [
+    "BACKLOG",
+    "IN PROGRESS",
+    "WAITING",
+    "TESTING",
+    "DONE",
+    "CANCELLED"
+  ],
   "date_format": "%d/%m/%Y",
   "agenda_days": 7,
   "sort_by": "none",

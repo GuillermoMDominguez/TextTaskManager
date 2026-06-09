@@ -585,11 +585,15 @@ def main() -> None:
                 outcome = None
             except Exception as exc:
                 import traceback
-                Path("src/ttm_crash.log").write_text(
-                    f"COMMAND ERROR ({raw_command}):\n{traceback.format_exc()}",
-                    encoding="utf-8",
-                )
-                tm_log_msg("error", "Unexpected error. See src/ttm_crash.log")
+                crash_log = script_dir / "src" / "ttm_crash.log"
+                try:
+                    crash_log.write_text(
+                        f"COMMAND ERROR ({raw_command}):\n{traceback.format_exc()}",
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+                tm_log_msg("error", f"Unexpected error. See {crash_log}")
                 outcome = None
 
             if outcome:

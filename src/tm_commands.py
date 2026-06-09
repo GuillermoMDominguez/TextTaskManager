@@ -443,7 +443,7 @@ def execute_command(
     if result:
         return result
 
-    result = handle_recurrence(raw_command, tasks_by_date, view_state, context, tasks_by_date)
+    result = handle_recurrence(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 

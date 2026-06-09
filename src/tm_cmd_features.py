@@ -238,7 +238,6 @@ def handle_recurrence(
     tasks_by_date: dict,
     view_state: ViewState,
     context: CommandContext,
-    updated_tasks: dict,
 ) -> Optional[CommandOutcome]:
     """Handle 'recur|rec' command."""
     recur_match = re.match(r"^\s*(?:recur|rec)\s+(\S+)\s*(.*)$", raw_command, re.IGNORECASE)
@@ -248,10 +247,10 @@ def handle_recurrence(
     requested_id = recur_match.group(1).strip()
     recur_value = recur_match.group(2).strip().lower()
 
-    target = find_task_by_id(updated_tasks, requested_id)
+    target = find_task_by_id(tasks_by_date, requested_id)
     if target is None or isinstance(target, Subtask):
         _log("error", f"Task {requested_id} not found.")
-        return CommandOutcome(updated_tasks, view_state)
+        return CommandOutcome(tasks_by_date, view_state)
 
     if recur_value in ("none", "off", "clear", ""):
         new_recurrence = ""  # empty string = remove recurrence
@@ -260,7 +259,7 @@ def handle_recurrence(
         normalized = RECURRENCE_ALIASES.get(recur_value.upper(), recur_value)
         if normalized not in VALID_RECURRENCES:
             _log("error", f"Invalid recurrence. Valid: {', '.join(VALID_RECURRENCES)} (or none).")
-            return CommandOutcome(updated_tasks, view_state)
+            return CommandOutcome(tasks_by_date, view_state)
         new_recurrence = normalized
 
     from .tm_journal import update_task_metadata_in_file
@@ -918,7 +917,7 @@ def handle_email(
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
     """Handle 'email' command (send pending tasks report)."""
-    if not re.match(r"^\s*email\b", raw_command, re.IGNORECASE):
+    if not re.match(r"^\s*(?:se|send|email)\b", raw_command, re.IGNORECASE):
         return None
 
     from .tm_email import send_email_report, EmailResult
