@@ -476,7 +476,11 @@ def main() -> None:
     def _build_prompt_char() -> tuple:
         """Build the input prompt from the configured format string.
 
-        Returns (colored, plain) — colored for sys.stdout.write display.
+        Returns (readline_safe, plain):
+        - readline_safe: colored prompt with ANSI escapes wrapped in \\001/\\002
+          so readline can correctly calculate cursor position during history
+          navigation (up/down arrows).
+        - plain: uncolored text for width calculations.
         Supported placeholders: {user}, {time}, {date}, {journal}.
         """
         now = _time_mod.localtime()
@@ -502,14 +506,14 @@ def main() -> None:
                 if not value:
                     continue
                 color = _token_colors.get(key, _color_sep)
-                colored_parts.append(f"{color}{value}")
+                colored_parts.append(f"\001{color}\002{value}")
                 plain_parts.append(value)
             elif seg:
-                colored_parts.append(f"{_color_sep}{seg}")
+                colored_parts.append(f"\001{_color_sep}\002{seg}")
                 plain_parts.append(seg)
 
-        # Single reset at the very end
-        colored = "".join(colored_parts) + _prompt_reset
+        # Single reset at the very end (also wrapped for readline)
+        colored = "".join(colored_parts) + f"\001{_prompt_reset}\002"
         plain = "".join(plain_parts)
 
         # Collapse double spaces from removed empty tokens
@@ -518,7 +522,7 @@ def main() -> None:
         if plain.startswith(" "):
             plain = plain.lstrip(" ")
             # Also strip leading separator segment from colored
-            leading_sep = f"{_color_sep} "
+            leading_sep = f"\001{_color_sep}\002 "
             if colored.startswith(leading_sep):
                 colored = colored[len(leading_sep):]
 
@@ -532,11 +536,14 @@ def main() -> None:
             status = get_status_line()
             colored, plain = _build_prompt_char()
             if status:
-                sys.stdout.write(f"\n{status}\n{colored}")
+                sys.stdout.write(f"\n{status}\n")
+                sys.stdout.flush()
             else:
-                sys.stdout.write(f"\n{colored}")
-            sys.stdout.flush()
-            raw_command = input("").strip()
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+            # Pass prompt to input() so readline knows its width and can
+            # correctly redraw when navigating history (up/down arrows).
+            raw_command = input(colored).strip()
             remember_command(raw_command)
 
             try:
