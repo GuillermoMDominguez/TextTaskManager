@@ -597,23 +597,98 @@ SSH remotes (`git@...`) require no token — they use your system SSH keys.
 
 ## Architecture
 
-Modular, no circular dependencies:
+Modular, no circular dependencies. Command dispatch is split into domain sub-modules:
 
 ```
-tm_settings → tm_config → tm_models → tm_journal/tm_logic
-                                        ↓
-                              tm_features/tm_ui/tm_integrity
-                                        ↓
-                                   tm_commands
-                                        ↓
-                                  task_manager.py
-                                        ↓
-                                    tm_sync (optional)
+task_manager.py              ← Entry point, prompt loop, crash handling
+    │
+    ├── src/tm_commands.py   ← Thin router: dispatches to sub-modules, re-exports
+    │       ├── tm_cmd_common.py    ← Shared: ViewState, CommandContext, utilities
+    │       ├── tm_cmd_crud.py      ← new, cs, edit, delete, move, sub, das, dup
+    │       ├── tm_cmd_views.py     ← pending, all, stats, agenda, kanban, find, sort, undo
+    │       ├── tm_cmd_features.py  ← template, recurrence, time, block, pomodoro, email
+    │       └── tm_cmd_system.py    ← config, sync, help, reload
+    │
+    ├── src/tm_journal.py    ← File I/O: parse/write journal, task CRUD on disk
+    ├── src/tm_logic.py      ← Pure logic: find_task_by_id, date parsing, normalization
+    ├── src/tm_features.py   ← Extended: export/import, kanban, weekly report, pomodoro
+    ├── src/tm_models.py     ← Data classes: Task, Subtask
+    ├── src/tm_config.py     ← VALID_STATES, VALID_PRIORITIES, loaded from .ttm_config
+    ├── src/tm_settings.py   ← Settings + secrets I/O (chmod 600, atomic writes)
+    ├── src/tm_ui.py         ← Terminal rendering: colors, table layout, display_tasks
+    ├── src/tm_form.py       ← Interactive forms (TextField, SelectField, ListPicker)
+    ├── src/tm_log.py        ← Single-line status bar (toast pattern)
+    ├── src/tm_sync.py       ← Git sync: push/pull/config wizard (optional)
+    ├── src/tm_jira.py       ← Jira Cloud integration (optional, requires `requests`)
+    ├── src/tm_email.py      ← Email: SMTP or mailto fallback
+    └── src/tm_integrity.py  ← Journal linting and auto-fix
 ```
 
-- **Zero external dependencies** — pure Python standard library
+### Design Principles
+
+- **Zero external dependencies** — pure Python standard library (except optional `requests` for Jira)
 - **Manual editing compatible** — the file format is designed to be readable and editable by humans
 - **Terminal-adaptive UI** — all separators and columns scale to terminal width
+- **Secrets isolated** — tokens/passwords in `.ttm_secrets` (gitignored, mode 600), never in `.git/config`
+- **Crash-safe** — undo snapshots before every write, atomic file operations where possible
+- **Offline-first sync** — git-based, fails silently with no network, retries on next change
+
+---
+
+## Jira Integration
+
+Optional module for querying and managing Jira Cloud issues directly from TTM. Requires `pip install requests`.
+
+### Setup
+
+```
+> config jira
+```
+
+The wizard asks for:
+1. Jira Cloud URL (e.g., `https://yourteam.atlassian.net`)
+2. Your Atlassian email
+3. An API token (generated at https://id.atlassian.com/manage-profile/security/api-tokens)
+
+Credentials are stored in `.ttm_secrets` (gitignored, chmod 600).
+
+### Commands
+
+All Jira commands are prefixed with `j` or `jira`:
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `j` / `j active` | `j a` | My active issues (not Done/Cancelled) |
+| `j todo` | `j t` | My issues in "To Do" |
+| `j progress` | `j p` | My issues "In Progress" |
+| `j done` | `j d` | My completed issues |
+| `j review` | `j rv` | My issues "In Review" |
+| `j blocked` | `j bk` | My blocked issues |
+| `j overdue` | `j od` | My overdue issues |
+| `j find <text>` | `j f <text>` | Search issues by text |
+| `j open <KEY>` | `j o <KEY>` | Open issue in browser |
+| `j move <KEY> <status>` | `j mv <KEY> <status>` | Transition issue status |
+| `j notify` | `j n` | Show unread comments mentioning you |
+| `j mark` | `j m` | Mark all notifications as read |
+
+### Examples
+
+```
+> j                      # Show my active issues
+> j f login bug          # Search for "login bug"
+> j o PROJ-123           # Open in browser
+> j mv PROJ-123 done     # Transition to Done
+> j n                    # Check for new @mentions
+> j m                    # Mark all as read
+```
+
+### Notifications
+
+`j notify` surfaces comments where you are @mentioned or where you are the reporter. It tracks read state in `.jira_last_seen` and only shows new comments since last check. Run `j mark` to acknowledge them.
+
+### Architecture Note
+
+Jira is fully isolated — no linking between Jira issues and local tasks. They are two separate systems accessible from the same CLI. Local tasks live in journal files; Jira issues live on your Atlassian instance.
 
 ---
 
