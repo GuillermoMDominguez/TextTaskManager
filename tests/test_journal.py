@@ -1028,5 +1028,136 @@ class TestIntegrationRoundTrip(unittest.TestCase):
             os.unlink(path)
 
 
+# ─── Jira key metadata ────────────────────────────────────────────────────────
+
+
+class TestJiraKeyMetadata(unittest.TestCase):
+    """Tests for jira_key parsing, rendering, and round-tripping through file ops."""
+
+    def test_parse_jira_key(self):
+        """parse_task_line extracts jira_key from metadata."""
+        task = parse_task_line("- Fix login -- IN PROGRESS -- jira:BD-123")
+        self.assertIsNotNone(task)
+        self.assertEqual(task.jira_key, "BD-123")
+        self.assertEqual(task.title, "Fix login")
+        self.assertEqual(task.state, "IN PROGRESS")
+
+    def test_parse_jira_key_with_other_metadata(self):
+        """jira_key parsed alongside due and priority."""
+        task = parse_task_line("- Deploy -- TODO -- due:15/01/2025 -- priority:high -- jira:PROJ-99")
+        self.assertIsNotNone(task)
+        self.assertEqual(task.jira_key, "PROJ-99")
+        self.assertEqual(task.priority, "HIGH")
+
+    def test_parse_no_jira_key(self):
+        """Tasks without jira metadata have jira_key=None."""
+        task = parse_task_line("- Normal task -- TODO")
+        self.assertIsNotNone(task)
+        self.assertIsNone(task.jira_key)
+
+    def test_add_task_with_jira_key(self):
+        """add_task_to_file writes jira: metadata."""
+        fd, path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        try:
+            with open(path, "w") as f:
+                f.write("# 09/06/2025\n\n")
+            result = add_task_to_file(
+                path, "Imported task", jira_key="TEAM-42",
+                target_date=datetime(2025, 6, 9),
+            )
+            self.assertTrue(result)
+            with open(path) as f:
+                content = f.read()
+            self.assertIn("jira:TEAM-42", content)
+            self.assertIn("Imported task", content)
+        finally:
+            os.unlink(path)
+
+    def test_update_metadata_preserves_jira_key(self):
+        """update_task_metadata_in_file preserves existing jira_key."""
+        fd, path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        try:
+            with open(path, "w") as f:
+                f.write("# 09/06/2025\n\n- Fix bug -- TODO -- jira:BD-55\n")
+            tasks = parse_journal(path)
+            task_list = list(tasks.values())[0]
+            task = task_list[0]
+            self.assertEqual(task.jira_key, "BD-55")
+            # Update priority — jira_key should survive
+            result = update_task_metadata_in_file(path, task, None, "high")
+            self.assertTrue(result)
+            with open(path) as f:
+                content = f.read()
+            self.assertIn("jira:BD-55", content)
+            self.assertIn("priority:high", content)
+        finally:
+            os.unlink(path)
+
+    def test_update_metadata_adds_jira_key(self):
+        """Setting task.jira_key before update_task_metadata_in_file writes it."""
+        fd, path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        try:
+            with open(path, "w") as f:
+                f.write("# 09/06/2025\n\n- Plain task -- TODO\n")
+            tasks = parse_journal(path)
+            task_list = list(tasks.values())[0]
+            task = task_list[0]
+            self.assertIsNone(task.jira_key)
+            # Link it
+            task.jira_key = "NEW-1"
+            result = update_task_metadata_in_file(path, task, task.due_date, task.priority)
+            self.assertTrue(result)
+            with open(path) as f:
+                content = f.read()
+            self.assertIn("jira:NEW-1", content)
+        finally:
+            os.unlink(path)
+
+    def test_update_metadata_removes_jira_key(self):
+        """Setting task.jira_key=None before update removes jira: metadata."""
+        fd, path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        try:
+            with open(path, "w") as f:
+                f.write("# 09/06/2025\n\n- Linked -- IN PROGRESS -- jira:OLD-9\n")
+            tasks = parse_journal(path)
+            task_list = list(tasks.values())[0]
+            task = task_list[0]
+            self.assertEqual(task.jira_key, "OLD-9")
+            # Unlink
+            task.jira_key = None
+            result = update_task_metadata_in_file(path, task, task.due_date, task.priority)
+            self.assertTrue(result)
+            with open(path) as f:
+                content = f.read()
+            self.assertNotIn("jira:", content)
+            self.assertIn("Linked -- IN PROGRESS", content)
+        finally:
+            os.unlink(path)
+
+    def test_edit_title_preserves_jira_key(self):
+        """edit_task_title_in_file preserves jira_key."""
+        fd, path = tempfile.mkstemp(suffix=".md")
+        os.close(fd)
+        try:
+            with open(path, "w") as f:
+                f.write("# 09/06/2025\n\n- Old title -- IN PROGRESS -- jira:XX-1\n")
+            tasks = parse_journal(path)
+            task_list = list(tasks.values())[0]
+            task = task_list[0]
+            result = edit_task_title_in_file(path, task, "New title")
+            self.assertTrue(result)
+            with open(path) as f:
+                content = f.read()
+            self.assertIn("New title", content)
+            self.assertIn("jira:XX-1", content)
+            self.assertNotIn("Old title", content)
+        finally:
+            os.unlink(path)
+
+
 if __name__ == "__main__":
     unittest.main()

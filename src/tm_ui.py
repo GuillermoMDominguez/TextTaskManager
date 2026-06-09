@@ -61,7 +61,7 @@ def _format_tags_suffix(text: str) -> str:
 
 
 def _format_task_meta_suffix(task) -> str:
-    """Render compact due/priority/recurrence/time/blocker badges for a task."""
+    """Render compact due/priority/recurrence/time/blocker/jira badges for a task."""
     chunks = []
     if getattr(task, "priority", None):
         chunks.append(f"[P:{task.priority}]")
@@ -78,6 +78,8 @@ def _format_task_meta_suffix(task) -> str:
     if getattr(task, "blocks", None):
         for b in task.blocks:
             chunks.append(f"[→ {b}]")
+    if getattr(task, "jira_key", None):
+        chunks.append(f"[{task.jira_key}]")
     return f" {' '.join(chunks)}" if chunks else ""
 
 

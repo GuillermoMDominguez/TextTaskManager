@@ -67,6 +67,7 @@ class Task:
     time_spent: Optional[int] = None  # minutes
     blocked_by: List[str] = field(default_factory=list)  # task titles
     blocks: List[str] = field(default_factory=list)  # task titles
+    jira_key: Optional[str] = None  # linked Jira issue key (e.g. "PROJ-123")
     task_id: Optional[str] = None
     source_line: Optional[int] = None
 

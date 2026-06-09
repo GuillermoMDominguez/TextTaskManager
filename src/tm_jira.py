@@ -9,6 +9,7 @@ functions return gracefully. Configure with 'config jira' command.
 """
 
 import json
+import re
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +65,9 @@ ALIASES = {
     "mv": "move",
     "f": "find",
     "o": "open",
+    "l": "link",
+    "ul": "unlink",
+    "i": "import",
 }
 
 
@@ -190,7 +194,7 @@ def run_config_wizard(project_dir: Path) -> bool:
     return True
 
 
-def execute(command: str) -> None:
+def execute(command: str, tasks_by_date: dict = None, context=None) -> None:
     """Execute a Jira subcommand (e.g. 'active', 'notify', 'move BD-123')."""
     parts = command.strip().split()
     if not parts:
@@ -246,14 +250,20 @@ def execute(command: str) -> None:
             _cmd_move(args[0].upper())
     elif cmd == "open":
         if not args:
-            print(f"  {Colors.DIM}Usage: jira open <KEY>  (e.g. jira open BD-123){Colors.RESET}")
+            print(f"  {Colors.DIM}Usage: jira open <KEY|task_id>  (e.g. jira open BD-123 or jira open 3){Colors.RESET}")
         else:
-            _cmd_open(args[0].upper())
+            _cmd_open(args[0], tasks_by_date)
     elif cmd == "full":
         data = _get_active_issues()
         _display_issues(data, "Active Tasks (status != Done/Cancelled)")
         messages = _get_unread_comments()
         _display_unread(messages)
+    elif cmd == "link":
+        _cmd_link(args, tasks_by_date, context)
+    elif cmd == "unlink":
+        _cmd_unlink(args, tasks_by_date, context)
+    elif cmd in ("import", "imp"):
+        _cmd_import(args, context)
     else:
         print(f"  {Colors.ERROR}Unknown jira command: {cmd}{Colors.RESET}")
         print(f"  Type 'jira help' for available commands.")
@@ -263,7 +273,7 @@ def execute(command: str) -> None:
 
 def _cmd_help():
     print(f"""
-  {Colors.HEADER}Jira Commands{Colors.RESET} (prefix with 'jira')
+  {Colors.HEADER}Jira Commands{Colors.RESET} (prefix with 'jira' or 'j')
   {Colors.DIM}{'─' * 50}{Colors.RESET}
   {Colors.BOLD}active{Colors.RESET}    {Colors.DIM}a{Colors.RESET}    Tasks with status != Done/Cancelled
   {Colors.BOLD}todo{Colors.RESET}      {Colors.DIM}t{Colors.RESET}    Tasks in "To Do"
@@ -273,21 +283,192 @@ def _cmd_help():
   {Colors.BOLD}done{Colors.RESET}      {Colors.DIM}d{Colors.RESET}    Completed tasks
   {Colors.BOLD}cancelled{Colors.RESET} {Colors.DIM}cn{Colors.RESET}   Cancelled tasks
   {Colors.BOLD}overdue{Colors.RESET}   {Colors.DIM}od{Colors.RESET}   Overdue tasks (past due date)
-  {Colors.BOLD}find{Colors.RESET}      {Colors.DIM}f{Colors.RESET}    Search by text (e.g. jira find login)
+  {Colors.BOLD}find{Colors.RESET}      {Colors.DIM}f{Colors.RESET}    Search by text (e.g. j find login)
   {Colors.BOLD}notify{Colors.RESET}    {Colors.DIM}n{Colors.RESET}    Unread messages
-  {Colors.BOLD}mark{Colors.RESET}      {Colors.DIM}m{Colors.RESET}    Mark read (jira mark all | jira mark 1 3)
-  {Colors.BOLD}move{Colors.RESET}      {Colors.DIM}mv{Colors.RESET}   Change status (e.g. jira move BD-123)
-  {Colors.BOLD}open{Colors.RESET}      {Colors.DIM}o{Colors.RESET}    Open in browser (e.g. jira open BD-123)
+  {Colors.BOLD}mark{Colors.RESET}      {Colors.DIM}m{Colors.RESET}    Mark read (j mark all | j mark 1 3)
+  {Colors.BOLD}move{Colors.RESET}      {Colors.DIM}mv{Colors.RESET}   Change status (e.g. j move BD-123)
+  {Colors.BOLD}open{Colors.RESET}      {Colors.DIM}o{Colors.RESET}    Open in browser (j open BD-123 or j open 3)
+  {Colors.BOLD}link{Colors.RESET}      {Colors.DIM}l{Colors.RESET}    Link local task to Jira (j link 3 BD-123)
+  {Colors.BOLD}unlink{Colors.RESET}    {Colors.DIM}ul{Colors.RESET}   Remove Jira link (j unlink 3)
+  {Colors.BOLD}import{Colors.RESET}    {Colors.DIM}i{Colors.RESET}    Import Jira issue as local task (j import BD-123)
   {Colors.BOLD}full{Colors.RESET}           Active tasks + unread messages
   {Colors.BOLD}status{Colors.RESET}         Show connection info
 """)
 
 
-def _cmd_open(key: str):
-    """Open issue in browser."""
-    url = f"{_jira_url}/browse/{key}"
-    webbrowser.open(url)
-    print(f"  {Colors.DIM}Opened {url}{Colors.RESET}")
+def _cmd_open(arg: str, tasks_by_date: dict = None):
+    """Open issue in browser. Accepts a Jira key (BD-123) or local task ID (3)."""
+    # If it looks like a Jira key, open directly
+    if _JIRA_KEY_RE.match(arg.upper()):
+        url = f"{_jira_url}/browse/{arg.upper()}"
+        webbrowser.open(url)
+        print(f"  {Colors.DIM}Opened {url}{Colors.RESET}")
+        return
+
+    # Otherwise treat as local task ID — look up jira_key
+    if tasks_by_date:
+        from .tm_logic import find_task_by_id
+        task = find_task_by_id(tasks_by_date, arg)
+        if task and hasattr(task, "jira_key") and task.jira_key:
+            url = f"{_jira_url}/browse/{task.jira_key}"
+            webbrowser.open(url)
+            print(f"  {Colors.DIM}Opened {url} (task {arg}){Colors.RESET}")
+            return
+        elif task:
+            print(f"  {Colors.DIM}Task {arg} has no Jira link. Use 'j link {arg} KEY' first.{Colors.RESET}")
+            return
+
+    print(f"  {Colors.ERROR}Could not resolve '{arg}' to a Jira issue.{Colors.RESET}")
+
+
+_JIRA_KEY_RE = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+
+
+def _cmd_link(args: list, tasks_by_date: dict = None, context=None):
+    """Link a local task to a Jira issue key: j link <task_id> <JIRA-KEY>."""
+    if len(args) < 2:
+        print(f"  {Colors.DIM}Usage: j link <task_id> <JIRA-KEY>  (e.g. j link 3 BD-123){Colors.RESET}")
+        return
+
+    task_id_str, key_str = args[0], args[1].upper()
+    if not _JIRA_KEY_RE.match(key_str):
+        print(f"  {Colors.ERROR}Invalid Jira key format: {key_str}{Colors.RESET}")
+        return
+
+    if not tasks_by_date or not context:
+        print(f"  {Colors.ERROR}Internal error: missing context for link command.{Colors.RESET}")
+        return
+
+    from .tm_logic import find_task_by_id
+    from .tm_journal import update_task_metadata_in_file
+
+    task = find_task_by_id(tasks_by_date, task_id_str)
+    if not task:
+        print(f"  {Colors.ERROR}Task '{task_id_str}' not found.{Colors.RESET}")
+        return
+    if not hasattr(task, "jira_key"):
+        print(f"  {Colors.ERROR}Subtasks cannot be linked to Jira.{Colors.RESET}")
+        return
+
+    # Set jira_key on the task object then re-render the line
+    task.jira_key = key_str
+    success = update_task_metadata_in_file(
+        context.journal_path, task, task.due_date, task.priority, None
+    )
+    if success:
+        print(f"  Linked task {task_id_str} -> {Colors.BOLD}{key_str}{Colors.RESET}")
+    else:
+        task.jira_key = None  # rollback in-memory
+        print(f"  {Colors.ERROR}Failed to write link to file.{Colors.RESET}")
+
+
+def _cmd_unlink(args: list, tasks_by_date: dict = None, context=None):
+    """Remove Jira link from a local task: j unlink <task_id>."""
+    if not args:
+        print(f"  {Colors.DIM}Usage: j unlink <task_id>  (e.g. j unlink 3){Colors.RESET}")
+        return
+
+    task_id_str = args[0]
+    if not tasks_by_date or not context:
+        print(f"  {Colors.ERROR}Internal error: missing context for unlink command.{Colors.RESET}")
+        return
+
+    from .tm_logic import find_task_by_id
+    from .tm_journal import update_task_metadata_in_file
+
+    task = find_task_by_id(tasks_by_date, task_id_str)
+    if not task:
+        print(f"  {Colors.ERROR}Task '{task_id_str}' not found.{Colors.RESET}")
+        return
+    if not hasattr(task, "jira_key"):
+        print(f"  {Colors.ERROR}Subtasks cannot have Jira links.{Colors.RESET}")
+        return
+    if not task.jira_key:
+        print(f"  {Colors.DIM}Task {task_id_str} has no Jira link.{Colors.RESET}")
+        return
+
+    old_key = task.jira_key
+    task.jira_key = None
+    success = update_task_metadata_in_file(
+        context.journal_path, task, task.due_date, task.priority, None
+    )
+    if success:
+        print(f"  Unlinked task {task_id_str} (was {old_key})")
+    else:
+        task.jira_key = old_key  # rollback
+        print(f"  {Colors.ERROR}Failed to remove link from file.{Colors.RESET}")
+
+
+def _cmd_import(args: list, context=None):
+    """Import a Jira issue as a new local task: j import <KEY> [date]."""
+    if not args:
+        print(f"  {Colors.DIM}Usage: j import <JIRA-KEY> [YYYY-MM-DD]  (e.g. j import BD-123){Colors.RESET}")
+        return
+
+    key_str = args[0].upper()
+    if not _JIRA_KEY_RE.match(key_str):
+        print(f"  {Colors.ERROR}Invalid Jira key format: {key_str}{Colors.RESET}")
+        return
+
+    if not context:
+        print(f"  {Colors.ERROR}Internal error: missing context for import command.{Colors.RESET}")
+        return
+
+    # Optional target date
+    target_date = None
+    if len(args) >= 2:
+        try:
+            target_date = datetime.strptime(args[1], "%Y-%m-%d")
+        except ValueError:
+            print(f"  {Colors.ERROR}Invalid date format. Use YYYY-MM-DD.{Colors.RESET}")
+            return
+
+    # Fetch issue from Jira
+    data = _api_get(f"issue/{key_str}?fields=summary,duedate,priority,status")
+    if not data:
+        print(f"  {Colors.ERROR}Could not fetch {key_str} from Jira.{Colors.RESET}")
+        return
+
+    fields = data.get("fields", {})
+    summary = fields.get("summary", key_str)
+    due_str = fields.get("duedate")  # "2024-06-15" or None
+    jira_priority = fields.get("priority", {}).get("name", "").lower() if fields.get("priority") else None
+
+    # Map Jira priority to local priority
+    priority = None
+    if jira_priority in ("highest", "critical"):
+        priority = "critical"
+    elif jira_priority == "high":
+        priority = "high"
+    elif jira_priority == "low":
+        priority = "low"
+    elif jira_priority == "lowest":
+        priority = "low"
+
+    # Parse Jira due date
+    due_date = None
+    if due_str:
+        try:
+            due_date = datetime.strptime(due_str, "%Y-%m-%d")
+        except ValueError:
+            pass
+
+    from .tm_journal import add_task_to_file
+
+    success = add_task_to_file(
+        filepath=context.journal_path,
+        title=summary,
+        target_date=target_date,
+        due_date=due_date,
+        priority=priority,
+        jira_key=key_str,
+    )
+    if success:
+        print(f"  Imported: {Colors.BOLD}{summary}{Colors.RESET} [{key_str}]")
+        if due_date:
+            print(f"  {Colors.DIM}Due: {due_date.strftime('%d/%m/%Y')}{Colors.RESET}")
+    else:
+        print(f"  {Colors.ERROR}Failed to add task to journal.{Colors.RESET}")
 
 
 def _cmd_move(issue_key: str):

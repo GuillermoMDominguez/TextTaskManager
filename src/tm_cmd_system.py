@@ -111,7 +111,7 @@ def handle_jira(
     if not jira_is_configured():
         init_jira(script_dir)
     sub = command[4:].strip()  # strip "jira" prefix
-    jira_execute(sub)
+    jira_execute(sub, tasks_by_date, context)
     return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
 

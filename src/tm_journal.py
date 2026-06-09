@@ -127,6 +127,11 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
         task.blocks.append(blocks_match.group(1).strip())
         return True
 
+    jira_match = re.match(r"^jira\s*[:=]\s*([A-Z][A-Z0-9]+-\d+)$", chunk, re.IGNORECASE)
+    if jira_match:
+        task.jira_key = jira_match.group(1).strip().upper()
+        return True
+
     return False
 
 
@@ -149,6 +154,7 @@ def _render_task_line(
     priority: Optional[str],
     indent: str = "",
     recurrence: Optional[str] = None,
+    jira_key: Optional[str] = None,
 ) -> str:
     parts = [f"{indent}- {title} -- {state}"]
     if due_date is not None:
@@ -157,6 +163,8 @@ def _render_task_line(
         parts.append(f"priority:{priority}")
     if recurrence:
         parts.append(f"recur:{recurrence}")
+    if jira_key:
+        parts.append(f"jira:{jira_key}")
     return " -- ".join(parts) + "\n"
 
 
@@ -518,6 +526,7 @@ def _render_task_block(task: Task, state_override: Optional[str] = None) -> List
             due_date=task.due_date,
             priority=task.priority,
             recurrence=task.recurrence,
+            jira_key=task.jira_key,
         )
     ]
     for comment in task.comments:
@@ -625,7 +634,7 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
                                 is_meta = True
                                 break
                     if not is_meta:
-                        if re.match(r"^(?:due|priority|recur|spent|time|blockedby|blocks)\s*[:=]", meta, re.IGNORECASE):
+                        if re.match(r"^(?:due|priority|recur|spent|time|blockedby|blocks|jira)\s*[:=]", meta, re.IGNORECASE):
                             is_meta = True
                     if is_meta:
                         lines_to_remove.append(j)
@@ -656,7 +665,8 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
             title_with_tags = raw_title + " " + " ".join(continuation_tags)
 
         new_line = _render_task_line(
-            title_with_tags, new_state, task.due_date, task.priority, indent, task.recurrence
+            title_with_tags, new_state, task.due_date, task.priority, indent, task.recurrence,
+            jira_key=task.jira_key,
         )
 
         # Add spent if task had time tracked
@@ -764,6 +774,7 @@ def add_task_to_file(
     due_date: Optional[datetime] = None,
     priority: Optional[str] = None,
     recurrence: Optional[str] = None,
+    jira_key: Optional[str] = None,
 ) -> bool:
     """Append a new task into the selected date section in the journal file."""
     clean_title = title.strip()
@@ -775,7 +786,7 @@ def add_task_to_file(
     try:
         lines = _read_lines(filepath)
 
-        new_task_line = _render_task_line(clean_title, state, due_date, priority, recurrence=recurrence)
+        new_task_line = _render_task_line(clean_title, state, due_date, priority, recurrence=recurrence, jira_key=jira_key)
         lines = _insert_task_block(lines, [new_task_line], selected_date)
         _write_lines(filepath, lines)
 
@@ -867,7 +878,7 @@ def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "-")
-        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence)
+        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence, jira_key=task.jira_key)
         # Preserve time tracking
         if task.time_spent:
             from .tm_features import format_time_spent
@@ -942,7 +953,7 @@ def update_task_metadata_in_file(
             return False
 
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence)
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=task.jira_key)
         _write_lines(filepath, lines)
         return True
     except Exception:

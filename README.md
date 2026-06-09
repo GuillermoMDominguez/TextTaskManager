@@ -666,10 +666,13 @@ All Jira commands are prefixed with `j` or `jira`:
 | `j blocked` | `j bk` | My blocked issues |
 | `j overdue` | `j od` | My overdue issues |
 | `j find <text>` | `j f <text>` | Search issues by text |
-| `j open <KEY>` | `j o <KEY>` | Open issue in browser |
-| `j move <KEY> <status>` | `j mv <KEY> <status>` | Transition issue status |
+| `j open <KEY\|id>` | `j o` | Open issue in browser (Jira key or local task id) |
+| `j move <KEY>` | `j mv` | Transition issue status |
 | `j notify` | `j n` | Show unread comments mentioning you |
 | `j mark` | `j m` | Mark all notifications as read |
+| `j link <id> <KEY>` | `j l` | Link local task to Jira issue |
+| `j unlink <id>` | `j ul` | Remove Jira link from local task |
+| `j import <KEY> [date]` | `j i` | Import Jira issue as local task |
 
 ### Examples
 
@@ -686,9 +689,25 @@ All Jira commands are prefixed with `j` or `jira`:
 
 `j notify` surfaces comments where you are @mentioned or where you are the reporter. It tracks read state in `.jira_last_seen` and only shows new comments since last check. Run `j mark` to acknowledge them.
 
+### Jira ↔ Local Task Linking
+
+You can link local tasks to Jira issues for quick reference:
+
+```
+> j link 3 BD-123        # Link local task #3 to Jira issue BD-123
+> j unlink 3             # Remove the link
+> j open 3               # Opens BD-123 in browser (follows the link)
+> j import BD-123        # Create a local task from a Jira issue (one-shot)
+> j import BD-123 2025-06-15   # Import into a specific date section
+```
+
+Linked tasks show their Jira key in the task list: `[BD-123]`. The link is stored as metadata (`-- jira:BD-123`) in the journal file.
+
+This is **reference-only** — no bidirectional sync. Changing the local task state does not update Jira, and vice versa. Use `j move BD-123` to change Jira status separately.
+
 ### Architecture Note
 
-Jira is fully isolated — no linking between Jira issues and local tasks. They are two separate systems accessible from the same CLI. Local tasks live in journal files; Jira issues live on your Atlassian instance.
+Local tasks live in journal files; Jira issues live on your Atlassian instance. The linking feature provides a lightweight reference between the two without coupling their lifecycles.
 
 ---
 
