@@ -1373,7 +1373,7 @@ function buildFilterBar(tasks) {
 
   let html = '<span style="font-size:10px;color:var(--text-dim);margin-right:4px">Filter:</span>';
   // Text filter
-  html += `<input type="text" id="filter-text-input" placeholder="text..." value="${h(activeFilters.text)}" 
+  html += `<span class="kbd-hint" style="margin-right:4px">f</span><input type="text" id="filter-text-input" placeholder="text..." value="${h(activeFilters.text)}" 
     style="width:120px;padding:3px 8px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit"
     oninput="onFilterTextChange(this.value)">`;
   html += '<span style="width:8px"></span>';
@@ -2555,6 +2555,9 @@ function closeModal(id) {
 const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
+  // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
   // Don't trigger shortcuts when typing in inputs
   const tag = e.target.tagName;
   const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
@@ -2587,6 +2590,10 @@ document.addEventListener('keydown', e => {
   } else if (e.key === '/') {
     e.preventDefault();
     searchInput.focus();
+  } else if (e.key === 'f') {
+    e.preventDefault();
+    const filterInput = document.getElementById('filter-text-input');
+    if (filterInput) filterInput.focus();
   }
 });
 
