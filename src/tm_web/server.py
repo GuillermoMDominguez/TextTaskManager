@@ -1003,10 +1003,10 @@ def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
 
 def api_get_status(handler, params):
     """GET /api/status — returns sync and jira configuration status."""
-    from src.tm_settings import load_settings, load_secrets
+    import subprocess
+    from src.tm_settings import load_secrets
 
     project_dir = _PROJECT_ROOT
-    settings = load_settings(project_dir)
     secrets = load_secrets(project_dir)
 
     # Jira is configured if URL + email + token are set
@@ -1016,12 +1016,16 @@ def api_get_status(handler, params):
         and secrets.get("jira_api_token")
     )
 
-    # Sync is configured if enabled and remote is set
-    sync_settings = settings.get("sync", {})
-    sync_ok = bool(
-        sync_settings.get("enabled")
-        and sync_settings.get("remote")
-    )
+    # Sync is configured if journals dir is a git repo with a remote
+    journals_dir = Path(_state.journal_path).parent
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=str(journals_dir), capture_output=True, text=True, timeout=3,
+        )
+        sync_ok = result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
+        sync_ok = False
 
     _json_response(handler, {"sync": sync_ok, "jira": jira_ok})
 
