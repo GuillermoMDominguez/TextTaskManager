@@ -91,6 +91,7 @@ from .tm_cmd_system import (
     handle_log_show,
     handle_log_hide,
     handle_log_clear,
+    handle_web,
 )
 
 
@@ -256,6 +257,11 @@ COMMAND_HELP = {
         "syntax": "bd [days]",
         "description": "Show burndown chart (default 14 days).",
         "examples": ["bd", "bd 7", "bd 30"],
+    },
+    "web": {
+        "syntax": "web",
+        "description": "Launch the web UI in your browser (read/write, zero deps).",
+        "examples": ["web"],
     },
 }
 
@@ -551,6 +557,10 @@ def execute_command(
         return result
 
     result = handle_log(command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_web(command, tasks_by_date, view_state, context)
     if result:
         return result
 

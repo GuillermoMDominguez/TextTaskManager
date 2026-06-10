@@ -182,3 +182,18 @@ def handle_log_clear(
     from .tm_log import clear
     clear()
     return CommandOutcome(tasks_by_date, view_state)
+
+
+def handle_web(
+    command: str,
+    tasks_by_date: dict,
+    view_state: ViewState,
+    context: CommandContext,
+) -> Optional[CommandOutcome]:
+    """Handle 'web' command — launch the web UI server."""
+    if command != "web":
+        return None
+
+    from .tm_web import start_server
+    start_server(context.journal_path)
+    return CommandOutcome(tasks_by_date, view_state)
