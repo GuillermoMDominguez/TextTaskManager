@@ -143,7 +143,7 @@ main {
 
 .task-row {
   display: grid;
-  grid-template-columns: 40px 100px 1fr 70px 90px;
+  grid-template-columns: 40px 110px 1fr 70px 90px;
   align-items: center;
   gap: 8px;
 }
@@ -182,6 +182,8 @@ main {
   text-transform: uppercase;
   cursor: pointer;
   position: relative;
+  min-width: 90px;
+  text-align: center;
 }
 
 .priority-badge {
@@ -526,23 +528,6 @@ main {
 .time-total strong { color: var(--accent); }
 
 /* ─── Jira ─────────────────────────────────── */
-.jira-issue {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-}
-.jira-key { color: var(--accent); font-weight: 600; font-size: 12px; }
-.jira-status {
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 10px;
-  background: var(--bg-hover);
-  color: var(--text);
-}
-.jira-priority { font-size: 11px; color: var(--text-dim); }
 
 .jira-notification {
   background: var(--bg-surface);
@@ -688,7 +673,7 @@ main {
 /* ─── Sort Header ──────────────────────────── */
 .sort-header {
   display: grid;
-  grid-template-columns: 40px 100px 1fr 70px 90px;
+  grid-template-columns: 40px 110px 1fr 70px 90px;
   gap: 8px;
   padding: 4px 12px;
   border-bottom: 2px solid var(--border);
@@ -797,7 +782,7 @@ main {
 .jira-issue:hover { background: var(--bg-hover); }
 .jira-issue .jira-key { font-weight: 600; color: var(--accent); min-width: 80px; }
 .jira-issue .jira-title { flex: 1; color: var(--text); }
-.jira-issue .jira-status { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; cursor: pointer; position: relative; background: var(--text-dim); color: var(--bg); flex-shrink: 0; }
+.jira-issue .jira-status { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; cursor: pointer; position: relative; background: var(--text-dim); color: var(--bg); flex-shrink: 0; min-width: 140px; text-align: center; display: inline-block; }
 .jira-issue .jira-status.js-todo { background: var(--text-dim); }
 .jira-issue .jira-status.js-progress { background: var(--accent); }
 .jira-issue .jira-status.js-done { background: var(--green); }
@@ -835,6 +820,11 @@ main {
   color: var(--text);
 }
 .jira-move-option:hover { background: var(--bg-hover); }
+
+/* ─── Config View ─────────────────────────────── */
+.config-section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.config-section h3 { font-size: 13px; color: var(--accent); margin-bottom: 12px; }
+.config-section .form-group { max-width: 400px; }
 
 /* ─── Keyboard Shortcut Hint ───────────────── */
 .kbd-hint {
@@ -886,6 +876,10 @@ main {
       <div class="nav-group-title">Jira</div>
       <a class="nav-item" data-view="jira" data-jira-filter="active">Tasks</a>
       <a class="nav-item" data-view="jira" data-jira-filter="notify">Notifications</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">System</div>
+      <a class="nav-item" data-view="config">Config</a>
     </div>
   </nav>
 
@@ -956,6 +950,85 @@ main {
     <div id="view-blockers" class="view">
       <h2 class="view-title">Blockers</h2>
       <div id="blockers-content"></div>
+    </div>
+
+    <!-- Config View -->
+    <div id="view-config" class="view">
+      <h2 class="view-title">Configuration</h2>
+      <div id="config-content">
+        <div class="config-section">
+          <h3>Jira Integration</h3>
+          <div class="form-group">
+            <label>Jira URL</label>
+            <input type="text" id="cfg-jira-url" placeholder="https://your-org.atlassian.net">
+          </div>
+          <div class="form-group">
+            <label>Jira Email</label>
+            <input type="email" id="cfg-jira-email" placeholder="you@company.com">
+          </div>
+          <div class="form-group">
+            <label>API Token <span id="cfg-jira-token-status" style="font-size:9px;color:var(--green);text-transform:none"></span></label>
+            <input type="password" id="cfg-jira-token" placeholder="Jira API token">
+          </div>
+          <div class="form-group">
+            <label>Account ID</label>
+            <input type="text" id="cfg-jira-account-id" placeholder="Atlassian account ID">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Sync / Git</h3>
+          <div class="form-group">
+            <label>Sync Enabled</label>
+            <select id="cfg-sync-enabled">
+              <option value="false">Disabled</option>
+              <option value="true">Enabled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Remote URL</label>
+            <input type="text" id="cfg-sync-remote" placeholder="git remote URL">
+          </div>
+          <div class="form-group">
+            <label>Branch</label>
+            <input type="text" id="cfg-sync-branch" placeholder="main">
+          </div>
+          <div class="form-group">
+            <label>Sync Token <span id="cfg-sync-token-status" style="font-size:9px;color:var(--green);text-transform:none"></span></label>
+            <input type="password" id="cfg-sync-token" placeholder="Auth token for sync">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>General</h3>
+          <div class="form-group">
+            <label>Date Format</label>
+            <input type="text" id="cfg-date-format" placeholder="%d/%m/%Y">
+          </div>
+          <div class="form-group">
+            <label>Agenda Days</label>
+            <input type="number" id="cfg-agenda-days" min="1" max="30">
+          </div>
+          <div class="form-group">
+            <label>Default State</label>
+            <select id="cfg-default-state">
+              <option value="BACKLOG">BACKLOG</option>
+              <option value="IN PROGRESS">IN PROGRESS</option>
+              <option value="WAITING">WAITING</option>
+              <option value="TESTING">TESTING</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Show Completed by Default</label>
+            <select id="cfg-show-done">
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
+        </div>
+        <div class="config-actions" style="margin-top:16px">
+          <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+          <span id="config-status" style="margin-left:12px;font-size:11px;color:var(--green)"></span>
+        </div>
+      </div>
     </div>
 
     <!-- Jira View -->
@@ -1193,6 +1266,7 @@ function loadView(view) {
     time: loadTime,
     blockers: loadBlockers,
     jira: loadJira,
+    config: loadConfig,
   };
   if (loaders[view]) loaders[view]();
 }
@@ -1367,6 +1441,7 @@ function renderTaskItem(t, showStateDropdown = true) {
 
 // ─── Inline Note Actions (Task List) ────────────
 async function inlineDeleteNote(taskId, index) {
+  if (!confirm('Delete this note?')) return;
   const data = await api('POST', `/api/tasks/${taskId}/notes/delete`, { index });
   if (data.id) { taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st); }
   loadView(currentView);
@@ -1916,6 +1991,72 @@ function toggleStateDropdown(el, taskId, currentState) {
 async function changeState(taskId, state) {
   await api('POST', `/api/tasks/${taskId}/state`, { state });
   loadView(currentView);
+}
+
+// ─── Config View ────────────────────────────────
+async function loadConfig() {
+  const data = await api('GET', '/api/config');
+  if (!data) return;
+
+  const s = data.settings || {};
+  const sec = data.secrets || {};
+
+  // Populate Jira fields
+  document.getElementById('cfg-jira-url').value = sec.jira_url || '';
+  document.getElementById('cfg-jira-email').value = sec.jira_email || '';
+  document.getElementById('cfg-jira-token').value = '';
+  document.getElementById('cfg-jira-token-status').textContent = sec.jira_api_token ? '(set)' : '';
+  document.getElementById('cfg-jira-account-id').value = sec.jira_account_id || '';
+
+  // Populate Sync fields
+  const sync = s.sync || {};
+  document.getElementById('cfg-sync-enabled').value = sync.enabled ? 'true' : 'false';
+  document.getElementById('cfg-sync-remote').value = sync.remote || '';
+  document.getElementById('cfg-sync-branch').value = sync.branch || 'main';
+  document.getElementById('cfg-sync-token').value = '';
+  document.getElementById('cfg-sync-token-status').textContent = sec.sync_token ? '(set)' : '';
+
+  // Populate General fields
+  document.getElementById('cfg-date-format').value = s.date_format || '%d/%m/%Y';
+  document.getElementById('cfg-agenda-days').value = s.agenda_days || 7;
+  document.getElementById('cfg-default-state').value = s.default_state || 'BACKLOG';
+  document.getElementById('cfg-show-done').value = s.show_done_default ? 'true' : 'false';
+
+  document.getElementById('config-status').textContent = '';
+}
+
+async function saveConfig() {
+  const payload = {
+    settings: {
+      sync: {
+        enabled: document.getElementById('cfg-sync-enabled').value === 'true',
+        remote: document.getElementById('cfg-sync-remote').value.trim(),
+        branch: document.getElementById('cfg-sync-branch').value.trim() || 'main',
+      },
+      date_format: document.getElementById('cfg-date-format').value.trim(),
+      agenda_days: parseInt(document.getElementById('cfg-agenda-days').value) || 7,
+      default_state: document.getElementById('cfg-default-state').value,
+      show_done_default: document.getElementById('cfg-show-done').value === 'true',
+    },
+    secrets: {
+      jira_url: document.getElementById('cfg-jira-url').value.trim(),
+      jira_email: document.getElementById('cfg-jira-email').value.trim(),
+      jira_api_token: document.getElementById('cfg-jira-token').value.trim(),
+      jira_account_id: document.getElementById('cfg-jira-account-id').value.trim(),
+      sync_token: document.getElementById('cfg-sync-token').value.trim(),
+    },
+  };
+
+  const data = await api('POST', '/api/config', payload);
+  const statusEl = document.getElementById('config-status');
+  if (data.ok) {
+    statusEl.textContent = 'Saved!';
+    statusEl.style.color = 'var(--green)';
+  } else {
+    statusEl.textContent = 'Error: ' + (data.errors || []).join(', ');
+    statusEl.style.color = 'var(--red)';
+  }
+  setTimeout(() => { statusEl.textContent = ''; }, 3000);
 }
 
 // ─── Edit Modal ─────────────────────────────────

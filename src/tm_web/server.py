@@ -981,6 +981,82 @@ def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
     _json_response(handler, {"tasks": results, "query": query})
 
 
+# ─── Config API ───────────────────────────────────────────────────────────────
+
+def api_get_config(handler, params):
+    """GET /api/config — returns user settings and secrets (masked)."""
+    from src.tm_settings import load_settings, load_secrets
+
+    project_dir = _PROJECT_ROOT
+    settings = load_settings(project_dir, force_reload=True)
+    secrets = load_secrets(project_dir)
+
+    # Mask secret values — only show if set or empty
+    masked_secrets = {}
+    for key in ("jira_url", "jira_email", "jira_api_token", "jira_account_id", "sync_token"):
+        val = secrets.get(key, "")
+        if key == "jira_api_token" or key == "sync_token":
+            masked_secrets[key] = "••••••••" if val else ""
+        else:
+            masked_secrets[key] = val
+
+    _json_response(handler, {
+        "settings": {
+            "sync": settings.get("sync", {}),
+            "email": settings.get("email", {}),
+            "agenda_days": settings.get("agenda_days", 7),
+            "date_format": settings.get("date_format", "%d/%m/%Y"),
+            "default_state": settings.get("default_state", "BACKLOG"),
+            "default_priority": settings.get("default_priority"),
+            "show_done_default": settings.get("show_done_default", False),
+        },
+        "secrets": masked_secrets,
+    })
+
+
+def api_save_config(handler, params):
+    """POST /api/config — save settings and/or secrets."""
+    from src.tm_settings import load_settings, save_settings, load_secrets, save_secrets
+
+    body = _read_body(handler)
+    project_dir = _PROJECT_ROOT
+
+    errors = []
+
+    # Save settings fields
+    if "settings" in body:
+        current = load_settings(project_dir, force_reload=True)
+        updates = body["settings"]
+        # Only allow updating specific safe keys
+        safe_keys = ("sync", "email", "agenda_days", "date_format",
+                     "default_state", "default_priority", "show_done_default")
+        for key in safe_keys:
+            if key in updates:
+                current[key] = updates[key]
+        if not save_settings(current, project_dir):
+            errors.append("Failed to save settings")
+
+    # Save secrets fields
+    if "secrets" in body:
+        current_secrets = load_secrets(project_dir)
+        updates_secrets = body["secrets"]
+        for key in ("jira_url", "jira_email", "jira_api_token", "jira_account_id", "sync_token"):
+            if key in updates_secrets:
+                val = updates_secrets[key]
+                # Don't overwrite with mask placeholder
+                if val and val != "••••••••":
+                    current_secrets[key] = val
+                elif val == "":
+                    current_secrets[key] = ""
+        if not save_secrets(project_dir, current_secrets):
+            errors.append("Failed to save secrets")
+
+    if errors:
+        _json_response(handler, {"ok": False, "errors": errors}, status=500)
+    else:
+        _json_response(handler, {"ok": True})
+
+
 # ─── Route Table ──────────────────────────────────────────────────────────────
 
 API_ROUTES = {
@@ -998,6 +1074,7 @@ API_ROUTES = {
     ("GET", "/api/jira"): api_get_jira,
     ("GET", "/api/jira/transitions"): api_get_jira_transitions,
     ("GET", "/api/search"): api_search_tasks,
+    ("GET", "/api/config"): api_get_config,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,
@@ -1013,6 +1090,7 @@ API_ROUTES = {
     ("POST", "/api/subtasks/notes/delete"): api_delete_subtask_note,
     ("POST", "/api/subtasks/notes/edit"): api_edit_subtask_note,
     ("POST", "/api/jira/transition"): api_post_jira_transition,
+    ("POST", "/api/config"): api_save_config,
 }
 
 
