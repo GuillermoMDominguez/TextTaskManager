@@ -190,10 +190,25 @@ def handle_web(
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'web' command — launch the web UI server."""
-    if command != "web":
+    """Handle 'web' / 'web down' — launch or stop the background web UI server."""
+    if command not in ("web", "web down", "web stop"):
         return None
 
-    from .tm_web import start_server
-    start_server(context.journal_path)
-    return CommandOutcome(tasks_by_date, view_state)
+    from .tm_web import start_server_background, stop_server, is_running, get_url
+
+    if command in ("web down", "web stop"):
+        if is_running():
+            stop_server()
+            _log("info", "Web UI stopped.")
+        else:
+            _log("info", "Web UI is not running.")
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+    # 'web' — start (or report already running)
+    if is_running():
+        _log("info", f"Web UI already running at {get_url()}")
+    else:
+        start_server_background(context.journal_path)
+        _log("info", f"Web UI started at {get_url()} — use 'web down' to stop.")
+
+    return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)

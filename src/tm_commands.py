@@ -259,9 +259,9 @@ COMMAND_HELP = {
         "examples": ["bd", "bd 7", "bd 30"],
     },
     "web": {
-        "syntax": "web",
-        "description": "Launch the web UI in your browser (read/write, zero deps).",
-        "examples": ["web"],
+        "syntax": "web | web down",
+        "description": "Launch web UI in background (browser opens). 'web down' stops it.",
+        "examples": ["web", "web down"],
     },
 }
 

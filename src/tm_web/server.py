@@ -303,19 +303,66 @@ class TTMRequestHandler(SimpleHTTPRequestHandler):
 
 # ─── Server Entry Point ───────────────────────────────────────────────────────
 
+_server_instance: Optional[HTTPServer] = None
+_server_thread: Optional[threading.Thread] = None
+_server_port: int = 8080
+
+
+def get_url() -> str:
+    """Return the URL of the running (or configured) server."""
+    return f"http://127.0.0.1:{_server_port}"
+
+
+def is_running() -> bool:
+    """Check if the background web server is running."""
+    return _server_thread is not None and _server_thread.is_alive()
+
+
+def start_server_background(journal_path: str, port: int = 8080, open_browser: bool = True) -> None:
+    """Start the web UI server in a background daemon thread.
+
+    The server runs until stop_server() is called or the process exits.
+    """
+    global _state, _server_instance, _server_thread, _server_port
+
+    if is_running():
+        return
+
+    _server_port = port
+    _state = WebState(journal_path)
+    _server_instance = HTTPServer(("127.0.0.1", port), TTMRequestHandler)
+    _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
+    _server_thread.start()
+
+    if open_browser:
+        webbrowser.open(get_url())
+
+
+def stop_server() -> None:
+    """Stop the background web server."""
+    global _server_instance, _server_thread
+
+    if _server_instance is not None:
+        _server_instance.shutdown()
+        _server_instance.server_close()
+        _server_instance = None
+    _server_thread = None
+
+
 def start_server(journal_path: str, port: int = 8080, open_browser: bool = True) -> None:
-    """Start the web UI server.
+    """Start the web UI server (blocking, for standalone mode).
 
     Args:
         journal_path: Path to the journal .txt file.
         port: HTTP port (default 8080).
         open_browser: Whether to open the browser automatically.
     """
-    global _state
+    global _state, _server_port
+    _server_port = port
     _state = WebState(journal_path)
 
     server = HTTPServer(("127.0.0.1", port), TTMRequestHandler)
-    url = f"http://127.0.0.1:{port}"
+    url = get_url()
 
     print(f"\n  Web UI running at: \033[1m\033[96m{url}\033[0m")
     print(f"  Journal: {journal_path}")
