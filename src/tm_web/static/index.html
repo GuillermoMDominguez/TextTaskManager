@@ -59,7 +59,11 @@ header h1 {
   letter-spacing: -0.3px;
 }
 
-header .actions { display: flex; gap: 8px; }
+header .actions { display: flex; gap: 8px; align-items: center; }
+.status-indicator { font-size: 11px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 3px; }
+.status-indicator .ind-icon { font-weight: 700; }
+.status-indicator .ind-ok { color: #3fb950; }
+.status-indicator .ind-fail { color: #f85149; }
 
 /* ─── Sidebar ───────────────────────────────── */
 .sidebar {
@@ -893,6 +897,8 @@ main {
       <div class="search-results" id="search-results"></div>
     </div>
     <div class="actions">
+      <span class="status-indicator" id="ind-sync" title="Sync">Sync <span class="ind-icon">?</span></span>
+      <span class="status-indicator" id="ind-jira" title="Jira">Jira <span class="ind-icon">?</span></span>
       <button class="btn" onclick="loadView(currentView)" title="Refresh (r)">Refresh <span class="kbd-hint">r</span></button>
       <button class="btn btn-primary" onclick="openNewTaskModal()">+ New Task <span class="kbd-hint">n</span></button>
     </div>
@@ -2162,6 +2168,18 @@ async function updateStatusBar() {
 // Poll status bar every 10s
 updateStatusBar();
 setInterval(updateStatusBar, 10000);
+
+// ─── Service Status Indicators ──────────────────
+async function updateServiceStatus() {
+  const data = await api('GET', '/api/status');
+  const syncEl = document.querySelector('#ind-sync .ind-icon');
+  const jiraEl = document.querySelector('#ind-jira .ind-icon');
+  syncEl.textContent = data.sync ? '\u2713' : '\u2717';
+  syncEl.className = 'ind-icon ' + (data.sync ? 'ind-ok' : 'ind-fail');
+  jiraEl.textContent = data.jira ? '\u2713' : '\u2717';
+  jiraEl.className = 'ind-icon ' + (data.jira ? 'ind-ok' : 'ind-fail');
+}
+updateServiceStatus();
 
 // ─── Edit Modal ─────────────────────────────────
 function openEditModal(taskId) {

@@ -1001,6 +1001,23 @@ def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
     _json_response(handler, {"tasks": results, "query": query})
 
 
+def api_get_status(handler, params):
+    """GET /api/status — returns sync and jira configuration status."""
+    try:
+        from src.tm_sync import is_configured as sync_configured
+        sync_ok = sync_configured()
+    except Exception:
+        sync_ok = False
+
+    try:
+        from src.tm_jira import is_configured as jira_configured
+        jira_ok = jira_configured()
+    except Exception:
+        jira_ok = False
+
+    _json_response(handler, {"sync": sync_ok, "jira": jira_ok})
+
+
 # ─── Config API ───────────────────────────────────────────────────────────────
 
 def api_get_log(handler, params):
@@ -1111,6 +1128,7 @@ API_ROUTES = {
     ("GET", "/api/search"): api_search_tasks,
     ("GET", "/api/config"): api_get_config,
     ("GET", "/api/log"): api_get_log,
+    ("GET", "/api/status"): api_get_status,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,
