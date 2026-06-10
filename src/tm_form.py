@@ -2,12 +2,23 @@
 
 Cross-platform (Windows, Linux, macOS), no external dependencies.
 
-Navigation:
+Form navigation:
   Tab / Down      -> Next field
   Shift+Tab / Up  -> Previous field
   Enter           -> Accept (on button) or next field
   Esc             -> Cancel
   Left/Right      -> Cycle select options / move cursor in text
+
+List picker navigation (vim-style):
+  j / Down        -> Move down
+  k / Up          -> Move up
+  g               -> Jump to first item
+  G               -> Jump to last item
+  /               -> Fuzzy search mode
+  n               -> Next search match
+  Space           -> Toggle check (multi) or page down (single)
+  Enter           -> Accept
+  Esc             -> Cancel
 """
 
 import sys
@@ -355,8 +366,16 @@ def show_list_picker(
         - multi=False: selected index (int) or None if cancelled.
         - multi=True: list of selected indices or None if cancelled.
 
-    Navigation: Up/Down to move, Space to check/uncheck (multi),
-                Enter to accept, Esc to cancel.
+    Navigation:
+        j/Down      Move down
+        k/Up        Move up
+        g           Jump to top
+        G           Jump to bottom
+        /           Fuzzy search (type query, Enter to apply, Esc to cancel)
+        n           Jump to next search match (single mode)
+        Space       Toggle check (multi) or page down (single)
+        Enter       Accept selection
+        Esc         Cancel
     """
 
     def _term_size():
@@ -368,6 +387,7 @@ def show_list_picker(
 
     cursor = max(0, min(selected, len(options) - 1))
     checked: set = set()  # indices of checked items (multi mode)
+    filtered_indices: Optional[List[int]] = None  # None = no filter active
 
     _PICK_BG = "\033[48;5;235m"  # 256-color dark grey (universal)
     _BD = "\033[36m"
@@ -445,8 +465,11 @@ def show_list_picker(
             sys.stdout.write(f"\033[{row};{col_off}H{_PICK_BG}{_BD}{_BOX_V}{_PICK_BG}{' ' * inner_w}{_BD}{_BOX_V}{_R}")
             # Draw content
             sys.stdout.write(f"\033[{row};{col_off + 1}H{_PICK_BG}")
+            is_match = filtered_indices is not None and opt_idx in filtered_indices
             if is_cur:
                 sys.stdout.write(f" \033[93m{_ARROW_SEL} {chk}\033[7m\033[97m{text_padded}\033[27m\033[22m")
+            elif is_match:
+                sys.stdout.write(f"   {chk}\033[96m{text_padded}\033[0m")
             else:
                 sys.stdout.write(f"   {chk}\033[37m{text_padded}\033[0m")
             # Right border
@@ -489,9 +512,9 @@ def show_list_picker(
 
         # Help
         if multi:
-            help_text = f"{_SCROLL_UP}{_SCROLL_DN}: move  Space: check/uncheck  Enter: accept  Esc: cancel"
+            help_text = f"j/k/{_SCROLL_UP}{_SCROLL_DN}: move  Space: check  g/G: top/end  /: search  Enter: accept  Esc: cancel"
         else:
-            help_text = f"{_SCROLL_UP}{_SCROLL_DN}: move  Enter: select  Esc: cancel"
+            help_text = f"j/k/{_SCROLL_UP}{_SCROLL_DN}: move  g/G: top/end  /: search  n: next  Enter: select  Esc: cancel"
         help_col = max(1, (tw - len(help_text)) // 2)
         sys.stdout.write(f"\033[{row};{help_col}H\033[2m{help_text}\033[0m")
         sys.stdout.flush()
@@ -499,6 +522,18 @@ def show_list_picker(
     # Clear + hide cursor
     sys.stdout.write("\033[2J\033[H\033[?25l")
     sys.stdout.flush()
+
+    # Search state for '/' fuzzy filter
+    search_mode = False
+    search_query = ""
+
+    def _get_page_size():
+        """Calculate visible items count for page up/down."""
+        try:
+            _, th = os.get_terminal_size()
+        except (ValueError, OSError):
+            th = 24
+        return max(3, th - 9)
 
     result = None
     try:
@@ -510,19 +545,77 @@ def show_list_picker(
                 sys.stdout.write("\033[2J\033[H")
                 sys.stdout.flush()
             _draw()
+
+            # Show search bar if active
+            if search_mode:
+                try:
+                    tw, th = os.get_terminal_size()
+                except (ValueError, OSError):
+                    tw, th = 80, 24
+                search_display = f" /{search_query}_ "
+                sys.stdout.write(f"\033[{th};1H\033[7m{search_display.ljust(tw)}\033[27m\033[0m")
+                sys.stdout.flush()
+
             key = _read_key()
+
+            if search_mode:
+                if key == "ESC" or key == "ENTER":
+                    search_mode = False
+                    # Apply filter on Enter, clear on Esc
+                    if key == "ESC":
+                        search_query = ""
+                        filtered_indices = None
+                    elif search_query:
+                        q = search_query.lower()
+                        filtered_indices = [i for i, o in enumerate(options) if q in o.lower()]
+                        if filtered_indices:
+                            # Move cursor to first match
+                            cursor = filtered_indices[0]
+                        else:
+                            filtered_indices = None
+                    else:
+                        filtered_indices = None
+                elif key == "BACKSPACE":
+                    search_query = search_query[:-1]
+                elif len(key) == 1 and key.isprintable():
+                    search_query += key
+                continue
+
             if key == "ESC":
                 break
-            elif key == "UP":
+            elif key in ("UP", "k"):
                 cursor = (cursor - 1) % len(options)
-            elif key == "DOWN" or key == "TAB":
+            elif key in ("DOWN", "j", "TAB"):
                 cursor = (cursor + 1) % len(options)
-            elif key == " " and multi:
-                # Toggle checkbox
-                if cursor in checked:
-                    checked.discard(cursor)
+            elif key == "g":
+                # Go to top
+                cursor = 0
+            elif key == "G":
+                # Go to bottom
+                cursor = len(options) - 1
+            elif key == "/":
+                # Enter search mode
+                search_mode = True
+                search_query = ""
+            elif key == "n" and not multi:
+                # Next match (if filter is active)
+                if filtered_indices:
+                    # Find next index after cursor
+                    after = [i for i in filtered_indices if i > cursor]
+                    cursor = after[0] if after else filtered_indices[0]
+            elif key == "SHIFT_TAB":
+                cursor = (cursor - 1) % len(options)
+            elif key == " ":
+                if multi:
+                    # Toggle checkbox
+                    if cursor in checked:
+                        checked.discard(cursor)
+                    else:
+                        checked.add(cursor)
                 else:
-                    checked.add(cursor)
+                    # Page down in single mode
+                    page = _get_page_size()
+                    cursor = min(cursor + page, len(options) - 1)
             elif key == "ENTER":
                 if multi:
                     result = sorted(checked) if checked else None

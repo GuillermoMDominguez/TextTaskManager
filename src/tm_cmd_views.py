@@ -58,6 +58,9 @@ def handle_help(command: str, tasks_by_date: dict, view_state: ViewState, contex
 def handle_refresh(command: str, tasks_by_date: dict, view_state: ViewState, context: CommandContext) -> Optional[CommandOutcome]:
     """Handle: r, refresh."""
     if command in ("r", "refresh"):
+        from .tm_settings import load_settings
+        load_settings(force_reload=True)
+        Colors._reload()
         refreshed = context.refresh_tasks()
         clear_screen()
         _log("info", f"Refreshed!")
@@ -251,48 +254,28 @@ def handle_check(command: str, tasks_by_date: dict, view_state: ViewState, conte
 
 def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
     """Print due-date agenda grouped by urgency."""
-    today = datetime.now().date()
-    week_limit = today + timedelta(days=days_ahead)
+    from .tm_views_data import get_agenda_data, TaskViewItem
 
-    overdue: list[Task] = []
-    due_today: list[Task] = []
-    due_soon: list[Task] = []
+    data = get_agenda_data(tasks_by_date, days_ahead)
 
-    for tasks in tasks_by_date.values():
-        for task in tasks:
-            if task.is_finished() or task.due_date is None:
-                continue
-            due = task.due_date.date()
-            if due < today:
-                overdue.append(task)
-            elif due == today:
-                due_today.append(task)
-            elif due <= week_limit:
-                due_soon.append(task)
-
-    id_width = get_id_width(tasks_by_date)
-
-    def _print_group(title: str, items: list[Task], icon: str = "") -> None:
+    def _print_group(title: str, items: list[TaskViewItem], icon: str = "") -> None:
         print(f"\n  {Colors.BOLD}{icon}{title}{Colors.RESET}")
         if not items:
             print(f"    {Colors.DIM}(none){Colors.RESET}")
             return
-        ordered = sorted(items, key=lambda item: item.due_date or datetime.max)
-        for task in ordered:
-            task_id = task.task_id or "?"
-            id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
-            id_padding = " " * max(0, id_width - len(id_value))
-            state_color = _get_state_color_inline(task.state)
-            due_str = task.due_date.strftime("%d/%m/%Y") if task.due_date else ""
-            priority_badge = f" [P:{task.priority}]" if task.priority else ""
-            title_clean = task.title
+        for item in items:
+            id_value = item.task_id.zfill(data.id_width) if item.task_id.isdigit() else item.task_id
+            id_padding = " " * max(0, data.id_width - len(id_value))
+            state_color = _get_state_color_inline(item.state)
+            due_str = item.due_date.strftime("%d/%m/%Y") if item.due_date else ""
+            priority_badge = f" [P:{item.priority}]" if item.priority else ""
             print(
-                f"    [{Colors.BOLD}{id_value}{Colors.RESET}]{id_padding} {state_color}{task.state:<{11}}{Colors.RESET} "
-                f"{title_clean}{Colors.DIM}{priority_badge} [DUE:{due_str}]{Colors.RESET}"
+                f"    [{Colors.BOLD}{id_value}{Colors.RESET}]{id_padding} {state_color}{item.state:<{11}}{Colors.RESET} "
+                f"{item.title}{Colors.DIM}{priority_badge} [DUE:{due_str}]{Colors.RESET}"
             )
 
     tw = shutil.get_terminal_size((80, 24)).columns
     print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} Agenda {'─' * (tw - 12)}{Colors.RESET}")
-    _print_group("Overdue", overdue, "⚠ ")
-    _print_group("Due Today", due_today, "◉ ")
-    _print_group(f"Due Next {days_ahead} Days", due_soon, "◌ ")
+    _print_group("Overdue", data.overdue, "⚠ ")
+    _print_group("Due Today", data.due_today, "◉ ")
+    _print_group(f"Due Next {data.days_ahead} Days", data.due_soon, "◌ ")

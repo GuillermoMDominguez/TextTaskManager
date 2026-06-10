@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover - readline is unavailable on some platfo
 from .tm_config import VALID_STATES
 from .tm_logic import build_note_id, get_id_width, normalize_state_input, task_matches_search
 from .tm_models import extract_tags_from_text
+from .tm_settings import get_setting
 
 
 TAG_CLEAN_PATTERN = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
@@ -278,23 +279,72 @@ def init_background_color(rgb_str: str = "0,0,0") -> None:
     pass
 
 
+def _ansi(code: str) -> str:
+    """Build ANSI escape from a semicolon-separated code string."""
+    if not code:
+        return ""
+    return f"\033[{code}m"
+
+
+def _load_theme() -> dict:
+    """Load theme dict from settings, returning defaults if missing."""
+    return get_setting("theme", {})
+
+
 class Colors:
     RESET = "\033[0m"
+
+    @staticmethod
+    def _get(role: str, fallback: str) -> str:
+        theme = _load_theme()
+        return _ansi(theme.get(role, fallback))
+
+    @classmethod
+    def _reload(cls) -> None:
+        """Refresh color attributes from current theme settings."""
+        theme = _load_theme()
+        cls.BOLD = _ansi(theme.get("bold", "1"))
+        cls.DIM = _ansi(theme.get("dim", "2"))
+        cls.BACKLOG = _ansi(theme.get("state_backlog", "90"))
+        cls.IN_PROGRESS = _ansi(theme.get("state_in_progress", "33"))
+        cls.WAITING = _ansi(theme.get("state_waiting", "35"))
+        cls.TESTING = _ansi(theme.get("state_testing", "36"))
+        cls.DONE = _ansi(theme.get("state_done", "32"))
+        cls.CANCELLED = _ansi(theme.get("state_cancelled", "91"))
+        cls.DATE = _ansi(theme.get("date", "94"))
+        cls.TASK = _ansi(theme.get("task", "97"))
+        cls.SUBTASK = _ansi(theme.get("subtask", "92"))
+        cls.HEADER = _ansi(theme.get("header", "96"))
+        cls.ERROR = _ansi(theme.get("error", "91"))
+        cls.TAG = _ansi(theme.get("tag", "36"))
+        cls.PRIORITY_URGENT = _ansi(theme.get("priority_urgent", "91"))
+        cls.PRIORITY_HIGH = _ansi(theme.get("priority_high", "33"))
+        cls.PRIORITY_MEDIUM = _ansi(theme.get("priority_medium", "37"))
+        cls.PRIORITY_LOW = _ansi(theme.get("priority_low", "2;37"))
+
+    # Class-level defaults (will be overwritten by _reload)
     BOLD = "\033[1m"
     DIM = "\033[2m"
-
     BACKLOG = "\033[90m"
     IN_PROGRESS = "\033[33m"
     WAITING = "\033[35m"
     TESTING = "\033[36m"
     DONE = "\033[32m"
     CANCELLED = "\033[91m"
-
     DATE = "\033[94m"
     TASK = "\033[97m"
     SUBTASK = "\033[92m"
     HEADER = "\033[96m"
     ERROR = "\033[91m"
+    TAG = "\033[36m"
+    PRIORITY_URGENT = "\033[91m"
+    PRIORITY_HIGH = "\033[33m"
+    PRIORITY_MEDIUM = "\033[37m"
+    PRIORITY_LOW = "\033[2;37m"
+
+
+# Initialize colors from theme on import
+Colors._reload()
 
 
 def get_state_color(state: str) -> str:

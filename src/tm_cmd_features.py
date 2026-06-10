@@ -721,31 +721,29 @@ def handle_project(
 
     # Show tasks for specific tag
     tag = tag_arg.lstrip("#")
-    tasks = get_tasks_by_tag(refreshed, tag)
-    if not tasks:
+    from .tm_views_data import get_tag_view_data
+    tag_data = get_tag_view_data(refreshed, tag)
+    if not tag_data.tasks:
         _log("info", f"No tasks found with tag #{tag}.")
         return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     tw = shutil.get_terminal_size((80, 24)).columns
-    id_width = get_id_width(refreshed)
-    print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} #{tag} ({len(tasks)} tasks) {'─' * max(0, tw - len(tag) - 18)}{Colors.RESET}")
-    for task in tasks:
-        state_color = _get_state_color_inline(task.state)
-        task_id = task.task_id or "?"
-        id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
-        id_padding = " " * max(0, id_width - len(id_value))
-        priority_badge = f" [P:{task.priority}]" if task.priority else ""
-        due = f" [DUE:{task.due_date.strftime('%d/%m/%Y')}]" if task.due_date else ""
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} #{tag} ({len(tag_data.tasks)} tasks) {'─' * max(0, tw - len(tag) - 18)}{Colors.RESET}")
+    for item in tag_data.tasks:
+        state_color = _get_state_color_inline(item.state)
+        id_value = item.task_id.zfill(tag_data.id_width) if item.task_id.isdigit() else item.task_id
+        id_padding = " " * max(0, tag_data.id_width - len(id_value))
+        priority_badge = f" [P:{item.priority}]" if item.priority else ""
+        due = f" [DUE:{item.due_date.strftime('%d/%m/%Y')}]" if item.due_date else ""
         print(
-            f"  [{Colors.BOLD}{id_value}{Colors.RESET}]{id_padding} {state_color}{task.state:<{11}}{Colors.RESET} "
-            f"{_title_without_tags_cmd(task.title)}{Colors.DIM}{priority_badge}{due}{Colors.RESET}"
+            f"  [{Colors.BOLD}{id_value}{Colors.RESET}]{id_padding} {state_color}{item.state:<{11}}{Colors.RESET} "
+            f"{_title_without_tags_cmd(item.title)}{Colors.DIM}{priority_badge}{due}{Colors.RESET}"
         )
-        for st in task.subtasks:
+        for st in item.subtasks:
             st_color = _get_state_color_inline(st.state)
-            st_id = st.task_id or "?"
-            st_id_padding = " " * max(0, id_width - len(st_id))
+            st_id_padding = " " * max(0, tag_data.id_width - len(st.task_id))
             st_due = f" [DUE:{st.due_date.strftime('%d/%m/%Y')}]" if st.due_date else ""
-            print(f"       + [{Colors.BOLD}{st_id}{Colors.RESET}]{st_id_padding} {st_color}{st.state:<{11}}{Colors.RESET} {_title_without_tags_cmd(st.title)}{Colors.DIM}{st_due}{Colors.RESET}")
+            print(f"       + [{Colors.BOLD}{st.task_id}{Colors.RESET}]{st_id_padding} {st_color}{st.state:<{11}}{Colors.RESET} {_title_without_tags_cmd(st.title)}{Colors.DIM}{st_due}{Colors.RESET}")
     return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
 
