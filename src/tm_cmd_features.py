@@ -57,7 +57,7 @@ from .tm_journal import (
     read_journal_snapshot,
     write_journal,
 )
-from .tm_logic import find_task_by_id, normalize_priority_input, normalize_state_input
+from .tm_logic import find_task_by_id, get_id_width, normalize_priority_input, normalize_state_input
 from .tm_models import Subtask
 from .tm_settings import get_setting
 
@@ -438,9 +438,12 @@ def handle_unblock(
         _cols = _shutil.get_terminal_size().columns
         # Max text width: terminal - 14 (borders, indicator, checkbox, padding)
         _max_opt = max(20, _cols - 14)
+        _id_w = get_id_width(refreshed)
         options = []
         for t, b in blocked_tasks:
-            label = f"[{t.task_id}] {_strip_tags(t.title)} (← {', '.join(b)})"
+            t_id = t.task_id or "?"
+            id_value = t_id.zfill(_id_w) if t_id.isdigit() else t_id
+            label = f"[{id_value}] {_strip_tags(t.title)} (← {', '.join(b)})"
             if len(label) > _max_opt:
                 label = label[:_max_opt - 1] + "…"
             options.append(label)
@@ -724,20 +727,25 @@ def handle_project(
         return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
     tw = shutil.get_terminal_size((80, 24)).columns
+    id_width = get_id_width(refreshed)
     print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} #{tag} ({len(tasks)} tasks) {'─' * max(0, tw - len(tag) - 18)}{Colors.RESET}")
     for task in tasks:
         state_color = _get_state_color_inline(task.state)
         task_id = task.task_id or "?"
+        id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
+        id_padding = " " * max(0, id_width - len(id_value))
         priority_badge = f" [P:{task.priority}]" if task.priority else ""
         due = f" [DUE:{task.due_date.strftime('%d/%m/%Y')}]" if task.due_date else ""
         print(
-            f"  [{task_id}] {state_color}{task.state:<{11}}{Colors.RESET} "
+            f"  [{Colors.BOLD}{id_value}{Colors.RESET}]{id_padding} {state_color}{task.state:<{11}}{Colors.RESET} "
             f"{_title_without_tags_cmd(task.title)}{Colors.DIM}{priority_badge}{due}{Colors.RESET}"
         )
         for st in task.subtasks:
             st_color = _get_state_color_inline(st.state)
+            st_id = st.task_id or "?"
+            st_id_padding = " " * max(0, id_width - len(st_id))
             st_due = f" [DUE:{st.due_date.strftime('%d/%m/%Y')}]" if st.due_date else ""
-            print(f"       + [{st.task_id}] {st_color}{st.state:<{11}}{Colors.RESET} {_title_without_tags_cmd(st.title)}{Colors.DIM}{st_due}{Colors.RESET}")
+            print(f"       + [{Colors.BOLD}{st_id}{Colors.RESET}]{st_id_padding} {st_color}{st.state:<{11}}{Colors.RESET} {_title_without_tags_cmd(st.title)}{Colors.DIM}{st_due}{Colors.RESET}")
     return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
 

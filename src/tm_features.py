@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE, VALID_RECURRENCES
+from .tm_logic import get_id_width
 from .tm_models import Task, Subtask
 from .tm_settings import get_setting
 
@@ -155,6 +156,7 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> s
     num_cols = len(columns)
     col_width = max(20, (term_width - (num_cols + 1)) // num_cols)
     reset = Colors.RESET
+    id_width = get_id_width(tasks_by_date)
 
     lines: List[str] = []
 
@@ -181,7 +183,8 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> s
                 task_id = task.task_id or "?"
                 title = task.title
                 priority_badge = f"[{task.priority[0]}]" if task.priority else ""
-                cell_content = f"[{task_id}]{priority_badge} {title}"
+                id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
+                cell_content = f"[{id_value}]{priority_badge} {title}"
                 if len(cell_content) > col_width - 2:
                     cell_content = cell_content[: col_width - 3] + "~"
                 cells.append(f" {color}{cell_content.ljust(col_width - 1)}{reset}")

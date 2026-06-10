@@ -19,7 +19,7 @@ from .tm_cmd_common import (
     display_tasks,
 )
 from .tm_journal import lint_journal, read_journal_snapshot, restore_journal_snapshot
-from .tm_logic import find_task_by_id, parse_date_input
+from .tm_logic import find_task_by_id, get_id_width, parse_date_input
 from .tm_models import Task
 from .tm_ui import display_stats, print_help
 
@@ -270,6 +270,8 @@ def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
             elif due <= week_limit:
                 due_soon.append(task)
 
+    id_width = get_id_width(tasks_by_date)
+
     def _print_group(title: str, items: list[Task], icon: str = "") -> None:
         print(f"\n  {Colors.BOLD}{icon}{title}{Colors.RESET}")
         if not items:
@@ -278,12 +280,14 @@ def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
         ordered = sorted(items, key=lambda item: item.due_date or datetime.max)
         for task in ordered:
             task_id = task.task_id or "?"
+            id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
+            id_padding = " " * max(0, id_width - len(id_value))
             state_color = _get_state_color_inline(task.state)
             due_str = task.due_date.strftime("%d/%m/%Y") if task.due_date else ""
             priority_badge = f" [P:{task.priority}]" if task.priority else ""
             title_clean = task.title
             print(
-                f"    [{task_id}] {state_color}{task.state:<{11}}{Colors.RESET} "
+                f"    [{Colors.BOLD}{id_value}{Colors.RESET}]{id_padding} {state_color}{task.state:<{11}}{Colors.RESET} "
                 f"{title_clean}{Colors.DIM}{priority_badge} [DUE:{due_str}]{Colors.RESET}"
             )
 

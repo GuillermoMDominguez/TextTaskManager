@@ -350,6 +350,7 @@ def get_pending_tasks(tasks_by_date: dict) -> List[Task]:
 def build_pending_email_body(tasks_by_date: dict) -> str:
     """Build an email-ready text report for pending tasks and subtasks."""
     lines: List[str] = ["Pending tasks report", ""]
+    id_width = get_id_width(tasks_by_date)
 
     sorted_dates = sorted([d for d in tasks_by_date.keys() if d is not None], reverse=True)
     if None in tasks_by_date:
@@ -368,7 +369,8 @@ def build_pending_email_body(tasks_by_date: dict) -> str:
 
         for task in tasks:
             task_id = task.task_id or "?"
-            lines.append(f"- [{task_id}] {task.title} ({task.state})")
+            id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
+            lines.append(f"- [{id_value}] {task.title} ({task.state})")
 
             for subtask in task.subtasks:
                 if subtask.is_finished():
