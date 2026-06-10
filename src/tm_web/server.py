@@ -18,15 +18,37 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.tm_journal import parse_journal, add_task_to_file, update_task_state_in_file, write_journal
+from src.tm_journal import (
+    parse_journal,
+    add_task_to_file,
+    update_task_state_in_file,
+    update_task_metadata_in_file,
+    edit_task_title_in_file,
+    delete_task_in_file,
+    add_note_to_task_in_file,
+    delete_note_in_file,
+    edit_note_in_file,
+    add_subtask_to_task,
+    update_subtask_state_in_file,
+    edit_subtask_title_in_file,
+    delete_subtask_in_file,
+    update_subtask_metadata_in_file,
+    add_note_to_subtask_in_file,
+)
 from src.tm_logic import assign_task_ids, get_id_width, normalize_state_input, find_task_by_id
 from src.tm_models import Task
+from src.tm_config import VALID_STATES, VALID_PRIORITIES
 from src.tm_views_data import (
     get_agenda_data,
     get_kanban_data,
     get_stats_data,
     get_all_tasks_flat,
     get_pending_tasks,
+    get_weekly_report_data,
+    get_burndown_data,
+    get_blockers_data,
+    get_time_tracking_data,
+    get_all_tags_data,
     _task_to_view_item,
 )
 
@@ -56,6 +78,18 @@ class WebState:
 
 # Global state — set when server starts
 _state: Optional[WebState] = None
+
+
+def _read_lines_from_file(filepath: str) -> list:
+    """Read all lines from a file."""
+    with open(filepath, "r", encoding="utf-8") as f:
+        return f.readlines()
+
+
+def _write_lines_to_file(filepath: str, lines: list) -> None:
+    """Write all lines to a file."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.writelines(lines)
 
 
 def _json_response(handler: "TTMRequestHandler", data: Any, status: int = 200) -> None:
@@ -98,10 +132,14 @@ def _serialize_task(item) -> dict:
                 "id": st.task_id,
                 "title": st.title,
                 "state": st.state,
-                "due_date": st.due_date.strftime("%d/%m/%Y") if st.due_date else None,
+                "due_date": st.due_date.strftime("%Y-%m-%d") if st.due_date else None,
+                "priority": st.priority,
+                "notes": st.notes or [],
             }
             for st in item.subtasks
         ],
+        "time_spent": item.time_spent,
+        "jira_key": item.jira_key,
     }
 
 
@@ -120,6 +158,8 @@ def api_get_tasks(handler: "TTMRequestHandler", params: dict) -> None:
     _json_response(handler, {
         "tasks": [_serialize_task(item) for item in items],
         "id_width": get_id_width(_state.tasks_by_date),
+        "states": VALID_STATES,
+        "priorities": VALID_PRIORITIES,
     })
 
 
@@ -164,6 +204,237 @@ def api_get_stats(handler: "TTMRequestHandler", params: dict) -> None:
     })
 
 
+def api_get_weekly_report(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/weekly — weekly report data."""
+    _state.refresh()
+    days = int(params.get("days", ["7"])[0])
+    data = get_weekly_report_data(_state.tasks_by_date, days)
+
+    _json_response(handler, {
+        "days": data.days,
+        "period_start": data.period_start,
+        "period_end": data.period_end,
+        "completed": [_serialize_task(t) for t in data.completed],
+        "in_progress": [_serialize_task(t) for t in data.in_progress],
+        "upcoming": [_serialize_task(t) for t in data.upcoming],
+        "total": data.total,
+        "total_done": data.total_done,
+        "total_pending": data.total_pending,
+    })
+
+
+def api_get_burndown(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/burndown — burndown chart data."""
+    _state.refresh()
+    sprint_days = int(params.get("days", ["14"])[0])
+    data = get_burndown_data(_state.tasks_by_date, sprint_days)
+
+    _json_response(handler, {
+        "sprint_days": data.sprint_days,
+        "total_tasks": data.total_tasks,
+        "current_remaining": data.current_remaining,
+        "ideal_per_day": data.ideal_per_day,
+        "velocity": data.velocity,
+        "points": [{"date": p.date, "remaining": p.remaining} for p in data.points],
+    })
+
+
+def api_get_tags(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/tags — all tags with counts."""
+    _state.refresh()
+    tags = get_all_tags_data(_state.tasks_by_date)
+    _json_response(handler, {"tags": tags})
+
+
+def api_get_tag_tasks(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/tags/<tag> — tasks for a specific tag."""
+    _state.refresh()
+    tag = params.get("tag", [None])[0]
+    if not tag:
+        _error_response(handler, "tag parameter required")
+        return
+
+    from src.tm_views_data import get_tag_view_data
+    data = get_tag_view_data(_state.tasks_by_date, tag)
+    _json_response(handler, {
+        "tag": data.tag,
+        "tasks": [_serialize_task(t) for t in data.tasks],
+    })
+
+
+def api_get_blockers(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/blockers — tasks with blocker relationships."""
+    _state.refresh()
+    data = get_blockers_data(_state.tasks_by_date)
+
+    _json_response(handler, {
+        "blockers": [
+            {
+                "task": _serialize_task(b.task),
+                "blocked_by": b.blocked_by,
+                "blocks": b.blocks,
+                "is_blocked": b.is_blocked,
+            }
+            for b in data
+        ],
+    })
+
+
+def api_get_time_tracking(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/time — time tracking data."""
+    _state.refresh()
+    data = get_time_tracking_data(_state.tasks_by_date)
+
+    from src.tm_features import get_total_time_spent, format_time_spent
+    total_minutes = get_total_time_spent(_state.tasks_by_date)
+
+    _json_response(handler, {
+        "tasks": [
+            {
+                "task": _serialize_task(item.task),
+                "minutes": item.minutes_spent,
+                "formatted": item.formatted,
+            }
+            for item in data
+        ],
+        "total_minutes": total_minutes,
+        "total_formatted": format_time_spent(total_minutes) if total_minutes > 0 else "0m",
+    })
+
+
+def api_get_jira(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/jira — Jira integration data."""
+    try:
+        from src import tm_jira
+        from src.tm_jira import is_configured, init_jira, _get_active_issues
+    except ImportError:
+        _json_response(handler, {"configured": False, "issues": [], "error": "Jira module not available"})
+        return
+
+    # Ensure Jira is initialized (needs project_dir for secrets)
+    if not is_configured():
+        # Try journal parent, then project root
+        journal_dir = Path(_state.journal_path).resolve().parent
+        if not init_jira(journal_dir):
+            init_jira(journal_dir.parent)
+
+    if not is_configured():
+        _json_response(handler, {"configured": False, "issues": []})
+        return
+
+    try:
+        filter_type = params.get("filter", ["active"])[0]
+        search_query = params.get("q", [""])[0]
+        base_url = tm_jira._jira_url or ""
+
+        if filter_type == "active":
+            result = _get_active_issues()
+        elif filter_type in ("todo", "progress", "done", "review", "blocked", "cancelled"):
+            from src.tm_jira import _get_filtered_issues
+            result = _get_filtered_issues(filter_type)
+        elif filter_type == "overdue":
+            from src.tm_jira import _get_overdue
+            result = _get_overdue()
+        elif filter_type == "find" and search_query:
+            from src.tm_jira import _search_issues
+            result = _search_issues(search_query)
+        elif filter_type == "notify":
+            from src.tm_jira import _get_unread_comments
+            messages = _get_unread_comments()
+            _json_response(handler, {"configured": True, "notifications": messages, "base_url": base_url})
+            return
+        else:
+            result = _get_active_issues()
+
+        # _api_search returns {"issues": [...], ...} or None
+        issues = []
+        if result and isinstance(result, dict):
+            issues = result.get("issues", [])
+        elif result and isinstance(result, list):
+            issues = result
+
+        serialized = []
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            fields = issue.get("fields", {})
+            serialized.append({
+                "key": issue.get("key"),
+                "summary": fields.get("summary"),
+                "status": fields.get("status", {}).get("name") if isinstance(fields.get("status"), dict) else None,
+                "priority": fields.get("priority", {}).get("name") if isinstance(fields.get("priority"), dict) else None,
+                "project": fields.get("project", {}).get("key") if isinstance(fields.get("project"), dict) else None,
+                "due_date": fields.get("duedate"),
+                "type": fields.get("issuetype", {}).get("name") if isinstance(fields.get("issuetype"), dict) else None,
+            })
+
+        _json_response(handler, {"configured": True, "issues": serialized, "base_url": base_url})
+    except Exception as e:
+        _json_response(handler, {"configured": True, "issues": [], "error": str(e)})
+
+
+def api_get_jira_transitions(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/jira/transitions?key=ISSUE-123 — get available transitions for a Jira issue."""
+    try:
+        from src import tm_jira
+        from src.tm_jira import is_configured, init_jira, get_issue_transitions
+    except ImportError:
+        _json_response(handler, {"error": "Jira module not available"}, 500)
+        return
+
+    if not is_configured():
+        journal_dir = Path(_state.journal_path).resolve().parent
+        if not init_jira(journal_dir):
+            init_jira(journal_dir.parent)
+
+    if not is_configured():
+        _json_response(handler, {"error": "Jira not configured"}, 400)
+        return
+
+    issue_key = params.get("key", [""])[0].strip()
+    if not issue_key:
+        _error_response(handler, "key parameter is required")
+        return
+
+    transitions = get_issue_transitions(issue_key)
+    _json_response(handler, {"key": issue_key, "transitions": transitions})
+
+
+def api_post_jira_transition(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/jira/transition — transition a Jira issue to a new status."""
+    try:
+        from src import tm_jira
+        from src.tm_jira import is_configured, init_jira, transition_issue
+    except ImportError:
+        _json_response(handler, {"error": "Jira module not available"}, 500)
+        return
+
+    if not is_configured():
+        journal_dir = Path(_state.journal_path).resolve().parent
+        if not init_jira(journal_dir):
+            init_jira(journal_dir.parent)
+
+    if not is_configured():
+        _json_response(handler, {"error": "Jira not configured"}, 400)
+        return
+
+    body = _read_body(handler)
+    issue_key = body.get("key", "").strip()
+    transition_id = body.get("transition_id", "").strip()
+
+    if not issue_key or not transition_id:
+        _error_response(handler, "key and transition_id are required")
+        return
+
+    success = transition_issue(issue_key, transition_id)
+    if success:
+        _json_response(handler, {"ok": True, "key": issue_key})
+    else:
+        _error_response(handler, f"Failed to transition {issue_key}", 500)
+
+
+# ─── Write API Handlers ───────────────────────────────────────────────────────
+
 def api_change_state(handler: "TTMRequestHandler", params: dict) -> None:
     """POST /api/tasks/<id>/state — change task state."""
     body = _read_body(handler)
@@ -203,6 +474,7 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
     state = body.get("state", "BACKLOG")
     due_date = body.get("due_date")
     priority = body.get("priority")
+    jira_key = body.get("jira_key")
 
     if not title:
         _error_response(handler, "title is required")
@@ -215,7 +487,11 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
             try:
                 date_obj = datetime.strptime(due_date, "%d/%m/%Y")
             except ValueError:
-                pass
+                # Try ISO format as fallback
+                try:
+                    date_obj = datetime.strptime(due_date, "%Y-%m-%d")
+                except ValueError:
+                    pass
 
         add_task_to_file(
             _state.journal_path,
@@ -223,6 +499,7 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
             state=state,
             due_date=date_obj,
             priority=priority,
+            jira_key=jira_key.strip().upper() if jira_key else None,
         )
         _state.refresh()
         _json_response(handler, {"ok": True}, 201)
@@ -230,15 +507,512 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
         _error_response(handler, str(e), 500)
 
 
+def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/edit — edit task title, priority, due date."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0]
+
+    if not task_id:
+        _error_response(handler, "task_id is required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    try:
+        from datetime import datetime
+
+        # Edit title if provided
+        new_title = body.get("title", "").strip()
+        if new_title and new_title != task.title:
+            edit_task_title_in_file(_state.journal_path, task, new_title)
+            _state.refresh()
+            task = find_task_by_id(_state.tasks_by_date, task_id)
+            if not task:
+                _json_response(handler, {"ok": True})
+                return
+
+        # Edit state if provided
+        new_state = body.get("state", "").strip()
+        if new_state and new_state != task.state:
+            normalized = normalize_state_input(new_state)
+            if normalized:
+                update_task_state_in_file(_state.journal_path, task, normalized)
+                _state.refresh()
+                task = find_task_by_id(_state.tasks_by_date, task_id)
+                if not task:
+                    _json_response(handler, {"ok": True})
+                    return
+
+        # Edit metadata (priority, due_date, jira_key)
+        new_priority = body.get("priority")
+        new_due = body.get("due_date")
+        new_jira_key = body.get("jira_key")
+
+        due_obj = task.due_date
+        if new_due is not None:
+            if new_due == "" or new_due is False:
+                due_obj = None
+            else:
+                try:
+                    due_obj = datetime.strptime(new_due, "%d/%m/%Y")
+                except ValueError:
+                    try:
+                        due_obj = datetime.strptime(new_due, "%Y-%m-%d")
+                    except ValueError:
+                        pass
+
+        priority_val = new_priority if new_priority is not None else task.priority
+        if priority_val == "":
+            priority_val = None
+
+        # jira_key: None=keep, ""=remove, "KEY-123"=set
+        jira_key_val = None  # means keep existing
+        if new_jira_key is not None:
+            jira_key_val = new_jira_key.strip().upper() if new_jira_key.strip() else ""
+
+        if due_obj != task.due_date or priority_val != task.priority or jira_key_val is not None:
+            update_task_metadata_in_file(
+                _state.journal_path, task,
+                due_date=due_obj,
+                priority=priority_val,
+                jira_key=jira_key_val,
+            )
+
+        _state.refresh()
+        updated = find_task_by_id(_state.tasks_by_date, task_id)
+        if updated:
+            _json_response(handler, _serialize_task(_task_to_view_item(updated)))
+        else:
+            _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_delete_task(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/delete — delete a task."""
+    task_id = params.get("task_id", [None])[0]
+
+    if not task_id:
+        _error_response(handler, "task_id is required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    try:
+        delete_task_in_file(_state.journal_path, task)
+        _state.refresh()
+        _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_add_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/notes — add a note to a task."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0]
+    note = body.get("note", "").strip()
+
+    if not task_id or not note:
+        _error_response(handler, "task_id and note are required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    try:
+        add_note_to_task_in_file(_state.journal_path, task, note)
+        _state.refresh()
+        updated = find_task_by_id(_state.tasks_by_date, task_id)
+        if updated:
+            _json_response(handler, _serialize_task(_task_to_view_item(updated)))
+        else:
+            _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_delete_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/notes/delete — delete a note from a task."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0]
+    note_index = body.get("index")
+
+    if not task_id or note_index is None:
+        _error_response(handler, "task_id and index are required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    try:
+        delete_note_in_file(_state.journal_path, task, int(note_index))
+        _state.refresh()
+        updated = find_task_by_id(_state.tasks_by_date, task_id)
+        if updated:
+            _json_response(handler, _serialize_task(_task_to_view_item(updated)))
+        else:
+            _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_edit_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/notes/edit — edit a note on a task."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0]
+    note_index = body.get("index")
+    new_note = body.get("note", "").strip()
+
+    if not task_id or note_index is None or not new_note:
+        _error_response(handler, "task_id, index, and note are required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    try:
+        edit_note_in_file(_state.journal_path, task, int(note_index), new_note)
+        _state.refresh()
+        updated = find_task_by_id(_state.tasks_by_date, task_id)
+        if updated:
+            _json_response(handler, _serialize_task(_task_to_view_item(updated)))
+        else:
+            _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_add_subtask(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/subtasks — add a subtask to a task."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0]
+    title = body.get("title", "").strip()
+    state = body.get("state", "BACKLOG")
+
+    if not task_id or not title:
+        _error_response(handler, "task_id and title are required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    # Only parent tasks can have subtasks
+    if not hasattr(task, 'subtasks'):
+        _error_response(handler, "Cannot add subtask to a subtask")
+        return
+
+    try:
+        add_subtask_to_task(_state.journal_path, task, title, state)
+        _state.refresh()
+        updated = find_task_by_id(_state.tasks_by_date, task_id)
+        if updated:
+            _json_response(handler, _serialize_task(_task_to_view_item(updated)))
+        else:
+            _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_edit_subtask(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/subtasks/<id>/edit — edit a subtask (title, state, due_date, priority, notes)."""
+    body = _read_body(handler)
+    subtask_id = params.get("subtask_id", [None])[0]
+
+    if not subtask_id:
+        _error_response(handler, "subtask_id is required")
+        return
+
+    subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+    if not subtask:
+        _error_response(handler, f"Subtask {subtask_id} not found", 404)
+        return
+
+    try:
+        new_title = body.get("title", "").strip()
+        new_state = body.get("state", "").strip()
+        due_date_str = body.get("due_date", "").strip() if body.get("due_date") is not None else None
+        priority_str = body.get("priority", "").strip() if body.get("priority") is not None else None
+        note_to_add = body.get("add_note", "").strip() if body.get("add_note") else ""
+
+        if new_title and new_title != subtask.title:
+            edit_subtask_title_in_file(_state.journal_path, subtask, new_title)
+            _state.refresh()
+            subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+
+        if new_state and subtask:
+            normalized = normalize_state_input(new_state)
+            if normalized and normalized != subtask.state:
+                update_subtask_state_in_file(_state.journal_path, subtask, normalized)
+                _state.refresh()
+                subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+
+        # Update metadata (due_date, priority)
+        if subtask and (due_date_str is not None or priority_str is not None):
+            from datetime import datetime as dt
+            new_due = None
+            clear_due = False
+            if due_date_str is not None:
+                if due_date_str == "":
+                    clear_due = True
+                else:
+                    try:
+                        new_due = dt.strptime(due_date_str, "%Y-%m-%d")
+                    except ValueError:
+                        try:
+                            new_due = dt.strptime(due_date_str, "%d/%m/%Y")
+                        except ValueError:
+                            pass
+
+            new_priority = None
+            clear_priority = False
+            if priority_str is not None:
+                if priority_str == "":
+                    clear_priority = True
+                else:
+                    new_priority = priority_str.upper()
+
+            update_subtask_metadata_in_file(
+                _state.journal_path, subtask,
+                due_date=new_due, priority=new_priority,
+                clear_due=clear_due, clear_priority=clear_priority,
+            )
+            _state.refresh()
+            subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+
+        # Add a note
+        if subtask and note_to_add:
+            add_note_to_subtask_in_file(_state.journal_path, subtask, note_to_add)
+            _state.refresh()
+
+        _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_delete_subtask(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/subtasks/<id>/delete — delete a subtask."""
+    subtask_id = params.get("subtask_id", [None])[0]
+
+    if not subtask_id:
+        _error_response(handler, "subtask_id is required")
+        return
+
+    subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+    if not subtask:
+        _error_response(handler, f"Subtask {subtask_id} not found", 404)
+        return
+
+    try:
+        delete_subtask_in_file(_state.journal_path, subtask)
+        _state.refresh()
+        _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_add_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/subtasks/<id>/notes — add a note to a subtask."""
+    body = _read_body(handler)
+    subtask_id = params.get("subtask_id", [None])[0]
+
+    if not subtask_id:
+        _error_response(handler, "subtask_id is required")
+        return
+
+    note = body.get("note", "").strip()
+    if not note:
+        _error_response(handler, "note is required")
+        return
+
+    subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+    if not subtask:
+        _error_response(handler, f"Subtask {subtask_id} not found", 404)
+        return
+
+    try:
+        add_note_to_subtask_in_file(_state.journal_path, subtask, note)
+        _state.refresh()
+        _json_response(handler, {"ok": True})
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_delete_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/subtasks/<id>/notes/delete — delete a subtask note by index."""
+    body = _read_body(handler)
+    subtask_id = params.get("subtask_id", [None])[0]
+
+    if not subtask_id:
+        _error_response(handler, "subtask_id is required")
+        return
+
+    note_index = body.get("note_index")
+    if note_index is None:
+        _error_response(handler, "note_index is required")
+        return
+
+    subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+    if not subtask:
+        _error_response(handler, f"Subtask {subtask_id} not found", 404)
+        return
+
+    try:
+        idx = int(note_index)
+        if idx < 0 or idx >= len(subtask.comments):
+            _error_response(handler, f"Invalid note_index {idx}", 400)
+            return
+        # Delete by re-parsing: remove the note from file
+        # Subtask notes are lines after the subtask line starting with ":"
+        lines = _read_lines_from_file(_state.journal_path)
+        line_index = subtask.source_line - 1
+        note_count = 0
+        target_line = None
+        for i in range(line_index + 1, len(lines)):
+            stripped = lines[i].strip()
+            if stripped.startswith(":"):
+                if note_count == idx:
+                    target_line = i
+                    break
+                note_count += 1
+            elif stripped.startswith("+") or stripped.startswith("-") or not stripped:
+                break
+        if target_line is not None:
+            del lines[target_line]
+            _write_lines_to_file(_state.journal_path, lines)
+            _state.refresh()
+            _json_response(handler, {"ok": True})
+        else:
+            _error_response(handler, "Note line not found in file", 404)
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_edit_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/subtasks/<id>/notes/edit — edit a subtask note by index."""
+    body = _read_body(handler)
+    subtask_id = params.get("subtask_id", [None])[0]
+
+    if not subtask_id:
+        _error_response(handler, "subtask_id is required")
+        return
+
+    note_index = body.get("note_index")
+    new_note = body.get("note", "").strip()
+    if note_index is None:
+        _error_response(handler, "note_index is required")
+        return
+    if not new_note:
+        _error_response(handler, "note is required")
+        return
+
+    subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+    if not subtask:
+        _error_response(handler, f"Subtask {subtask_id} not found", 404)
+        return
+
+    try:
+        idx = int(note_index)
+        if idx < 0 or idx >= len(subtask.comments):
+            _error_response(handler, f"Invalid note_index {idx}", 400)
+            return
+        lines = _read_lines_from_file(_state.journal_path)
+        line_index = subtask.source_line - 1
+        note_count = 0
+        target_line = None
+        for i in range(line_index + 1, len(lines)):
+            stripped = lines[i].strip()
+            if stripped.startswith(":"):
+                if note_count == idx:
+                    target_line = i
+                    break
+                note_count += 1
+            elif stripped.startswith("+") or stripped.startswith("-") or not stripped:
+                break
+        if target_line is not None:
+            indent = ""
+            orig = lines[target_line]
+            for ch in orig:
+                if ch in (" ", "\t"):
+                    indent += ch
+                else:
+                    break
+            lines[target_line] = f"{indent}: {new_note}\n"
+            _write_lines_to_file(_state.journal_path, lines)
+            _state.refresh()
+            _json_response(handler, {"ok": True})
+        else:
+            _error_response(handler, "Note line not found in file", 404)
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/search?q=... — search tasks by title/tag."""
+    _state.refresh()
+    query = params.get("q", [""])[0].strip().lower()
+
+    if not query:
+        _json_response(handler, {"tasks": []})
+        return
+
+    items = get_all_tasks_flat(_state.tasks_by_date)
+    results = []
+    for item in items:
+        # Match title, tags, or notes
+        if (query in item.title.lower()
+                or any(query in tag.lower() for tag in item.tags)
+                or any(query in n.lower() for n in item.notes)):
+            results.append(_serialize_task(item))
+
+    _json_response(handler, {"tasks": results, "query": query})
+
+
 # ─── Route Table ──────────────────────────────────────────────────────────────
 
 API_ROUTES = {
+    # Read endpoints
     ("GET", "/api/tasks"): api_get_tasks,
     ("GET", "/api/agenda"): api_get_agenda,
     ("GET", "/api/kanban"): api_get_kanban,
     ("GET", "/api/stats"): api_get_stats,
+    ("GET", "/api/weekly"): api_get_weekly_report,
+    ("GET", "/api/burndown"): api_get_burndown,
+    ("GET", "/api/tags"): api_get_tags,
+    ("GET", "/api/tags/tasks"): api_get_tag_tasks,
+    ("GET", "/api/blockers"): api_get_blockers,
+    ("GET", "/api/time"): api_get_time_tracking,
+    ("GET", "/api/jira"): api_get_jira,
+    ("GET", "/api/jira/transitions"): api_get_jira_transitions,
+    ("GET", "/api/search"): api_search_tasks,
+    # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,
+    ("POST", "/api/tasks/edit"): api_edit_task,
+    ("POST", "/api/tasks/delete"): api_delete_task,
+    ("POST", "/api/tasks/notes"): api_add_note,
+    ("POST", "/api/tasks/notes/delete"): api_delete_note,
+    ("POST", "/api/tasks/notes/edit"): api_edit_note,
+    ("POST", "/api/tasks/subtasks"): api_add_subtask,
+    ("POST", "/api/subtasks/edit"): api_edit_subtask,
+    ("POST", "/api/subtasks/delete"): api_delete_subtask,
+    ("POST", "/api/subtasks/notes"): api_add_subtask_note,
+    ("POST", "/api/subtasks/notes/delete"): api_delete_subtask_note,
+    ("POST", "/api/subtasks/notes/edit"): api_edit_subtask_note,
+    ("POST", "/api/jira/transition"): api_post_jira_transition,
 }
 
 
@@ -270,13 +1044,52 @@ class TTMRequestHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
 
-        # Extract task_id from path like /api/tasks/3/state
-        if parsed.path.startswith("/api/tasks/") and parsed.path.endswith("/state"):
+        # Extract task_id from paths like /api/tasks/3/state, /api/tasks/3/edit, etc.
+        if parsed.path.startswith("/api/tasks/"):
             parts = parsed.path.split("/")
-            # /api/tasks/<id>/state
+            # /api/tasks/<id>/<action>
             if len(parts) == 5:
-                params["task_id"] = [parts[3]]
-                route_key = ("POST", "/api/tasks/state")
+                task_id = parts[3]
+                action = parts[4]
+                params["task_id"] = [task_id]
+
+                route_key = ("POST", f"/api/tasks/{action}")
+                if route_key in API_ROUTES:
+                    API_ROUTES[route_key](self, params)
+                    return
+
+            # /api/tasks/<id>/<sub>/<action> e.g. /api/tasks/3/notes/delete
+            if len(parts) == 6:
+                task_id = parts[3]
+                sub = parts[4]
+                action = parts[5]
+                params["task_id"] = [task_id]
+
+                route_key = ("POST", f"/api/tasks/{sub}/{action}")
+                if route_key in API_ROUTES:
+                    API_ROUTES[route_key](self, params)
+                    return
+
+        # Extract subtask_id from paths like /api/subtasks/1.2/edit
+        if parsed.path.startswith("/api/subtasks/"):
+            parts = parsed.path.split("/")
+            # /api/subtasks/<id>/<action> (5 parts)
+            if len(parts) == 5:
+                subtask_id = parts[3]
+                action = parts[4]
+                params["subtask_id"] = [subtask_id]
+
+                route_key = ("POST", f"/api/subtasks/{action}")
+                if route_key in API_ROUTES:
+                    API_ROUTES[route_key](self, params)
+                    return
+            # /api/subtasks/<id>/<action>/<sub_action> (6 parts, e.g. notes/delete)
+            elif len(parts) == 6:
+                subtask_id = parts[3]
+                action = f"{parts[4]}/{parts[5]}"
+                params["subtask_id"] = [subtask_id]
+
+                route_key = ("POST", f"/api/subtasks/{action}")
                 if route_key in API_ROUTES:
                     API_ROUTES[route_key](self, params)
                     return
@@ -288,11 +1101,15 @@ class TTMRequestHandler(SimpleHTTPRequestHandler):
 
         _error_response(self, "Not found", 404)
 
+    def do_DELETE(self):
+        """Handle DELETE requests (mapped to POST handlers)."""
+        self.do_POST()
+
     def do_OPTIONS(self):
         """Handle CORS preflight."""
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 

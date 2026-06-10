@@ -38,6 +38,7 @@ class SubtaskViewItem:
     priority: Optional[str] = None
     due_date: Optional[datetime] = None
     tags: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -83,7 +84,47 @@ class WeeklyReportData:
     days: int
     completed: List[TaskViewItem]
     in_progress: List[TaskViewItem]
-    created: List[TaskViewItem]
+    upcoming: List[TaskViewItem]
+    total: int
+    total_done: int
+    total_pending: int
+    period_start: str
+    period_end: str
+
+
+@dataclass
+class BurndownPoint:
+    """A single point on the burndown chart."""
+    date: str
+    remaining: int
+
+
+@dataclass
+class BurndownData:
+    """Burndown chart structured data."""
+    sprint_days: int
+    total_tasks: int
+    current_remaining: int
+    ideal_per_day: float
+    velocity: int
+    points: List[BurndownPoint]
+
+
+@dataclass
+class BlockerInfo:
+    """A blocker relationship."""
+    task: TaskViewItem
+    blocked_by: List[str]  # titles of blocking tasks
+    blocks: List[str]      # titles of tasks it blocks
+    is_blocked: bool
+
+
+@dataclass
+class TimeTrackingItem:
+    """Time tracking entry for a task."""
+    task: TaskViewItem
+    minutes_spent: int
+    formatted: str
 
 
 # ─── Conversion helpers ────────────────────────────────────────────────────────
@@ -105,6 +146,7 @@ def _task_to_view_item(task: Task) -> TaskViewItem:
                 priority=getattr(st, "priority", None),
                 due_date=st.due_date,
                 tags=st.get_tags(),
+                notes=st.comments or [],
             )
             for st in task.subtasks
         ],
@@ -241,3 +283,136 @@ def get_pending_tasks(tasks_by_date: dict) -> List[TaskViewItem]:
             if not task.is_finished():
                 items.append(_task_to_view_item(task))
     return items
+
+
+def get_weekly_report_data(tasks_by_date: dict, days: int = 7) -> WeeklyReportData:
+    """Compute weekly report data: completed, in-progress, upcoming tasks."""
+    from .tm_config import FINISHED_STATES, PROGRESS_STATES
+
+    today = datetime.now().date()
+    period_start = today - timedelta(days=days)
+
+    completed: List[TaskViewItem] = []
+    in_progress: List[TaskViewItem] = []
+    upcoming: List[TaskViewItem] = []
+
+    for date_key, tasks in tasks_by_date.items():
+        for task in tasks:
+            if task.is_finished():
+                if date_key and period_start <= date_key.date() <= today:
+                    completed.append(_task_to_view_item(task))
+            elif task.state in PROGRESS_STATES:
+                in_progress.append(_task_to_view_item(task))
+            elif task.due_date and task.due_date.date() <= today + timedelta(days=7):
+                upcoming.append(_task_to_view_item(task))
+
+    total = sum(len(tasks) for tasks in tasks_by_date.values())
+    total_done = sum(1 for tasks in tasks_by_date.values() for t in tasks if t.is_finished())
+
+    return WeeklyReportData(
+        days=days,
+        completed=completed,
+        in_progress=in_progress,
+        upcoming=upcoming,
+        total=total,
+        total_done=total_done,
+        total_pending=total - total_done,
+        period_start=period_start.strftime("%d/%m/%Y"),
+        period_end=today.strftime("%d/%m/%Y"),
+    )
+
+
+def get_burndown_data(tasks_by_date: dict, sprint_days: int = 14) -> BurndownData:
+    """Compute burndown chart data."""
+    today = datetime.now().date()
+    start_date = today - timedelta(days=sprint_days - 1)
+
+    all_tasks = []
+    for tasks in tasks_by_date.values():
+        all_tasks.extend(tasks)
+
+    total_tasks = len(all_tasks)
+    if total_tasks == 0:
+        return BurndownData(
+            sprint_days=sprint_days, total_tasks=0, current_remaining=0,
+            ideal_per_day=0, velocity=0, points=[],
+        )
+
+    points: List[BurndownPoint] = []
+    for day_offset in range(sprint_days):
+        current_date = start_date + timedelta(days=day_offset)
+        done_by_date = 0
+        for task in all_tasks:
+            if task.is_finished():
+                task_date = task.date.date() if task.date else today
+                if task_date <= current_date:
+                    done_by_date += 1
+        remaining = total_tasks - done_by_date
+        points.append(BurndownPoint(
+            date=current_date.strftime("%d/%m"),
+            remaining=remaining,
+        ))
+
+    current_remaining = points[-1].remaining if points else total_tasks
+    ideal_per_day = total_tasks / max(sprint_days - 1, 1)
+
+    return BurndownData(
+        sprint_days=sprint_days,
+        total_tasks=total_tasks,
+        current_remaining=current_remaining,
+        ideal_per_day=ideal_per_day,
+        velocity=total_tasks - current_remaining,
+        points=points,
+    )
+
+
+def get_blockers_data(tasks_by_date: dict) -> List[BlockerInfo]:
+    """Get all tasks that have blocker/blocks relationships."""
+    from .tm_features import extract_blockers_from_line, extract_blocks_from_line, is_task_blocked
+
+    results: List[BlockerInfo] = []
+
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            if task.is_finished():
+                continue
+            raw_line = getattr(task, "raw_line", "") or ""
+            blocked_by = extract_blockers_from_line(raw_line)
+            blocks = extract_blocks_from_line(raw_line)
+            if blocked_by or blocks:
+                results.append(BlockerInfo(
+                    task=_task_to_view_item(task),
+                    blocked_by=blocked_by,
+                    blocks=blocks,
+                    is_blocked=is_task_blocked(task, tasks_by_date),
+                ))
+
+    return results
+
+
+def get_time_tracking_data(tasks_by_date: dict) -> List[TimeTrackingItem]:
+    """Get all tasks with time tracking data."""
+    from .tm_features import extract_time_spent_from_line, format_time_spent
+
+    results: List[TimeTrackingItem] = []
+
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            raw_line = getattr(task, "raw_line", "") or ""
+            minutes = extract_time_spent_from_line(raw_line)
+            if minutes and minutes > 0:
+                results.append(TimeTrackingItem(
+                    task=_task_to_view_item(task),
+                    minutes_spent=minutes,
+                    formatted=format_time_spent(minutes),
+                ))
+
+    # Sort by time spent descending
+    results.sort(key=lambda x: x.minutes_spent, reverse=True)
+    return results
+
+
+def get_all_tags_data(tasks_by_date: dict) -> Dict[str, int]:
+    """Get all tags with their counts."""
+    from .tm_features import get_all_tags
+    return get_all_tags(tasks_by_date)
