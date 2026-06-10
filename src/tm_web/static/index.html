@@ -1065,12 +1065,11 @@ main {
           </div>
           <div class="form-group">
             <label>Default State</label>
-            <select id="cfg-default-state">
-              <option value="BACKLOG">BACKLOG</option>
-              <option value="IN PROGRESS">IN PROGRESS</option>
-              <option value="WAITING">WAITING</option>
-              <option value="TESTING">TESTING</option>
-            </select>
+            <input type="text" id="cfg-default-state" placeholder="BACKLOG">
+          </div>
+          <div class="form-group">
+            <label>Default Priority</label>
+            <input type="text" id="cfg-default-priority" placeholder="(none)">
           </div>
           <div class="form-group">
             <label>Show Completed by Default</label>
@@ -1078,6 +1077,102 @@ main {
               <option value="false">No</option>
               <option value="true">Yes</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label>Weekly Report Days</label>
+            <input type="number" id="cfg-weekly-report-days" min="1" max="30">
+          </div>
+          <div class="form-group">
+            <label>Max Undo</label>
+            <input type="number" id="cfg-max-undo" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>Prompt Format</label>
+            <input type="text" id="cfg-prompt-format" placeholder="{user} {time} > ">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>States</h3>
+          <div class="form-group">
+            <label>States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-states" placeholder="BACKLOG, IN PROGRESS, WAITING, ...">
+          </div>
+          <div class="form-group">
+            <label>Finished States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-finished-states" placeholder="DONE, CANCELLED">
+          </div>
+          <div class="form-group">
+            <label>Progress States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-progress-states" placeholder="IN PROGRESS">
+          </div>
+          <div class="form-group">
+            <label>Testing States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-testing-states" placeholder="TESTING">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Priorities</h3>
+          <div class="form-group">
+            <label>Priorities <span style="font-size:9px;color:var(--dim)">(comma-separated, ordered)</span></label>
+            <input type="text" id="cfg-priorities" placeholder="LOW, MEDIUM, HIGH, URGENT">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Kanban</h3>
+          <div class="form-group">
+            <label>Kanban Columns <span style="font-size:9px;color:var(--dim)">(comma-separated states)</span></label>
+            <input type="text" id="cfg-kanban-columns" placeholder="BACKLOG, IN PROGRESS, ...">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Sort &amp; Display</h3>
+          <div class="form-group">
+            <label>Sort By</label>
+            <select id="cfg-sort-by">
+              <option value="none">None</option>
+              <option value="priority">Priority</option>
+              <option value="due_date">Due Date</option>
+              <option value="state">State</option>
+              <option value="title">Title</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Sort Direction</label>
+            <select id="cfg-sort-direction">
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Email Notifications</h3>
+          <div class="form-group">
+            <label>SMTP Host</label>
+            <input type="text" id="cfg-email-host" placeholder="smtp.gmail.com">
+          </div>
+          <div class="form-group">
+            <label>SMTP Port</label>
+            <input type="number" id="cfg-email-port" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label>SMTP User</label>
+            <input type="text" id="cfg-email-user" placeholder="you@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>SMTP Password</label>
+            <input type="password" id="cfg-email-password" placeholder="App password">
+          </div>
+          <div class="form-group">
+            <label>From Address</label>
+            <input type="text" id="cfg-email-from" placeholder="you@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>Default Recipient</label>
+            <input type="text" id="cfg-email-recipient" placeholder="team@company.com">
+          </div>
+          <div class="form-group">
+            <label>Subject Prefix</label>
+            <input type="text" id="cfg-email-prefix" placeholder="[TaskManager]">
           </div>
         </div>
         <div class="config-actions" style="margin-top:16px">
@@ -2100,12 +2195,45 @@ async function loadConfig() {
   document.getElementById('cfg-date-format').value = s.date_format || '%d/%m/%Y';
   document.getElementById('cfg-agenda-days').value = s.agenda_days || 7;
   document.getElementById('cfg-default-state').value = s.default_state || 'BACKLOG';
+  document.getElementById('cfg-default-priority').value = s.default_priority || '';
   document.getElementById('cfg-show-done').value = s.show_done_default ? 'true' : 'false';
+  document.getElementById('cfg-weekly-report-days').value = s.weekly_report_days || 7;
+  document.getElementById('cfg-max-undo').value = s.max_undo || 20;
+  document.getElementById('cfg-prompt-format').value = s.prompt_format || '';
+
+  // Populate States
+  document.getElementById('cfg-states').value = (s.states || []).join(', ');
+  document.getElementById('cfg-finished-states').value = (s.finished_states || []).join(', ');
+  document.getElementById('cfg-progress-states').value = (s.progress_states || []).join(', ');
+  document.getElementById('cfg-testing-states').value = (s.testing_states || []).join(', ');
+
+  // Populate Priorities
+  document.getElementById('cfg-priorities').value = (s.priorities || []).join(', ');
+
+  // Populate Kanban
+  document.getElementById('cfg-kanban-columns').value = (s.kanban_columns || []).join(', ');
+
+  // Populate Sort
+  document.getElementById('cfg-sort-by').value = s.sort_by || 'none';
+  document.getElementById('cfg-sort-direction').value = s.sort_direction || 'asc';
+
+  // Populate Email
+  const email = s.email || {};
+  document.getElementById('cfg-email-host').value = email.smtp_host || '';
+  document.getElementById('cfg-email-port').value = email.smtp_port || 587;
+  document.getElementById('cfg-email-user').value = email.smtp_user || '';
+  document.getElementById('cfg-email-password').value = '';
+  document.getElementById('cfg-email-from').value = email.from_address || '';
+  document.getElementById('cfg-email-recipient').value = email.default_recipient || '';
+  document.getElementById('cfg-email-prefix').value = email.subject_prefix || '[TaskManager]';
 
   document.getElementById('config-status').textContent = '';
 }
 
 async function saveConfig() {
+  // Helper: split comma-separated string into trimmed array (filter blanks)
+  const csvToArr = v => v.split(',').map(s => s.trim()).filter(Boolean);
+
   const payload = {
     settings: {
       sync: {
@@ -2113,10 +2241,31 @@ async function saveConfig() {
         remote: document.getElementById('cfg-sync-remote').value.trim(),
         branch: document.getElementById('cfg-sync-branch').value.trim() || 'main',
       },
+      email: {
+        smtp_host: document.getElementById('cfg-email-host').value.trim(),
+        smtp_port: parseInt(document.getElementById('cfg-email-port').value) || 587,
+        smtp_user: document.getElementById('cfg-email-user').value.trim(),
+        smtp_password: document.getElementById('cfg-email-password').value.trim() || undefined,
+        from_address: document.getElementById('cfg-email-from').value.trim(),
+        default_recipient: document.getElementById('cfg-email-recipient').value.trim(),
+        subject_prefix: document.getElementById('cfg-email-prefix').value.trim() || '[TaskManager]',
+      },
       date_format: document.getElementById('cfg-date-format').value.trim(),
       agenda_days: parseInt(document.getElementById('cfg-agenda-days').value) || 7,
-      default_state: document.getElementById('cfg-default-state').value,
+      default_state: document.getElementById('cfg-default-state').value.trim(),
+      default_priority: document.getElementById('cfg-default-priority').value.trim() || null,
       show_done_default: document.getElementById('cfg-show-done').value === 'true',
+      weekly_report_days: parseInt(document.getElementById('cfg-weekly-report-days').value) || 7,
+      max_undo: parseInt(document.getElementById('cfg-max-undo').value) || 20,
+      prompt_format: document.getElementById('cfg-prompt-format').value,
+      states: csvToArr(document.getElementById('cfg-states').value),
+      finished_states: csvToArr(document.getElementById('cfg-finished-states').value),
+      progress_states: csvToArr(document.getElementById('cfg-progress-states').value),
+      testing_states: csvToArr(document.getElementById('cfg-testing-states').value),
+      priorities: csvToArr(document.getElementById('cfg-priorities').value),
+      kanban_columns: csvToArr(document.getElementById('cfg-kanban-columns').value),
+      sort_by: document.getElementById('cfg-sort-by').value,
+      sort_direction: document.getElementById('cfg-sort-direction').value,
     },
     secrets: {
       jira_url: document.getElementById('cfg-jira-url').value.trim(),
@@ -2126,6 +2275,9 @@ async function saveConfig() {
       sync_token: document.getElementById('cfg-sync-token').value.trim(),
     },
   };
+
+  // Don't send undefined smtp_password (keep existing)
+  if (!payload.settings.email.smtp_password) delete payload.settings.email.smtp_password;
 
   const data = await api('POST', '/api/config', payload);
   const statusEl = document.getElementById('config-status');

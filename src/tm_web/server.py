@@ -1064,15 +1064,31 @@ def api_get_config(handler, params):
         else:
             masked_secrets[key] = val
 
+    # Mask email password
+    email_settings = dict(settings.get("email", {}))
+    if email_settings.get("smtp_password"):
+        email_settings["smtp_password"] = "••••••••"
+
     _json_response(handler, {
         "settings": {
             "sync": settings.get("sync", {}),
-            "email": settings.get("email", {}),
+            "email": email_settings,
             "agenda_days": settings.get("agenda_days", 7),
             "date_format": settings.get("date_format", "%d/%m/%Y"),
             "default_state": settings.get("default_state", "BACKLOG"),
             "default_priority": settings.get("default_priority"),
             "show_done_default": settings.get("show_done_default", False),
+            "states": settings.get("states", []),
+            "finished_states": settings.get("finished_states", []),
+            "progress_states": settings.get("progress_states", []),
+            "testing_states": settings.get("testing_states", []),
+            "priorities": settings.get("priorities", []),
+            "kanban_columns": settings.get("kanban_columns", []),
+            "sort_by": settings.get("sort_by", "none"),
+            "sort_direction": settings.get("sort_direction", "asc"),
+            "weekly_report_days": settings.get("weekly_report_days", 7),
+            "max_undo": settings.get("max_undo", 20),
+            "prompt_format": settings.get("prompt_format", ""),
         },
         "secrets": masked_secrets,
     })
@@ -1093,10 +1109,23 @@ def api_save_config(handler, params):
         updates = body["settings"]
         # Only allow updating specific safe keys
         safe_keys = ("sync", "email", "agenda_days", "date_format",
-                     "default_state", "default_priority", "show_done_default")
+                     "default_state", "default_priority", "show_done_default",
+                     "states", "finished_states", "progress_states",
+                     "testing_states", "priorities", "kanban_columns",
+                     "sort_by", "sort_direction", "weekly_report_days",
+                     "max_undo", "prompt_format")
         for key in safe_keys:
             if key in updates:
-                current[key] = updates[key]
+                if key == "email":
+                    # Merge email: don't overwrite smtp_password with mask/empty
+                    current_email = current.get("email", {})
+                    new_email = updates["email"]
+                    pwd = new_email.get("smtp_password", "")
+                    if not pwd or pwd == "••••••••":
+                        new_email["smtp_password"] = current_email.get("smtp_password", "")
+                    current["email"] = new_email
+                else:
+                    current[key] = updates[key]
         if not save_settings(current, project_dir):
             errors.append("Failed to save settings")
 
