@@ -983,6 +983,21 @@ def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
 
 # ─── Config API ───────────────────────────────────────────────────────────────
 
+def api_get_log(handler, params):
+    """GET /api/log — returns application log history."""
+    import time as _time
+    from src.tm_log import _history
+
+    entries = []
+    for ts, cat, msg in _history:
+        entries.append({
+            "time": _time.strftime("%H:%M:%S", _time.localtime(ts)),
+            "category": cat,
+            "message": msg,
+        })
+    _json_response(handler, {"entries": entries})
+
+
 def api_get_config(handler, params):
     """GET /api/config — returns user settings and secrets (masked)."""
     from src.tm_settings import load_settings, load_secrets
@@ -1075,6 +1090,7 @@ API_ROUTES = {
     ("GET", "/api/jira/transitions"): api_get_jira_transitions,
     ("GET", "/api/search"): api_search_tasks,
     ("GET", "/api/config"): api_get_config,
+    ("GET", "/api/log"): api_get_log,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,

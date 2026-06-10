@@ -99,6 +99,7 @@ header .actions { display: flex; gap: 8px; }
 main {
   overflow-y: auto;
   padding: 20px;
+  padding-bottom: 36px;
 }
 
 .view { display: none; }
@@ -163,9 +164,13 @@ main {
   border-radius: 2px;
   font-weight: 600;
   text-align: center;
+  min-width: 80px;
 }
-.task-subtask .sub-title { color: var(--text); }
-.task-subtask .sub-due { color: var(--text-dim); font-size: 10px; }
+.task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-subtask .sub-due { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+
+.task-tags { padding-left: 52px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px; }
+.task-tag { font-size: 10px; color: var(--cyan); background: rgba(125, 207, 255, 0.1); padding: 1px 6px; border-radius: 3px; }
 
 .task-notes {
   list-style: none;
@@ -651,6 +656,8 @@ main {
   align-items: center;
 }
 .filter-chip {
+  display: inline-flex;
+  align-items: center;
   padding: 3px 10px;
   border-radius: 12px;
   font-size: 11px;
@@ -659,6 +666,7 @@ main {
   cursor: pointer;
   color: var(--text-dim);
   transition: all 0.15s;
+  line-height: 1;
 }
 .filter-chip:hover { border-color: var(--accent); color: var(--text); }
 .filter-chip.active { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
@@ -721,7 +729,7 @@ main {
 /* ─── Subtask Clickable ────────────────────── */
 .task-subtask {
   display: grid;
-  grid-template-columns: 80px 1fr auto;
+  grid-template-columns: 90px 1fr auto auto;
   gap: 8px;
   align-items: center;
   padding: 2px 0;
@@ -731,6 +739,7 @@ main {
   transition: background 0.1s;
 }
 .task-subtask:hover { background: var(--bg-hover); }
+.task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; }
 .subtask-note { list-style: none; padding: 1px 0 1px 28px; font-size: 11px; color: var(--text-dim); font-style: italic; }
 .subtask-note .sn-text::before { content: "~ "; color: var(--border); }
 
@@ -758,6 +767,8 @@ main {
 
 /* ─── Jira Filter Chips ───────────────────── */
 .jira-chip {
+  display: inline-flex;
+  align-items: center;
   font-size: 11px;
   padding: 3px 10px;
   border-radius: 12px;
@@ -766,6 +777,7 @@ main {
   border: 1px solid var(--border);
   color: var(--text-dim);
   transition: all 0.15s;
+  line-height: 1;
 }
 .jira-chip:hover { border-color: var(--accent); color: var(--text); }
 .jira-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -826,6 +838,34 @@ main {
 .config-section h3 { font-size: 13px; color: var(--accent); margin-bottom: 12px; }
 .config-section .form-group { max-width: 400px; }
 
+/* ─── Log View ────────────────────────────────── */
+.log-entries { font-family: inherit; font-size: 12px; }
+.log-entry { padding: 4px 8px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+.log-entry .log-time { color: var(--text-dim); min-width: 60px; flex-shrink: 0; }
+.log-entry .log-cat { font-weight: 600; min-width: 50px; flex-shrink: 0; }
+.log-entry .log-cat.cat-error { color: var(--red); }
+.log-entry .log-cat.cat-warn { color: var(--yellow); }
+.log-entry .log-cat.cat-sync { color: var(--cyan); }
+.log-entry .log-cat.cat-info { color: var(--text-dim); }
+.log-entry .log-msg { color: var(--text); }
+
+/* ─── Status Bar (footer) ─────────────────────── */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 200px;
+  right: 0;
+  height: 24px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 10px;
+  color: var(--text-dim);
+  z-index: 50;
+}
+
 /* ─── Keyboard Shortcut Hint ───────────────── */
 .kbd-hint {
   font-size: 10px;
@@ -880,6 +920,7 @@ main {
     <div class="nav-group">
       <div class="nav-group-title">System</div>
       <a class="nav-item" data-view="config">Config</a>
+      <a class="nav-item" data-view="log">Log</a>
     </div>
   </nav>
 
@@ -1031,6 +1072,12 @@ main {
       </div>
     </div>
 
+    <!-- Log View -->
+    <div id="view-log" class="view">
+      <h2 class="view-title">Application Log</h2>
+      <div id="log-content" class="log-entries"></div>
+    </div>
+
     <!-- Jira View -->
     <div id="view-jira" class="view">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1054,6 +1101,8 @@ main {
     </div>
   </main>
 </div>
+
+<div class="status-bar" id="status-bar"></div>
 
 <!-- Edit Task Modal -->
 <div class="modal-overlay" id="modal-edit">
@@ -1267,6 +1316,7 @@ function loadView(view) {
     blockers: loadBlockers,
     jira: loadJira,
     config: loadConfig,
+    log: loadLog,
   };
   if (loaders[view]) loaders[view]();
 }
@@ -1409,13 +1459,15 @@ function renderTaskItem(t, showStateDropdown = true) {
         <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
         <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
       </div>
+      ${t.tags && t.tags.length ? `<div class="task-tags">${t.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
       ${t.subtasks && t.subtasks.length ? `
         <ul class="task-subtasks">
           ${t.subtasks.map(st => `
             <li class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
               <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
               <span class="sub-title">${h(st.title)}</span>
-              <span class="sub-due">${st.due_date || ''}</span>
+              <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
+              <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
             </li>
             ${st.notes && st.notes.length ? st.notes.map(n => `
               <li class="subtask-note"><span class="sn-text">${h(n)}</span></li>
@@ -1746,6 +1798,7 @@ async function loadBlockers() {
 function jiraStatusClass(status) {
   const s = (status || '').toLowerCase();
   if (s.includes('done') || s.includes('closed') || s.includes('resolved')) return 'js-done';
+  if (s.includes('backlog')) return 'js-todo';
   if (s.includes('progress') || s.includes('development') || s.includes('refining')) return 'js-progress';
   if (s.includes('review')) return 'js-review';
   if (s.includes('hold') || s.includes('waiting') || s.includes('blocked')) return 'js-hold';
@@ -2058,6 +2111,36 @@ async function saveConfig() {
   }
   setTimeout(() => { statusEl.textContent = ''; }, 3000);
 }
+
+// ─── Log View ───────────────────────────────────
+async function loadLog() {
+  const data = await api('GET', '/api/log');
+  const el = document.getElementById('log-content');
+  if (!data.entries || data.entries.length === 0) {
+    el.innerHTML = '<div class="empty">No log entries yet</div>';
+    return;
+  }
+  el.innerHTML = data.entries.slice().reverse().map(e => `
+    <div class="log-entry">
+      <span class="log-time">${e.time}</span>
+      <span class="log-cat cat-${e.category}">${e.category}</span>
+      <span class="log-msg">${h(e.message)}</span>
+    </div>
+  `).join('');
+}
+
+async function updateStatusBar() {
+  const data = await api('GET', '/api/log');
+  const bar = document.getElementById('status-bar');
+  if (data.entries && data.entries.length > 0) {
+    const last = data.entries[data.entries.length - 1];
+    bar.textContent = `${last.time} [${last.category}] ${last.message}`;
+  }
+}
+
+// Poll status bar every 10s
+updateStatusBar();
+setInterval(updateStatusBar, 10000);
 
 // ─── Edit Modal ─────────────────────────────────
 function openEditModal(taskId) {
