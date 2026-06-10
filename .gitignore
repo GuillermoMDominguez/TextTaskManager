@@ -10,5 +10,6 @@ src/__pycache__/
 tests/__pycache__/
 src/ttm_crash.log
 .ttm_secrets
+.ttm_config
 .jira_last_seen
 .secret
