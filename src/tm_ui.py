@@ -562,6 +562,7 @@ def print_help() -> None:
         ("config sync", "Set up journal sync (guided)"),
         ("jira <cmd>", "Jira commands (jira help for details)"),
         ("config jira", "Set up Jira credentials (guided)"),
+        ("web / web down", "Launch web UI in browser / stop it"),
         ("show log / hide log", "Toggle system log bar"),
         ("clear log", "Clear log messages"),
         ("h / help", "Show this help message"),

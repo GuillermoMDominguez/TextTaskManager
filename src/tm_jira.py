@@ -929,6 +929,34 @@ def _walk_adf(node, texts: list):
             _walk_adf(child, texts)
 
 
+def get_issue_transitions(issue_key: str) -> list:
+    """Get available transitions for a Jira issue (for web UI).
+
+    Returns list of dicts: [{"id": "31", "name": "Done", "to": "Done"}, ...]
+    """
+    data = _api_get(f"issue/{issue_key}/transitions")
+    if not data:
+        return []
+    return [
+        {
+            "id": str(tr.get("id", "")),
+            "name": tr.get("name", "?"),
+            "to": tr.get("to", {}).get("name", ""),
+        }
+        for tr in data.get("transitions", [])
+    ]
+
+
+def transition_issue(issue_key: str, transition_id: str) -> bool:
+    """Perform a status transition on a Jira issue.
+
+    Returns True on success, False on failure.
+    """
+    payload = {"transition": {"id": transition_id}}
+    result = _api_post(f"issue/{issue_key}/transitions", payload)
+    return result is not None
+
+
 # ─── Private helpers ───────────────────────────────────────────────────────────
 
 def _prompt(text: str, default: str = "") -> str:

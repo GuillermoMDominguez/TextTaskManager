@@ -194,6 +194,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", "-d", dest="quick_date", default=None, help="Target date section for quick-add (dd/mm/yyyy)")
     parser.add_argument("--check", action="store_true", help="Run integrity check and exit")
     parser.add_argument("--fix", action="store_true", help="Run integrity check with auto-fix and exit")
+    parser.add_argument("--web", action="store_true", help="Launch web UI instead of terminal interface")
     parser.add_argument("--help", "-h", action="store_true", help="Show help")
     return parser
 
@@ -332,6 +333,17 @@ def main() -> None:
             else:
                 print(f"\n{Colors.HEADER}Found {len(issues)} issue(s). Run with --fix to auto-repair.{Colors.RESET}")
         sys.exit(0 if not issues or args.fix else 1)
+
+    # ─── Web UI mode (non-interactive) ─────────────────────────────────
+    if args.web:
+        journal_path = _resolve_journal_for_quick_ops(journals_dir, cache_path, args.journal)
+        if journal_path is None or not journal_path.exists():
+            print(f"{Colors.ERROR}No journal found. Run interactively first to create one.{Colors.RESET}")
+            sys.exit(1)
+
+        from src.tm_web import start_server
+        start_server(str(journal_path))
+        sys.exit(0)
 
     # ─── Interactive mode ──────────────────────────────────────────────
     if args.journal:
@@ -598,6 +610,28 @@ def main() -> None:
                     save_command_history(str(history_path))
                     print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
                     break
+
+                # Journal switch requested
+                if outcome.new_journal_path:
+                    journal_path = outcome.new_journal_path
+                    command_context.journal_path = journal_path
+                    save_cached_journal(cache_path, Path(journal_path).name)
+                    tasks_cache = None
+                    try:
+                        tasks_by_date = refresh_tasks()
+                    except JournalError as exc:
+                        print(f"{Colors.ERROR}{exc}{Colors.RESET}")
+                        continue
+                    # Update web server if running
+                    try:
+                        from src.tm_web import is_running as _web_running
+                        if _web_running():
+                            from src.tm_web.server import _state as _web_state
+                            if _web_state:
+                                _web_state.journal_path = journal_path
+                                _web_state._tasks_by_date = None
+                    except Exception:
+                        pass
 
                 if outcome.skip_redraw:
                     # Command printed its own output (help, kb, stats) — don't overwrite

@@ -182,3 +182,144 @@ def handle_log_clear(
     from .tm_log import clear
     clear()
     return CommandOutcome(tasks_by_date, view_state)
+
+
+def handle_web(
+    command: str,
+    tasks_by_date: dict,
+    view_state: ViewState,
+    context: CommandContext,
+) -> Optional[CommandOutcome]:
+    """Handle 'web' / 'web down' — launch or stop the background web UI server."""
+    if command not in ("web", "web down", "web stop"):
+        return None
+
+    from .tm_web import start_server_background, stop_server, is_running, get_url
+
+    if command in ("web down", "web stop"):
+        if is_running():
+            stop_server()
+            _log("info", "Web UI stopped.")
+        else:
+            _log("info", "Web UI is not running.")
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+    # 'web' — start (or report already running)
+    if is_running():
+        _log("info", f"Web UI already running at {get_url()}")
+    else:
+        start_server_background(context.journal_path)
+        _log("info", f"Web UI started at {get_url()} — use 'web down' to stop.")
+
+    return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+
+def handle_journal(
+    raw_command: str,
+    tasks_by_date: dict,
+    view_state: ViewState,
+    context: CommandContext,
+) -> Optional[CommandOutcome]:
+    """Handle 'journal' / 'jn' — list journals or switch to another one.
+
+    Usage:
+        journal          — list available journals
+        journal <name>   — switch to the named journal
+        jn               — alias for journal
+        jn <name>        — alias for journal <name>
+    """
+    command = raw_command.strip().lower()
+
+    # Match the command prefix
+    if command.startswith("journal"):
+        arg = raw_command.strip()[len("journal"):].strip()
+    elif command.startswith("jn"):
+        arg = raw_command.strip()[len("jn"):].strip()
+    else:
+        return None
+
+    journal_dir = Path(context.journal_path).parent
+
+    # List available journals
+    journals = sorted(
+        [p for p in journal_dir.glob("*.txt") if p.is_file()],
+        key=lambda p: p.name.lower(),
+    )
+
+    if not journals:
+        _log("error", "No journals found.")
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+    current_name = Path(context.journal_path).name
+
+    # No argument: show interactive picker
+    if not arg:
+        from .tm_ui import Colors
+        print(f"\n{'─' * 40}")
+        print(f"  {'Available journals':}")
+        print(f"{'─' * 40}")
+        for idx, path in enumerate(journals, start=1):
+            marker = " ←" if path.name == current_name else ""
+            print(f"  {idx:>2}. {path.stem}{marker}")
+        print(f"{'─' * 40}")
+        try:
+            answer = input(f"  Switch to (number or name, Enter to cancel): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+        if not answer:
+            return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+        # Try as number
+        if answer.isdigit():
+            idx = int(answer)
+            if 1 <= idx <= len(journals):
+                target = journals[idx - 1]
+            else:
+                _log("error", f"Invalid number. Choose 1-{len(journals)}.")
+                return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+        else:
+            target = _resolve_journal_name(answer, journals, journal_dir)
+            if target is None:
+                _log("error", f"Journal '{answer}' not found.")
+                return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+    else:
+        # Direct name argument
+        target = _resolve_journal_name(arg, journals, journal_dir)
+        if target is None:
+            _log("error", f"Journal '{arg}' not found.")
+            return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+    # Already on this journal?
+    if str(target) == context.journal_path:
+        _log("info", f"Already on '{target.stem}'.")
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
+
+    _log("info", f"Switched to '{target.stem}'.")
+    return CommandOutcome(tasks_by_date, view_state, new_journal_path=str(target))
+
+
+def _resolve_journal_name(name: str, journals: list, journal_dir: Path):
+    """Resolve a journal by name (with or without .txt, case-insensitive)."""
+    # Normalize
+    search = name.strip()
+    if not search.lower().endswith(".txt"):
+        search += ".txt"
+
+    # Exact match (case-insensitive)
+    for j in journals:
+        if j.name.lower() == search.lower():
+            return j
+
+    # Stem match (without extension)
+    stem = name.strip().lower()
+    for j in journals:
+        if j.stem.lower() == stem:
+            return j
+
+    # Prefix match
+    for j in journals:
+        if j.stem.lower().startswith(stem):
+            return j
+
+    return None

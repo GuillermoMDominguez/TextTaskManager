@@ -1,0 +1,2807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TextTaskManager</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%23161b22'/><path d='M25 52l15 15 35-35' stroke='%2358a6ff' stroke-width='10' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>">
+<style>
+:root {
+  --bg: #1a1b26;
+  --bg-surface: #24283b;
+  --bg-hover: #2f3549;
+  --bg-card: #1f2335;
+  --border: #3b4261;
+  --text: #c0caf5;
+  --text-dim: #565f89;
+  --accent: #7aa2f7;
+  --green: #9ece6a;
+  --yellow: #e0af68;
+  --red: #f7768e;
+  --purple: #bb9af7;
+  --cyan: #7dcfff;
+  --orange: #ff9e64;
+  --radius: 6px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* ─── Layout ───────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.3px;
+}
+
+header .actions { display: flex; gap: 8px; align-items: center; }
+.status-indicator { font-size: 11px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 3px; }
+.status-indicator .ind-icon { font-weight: 700; }
+.status-indicator .ind-ok { color: #3fb950; }
+.status-indicator .ind-fail { color: #f85149; }
+
+/* ─── Sidebar ───────────────────────────────── */
+.sidebar {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  padding: 12px 0;
+  overflow-y: auto;
+}
+
+.journal-selector {
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.sidebar .nav-group {
+  padding: 0 12px;
+  margin-bottom: 16px;
+}
+
+.sidebar .nav-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  letter-spacing: 0.5px;
+}
+
+.sidebar .nav-item {
+  display: block;
+  padding: 6px 12px;
+  color: var(--text);
+  text-decoration: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.sidebar .nav-item:hover { background: var(--bg-hover); }
+.sidebar .nav-item.active { background: var(--accent); color: var(--bg); font-weight: 600; }
+
+/* ─── Main Content ─────────────────────────── */
+main {
+  overflow-y: auto;
+  padding: 20px;
+  padding-bottom: 36px;
+}
+
+.view { display: none; }
+.view.active { display: block; }
+
+.view-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text);
+}
+
+/* ─── Buttons ──────────────────────────────── */
+.btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.btn-primary:hover { opacity: 0.9; }
+.btn-danger { border-color: var(--red); color: var(--red); }
+.btn-danger:hover { background: var(--red); color: var(--bg); }
+.btn-sm { padding: 3px 8px; font-size: 11px; }
+
+/* ─── Task List ────────────────────────────── */
+.task-list { list-style: none; }
+
+.task-item {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  padding: 8px 12px;
+}
+.task-item:hover { background: var(--bg-hover); }
+
+.task-row {
+  display: grid;
+  grid-template-columns: 40px 110px 1fr 70px 90px;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-id { color: var(--text-dim); font-size: 11px; }
+.task-title { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.task-subtasks {
+  list-style: none;
+  margin-top: 4px;
+  padding-left: 52px;
+}
+
+.task-subtask .sub-state {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+  text-align: center;
+  min-width: 80px;
+}
+.task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-subtask .sub-due { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+
+.task-tags { padding-left: 52px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px; }
+.task-tag { font-size: 10px; color: var(--cyan); background: rgba(125, 207, 255, 0.1); padding: 1px 6px; border-radius: 3px; }
+
+.task-notes {
+  list-style: none;
+  margin-top: 4px;
+  padding-left: 52px;
+}
+
+.state-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  min-width: 90px;
+  text-align: center;
+}
+
+.priority-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.due-badge {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.due-badge.overdue { color: var(--red); font-weight: 600; }
+
+/* State colors */
+.state-BACKLOG { background: var(--text-dim); color: var(--bg); }
+.state-IN_PROGRESS, .state-IN-PROGRESS { background: var(--accent); color: var(--bg); }
+.state-WAITING { background: var(--yellow); color: var(--bg); }
+.state-TESTING { background: var(--purple); color: var(--bg); }
+.state-DONE { background: var(--green); color: var(--bg); }
+.state-CANCELLED { background: var(--red); color: var(--bg); }
+
+/* Priority colors */
+.priority-URGENT { background: var(--red); color: var(--bg); }
+.priority-HIGH { background: var(--orange); color: var(--bg); }
+.priority-MEDIUM { background: var(--yellow); color: var(--bg); }
+.priority-LOW { background: var(--text-dim); color: var(--bg); }
+
+/* ─── State Dropdown ───────────────────────── */
+.state-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  padding: 4px;
+  min-width: 140px;
+  display: none;
+}
+.state-dropdown.open { display: block; }
+
+.state-dropdown .option {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+}
+.state-dropdown .option:hover { background: var(--bg-hover); color: var(--text); }
+.state-dropdown .option.current { color: var(--accent); font-weight: 700; }
+
+/* ─── Kanban ───────────────────────────────── */
+.kanban-board {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  min-height: calc(100vh - 140px);
+  padding-bottom: 20px;
+}
+
+.kanban-col {
+  flex: 0 0 260px;
+  background: var(--bg-surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 160px);
+}
+
+.kanban-col-header {
+  padding: 10px 12px;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kanban-col-count {
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.kanban-col-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  min-height: 60px;
+}
+
+.kanban-col-body.drag-over {
+  background: var(--bg-hover);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+}
+
+.kanban-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin-bottom: 8px;
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.kanban-card:active { cursor: grabbing; }
+.kanban-card.dragging { opacity: 0.5; transform: rotate(2deg); }
+.kanban-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+
+.kanban-card .card-title { font-size: 12px; font-weight: 500; margin-bottom: 6px; }
+.kanban-card .card-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+.kanban-card .card-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  color: var(--cyan);
+}
+
+/* ─── Modal ────────────────────────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 500px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h2 { font-size: 14px; }
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+}
+.modal-close:hover { color: var(--text); }
+
+.modal-body { padding: 20px; }
+
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  color-scheme: dark;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.form-group textarea { resize: vertical; min-height: 60px; }
+
+.modal-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* ─── Notes ────────────────────────────────── */
+.notes-list { list-style: none; margin-top: 6px; }
+.notes-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.notes-list li .note-text { flex: 1; }
+.notes-list li .note-edit,
+.notes-list li .note-del {
+  cursor: pointer;
+  font-size: 11px;
+  opacity: 0.6;
+}
+.notes-list li .note-edit { color: var(--accent); }
+.notes-list li .note-edit:hover { opacity: 1; }
+.notes-list li .note-del { color: var(--red); }
+.notes-list li .note-del:hover { opacity: 1; }
+
+/* ─── Agenda ───────────────────────────────── */
+.agenda-section { margin-bottom: 20px; }
+.agenda-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.agenda-section h3.overdue { color: var(--red); }
+.agenda-section h3.today { color: var(--green); }
+.agenda-section h3.soon { color: var(--yellow); }
+
+/* ─── Stats ────────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+.stat-card .stat-value { font-size: 24px; font-weight: 700; color: var(--accent); }
+.stat-card .stat-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+.stat-bars { margin-top: 12px; }
+.stat-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.stat-bar-label { width: 100px; font-size: 11px; color: var(--text-dim); }
+.stat-bar {
+  flex: 1;
+  height: 18px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.stat-bar-count { font-size: 11px; width: 30px; text-align: right; }
+
+/* ─── Burndown Chart ───────────────────────── */
+.chart-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.chart-canvas { width: 100%; height: 300px; }
+
+/* ─── Weekly Report ────────────────────────── */
+.report-section { margin-bottom: 20px; }
+.report-section h3 {
+  font-size: 13px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.report-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.report-summary .item { text-align: center; }
+.report-summary .item .value { font-size: 18px; font-weight: 700; }
+.report-summary .item .label { font-size: 10px; color: var(--text-dim); }
+
+/* ─── Blockers ─────────────────────────────── */
+.blocker-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.blocker-item.blocked { border-left: 3px solid var(--red); }
+.blocker-deps { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+
+/* ─── Time Tracking ────────────────────────── */
+.time-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.time-total {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.time-total strong { color: var(--accent); }
+
+/* ─── Jira ─────────────────────────────────── */
+
+.jira-notification {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.jira-notification .jn-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.jira-notification .jn-key { color: var(--accent); font-weight: 600; font-size: 12px; }
+.jira-notification .jn-summary { font-size: 12px; color: var(--text); flex: 1; }
+.jira-notification .jn-reason {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--purple);
+  color: var(--bg);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.jira-notification .jn-body {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border-radius: 3px;
+  border-left: 2px solid var(--accent);
+}
+.jira-notification .jn-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.jira-notification .jn-meta .author { color: var(--yellow); }
+
+/* ─── Tags ─────────────────────────────────── */
+.tags-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tag-chip {
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 12px;
+  color: var(--cyan);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tag-chip:hover { border-color: var(--cyan); background: var(--bg-hover); }
+.tag-chip .tag-count { color: var(--text-dim); margin-left: 4px; font-size: 10px; }
+
+/* ─── Empty State ──────────────────────────── */
+.empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
+
+/* ─── Search Bar ───────────────────────────── */
+.search-box {
+  position: relative;
+  width: 260px;
+}
+.search-box input {
+  width: 100%;
+  padding: 6px 10px 6px 28px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.search-box input:focus { outline: none; border-color: var(--accent); }
+.search-box .search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-size: 12px;
+  pointer-events: none;
+}
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 200;
+  display: none;
+}
+.search-results.open { display: block; }
+.search-result-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.search-result-item:hover { background: var(--bg-hover); }
+.search-result-item.sr-selected { background: var(--bg-hover); outline: 1px solid var(--accent); }
+.search-result-item:last-child { border-bottom: none; }
+.search-result-item .sr-id { color: var(--text-dim); margin-right: 6px; }
+.search-result-item .sr-state { font-size: 9px; margin-right: 6px; }
+
+/* ─── Filter Chips ─────────────────────────── */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: all 0.15s;
+  line-height: 1;
+}
+.filter-chip:hover { border-color: var(--accent); color: var(--text); }
+.filter-chip.active { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
+.filter-clear {
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 3px 8px;
+}
+.filter-clear:hover { color: var(--red); }
+
+/* ─── Sort Header ──────────────────────────── */
+.sort-header {
+  display: grid;
+  grid-template-columns: 40px 110px 1fr 70px 90px;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 4px;
+}
+.sort-header span {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  letter-spacing: 0.3px;
+}
+.sort-header span:hover { color: var(--accent); }
+.sort-header span.sorted { color: var(--accent); font-weight: 700; }
+.sort-header span.sorted::after { content: ' ▼'; font-size: 8px; }
+.sort-header span.sorted.asc::after { content: ' ▲'; }
+
+/* ─── Inline Note Actions ──────────────────── */
+.task-notes li {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--border);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.task-notes li .note-content { flex: 1; }
+.task-notes .note-actions {
+  display: none;
+  gap: 4px;
+}
+.task-notes li:hover .note-actions { display: flex; }
+.task-notes .note-actions span {
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0.7;
+}
+.task-notes .note-actions span:hover { opacity: 1; }
+.task-notes .note-actions .na-edit { color: var(--accent); }
+.task-notes .note-actions .na-del { color: var(--red); }
+
+/* ─── Subtask Clickable ────────────────────── */
+.task-subtask {
+  display: grid;
+  grid-template-columns: 90px 1fr 70px 90px;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s;
+}
+.task-subtask:hover { background: var(--bg-hover); }
+.task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-align: center; }
+.task-subtask .sub-due { font-size: 10px; color: var(--text-dim); }
+.subtask-note { list-style: none; padding: 1px 0 1px 28px; font-size: 11px; color: var(--text-dim); font-style: italic; }
+.subtask-note .sn-text::before { content: "~ "; color: var(--border); }
+.subtask-tags { list-style: none; padding: 1px 0 1px 94px; display: flex; flex-wrap: wrap; gap: 3px; }
+
+/* ─── Subtask Section in Edit Modal ────────── */
+.subtasks-section { margin-top: 6px; }
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.subtask-row .st-state {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.subtask-row .st-title { flex: 1; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subtask-row .st-edit { color: var(--accent); cursor: pointer; font-size: 11px; opacity: 0.7; flex-shrink: 0; }
+.subtask-row .st-edit:hover { opacity: 1; }
+.subtask-row .st-del { color: var(--red); cursor: pointer; font-size: 11px; opacity: 0.7; flex-shrink: 0; margin-right: 4px; }
+.subtask-row .st-del:hover { opacity: 1; }
+
+/* ─── Jira Filter Chips ───────────────────── */
+.jira-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: all 0.15s;
+  line-height: 1;
+}
+.jira-chip:hover { border-color: var(--accent); color: var(--text); }
+.jira-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ─── Jira Issue Cards ────────────────────── */
+.jira-issue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.jira-issue:hover { background: var(--bg-hover); }
+.jira-issue .jira-key { font-weight: 600; color: var(--accent); min-width: 80px; }
+.jira-issue .jira-title { flex: 1; color: var(--text); }
+.jira-issue .jira-status { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; cursor: pointer; position: relative; background: var(--text-dim); color: var(--bg); flex-shrink: 0; min-width: 140px; text-align: center; display: inline-block; }
+.jira-issue .jira-status.js-todo { background: var(--text-dim); }
+.jira-issue .jira-status.js-progress { background: var(--accent); }
+.jira-issue .jira-status.js-done { background: var(--green); }
+.jira-issue .jira-status.js-hold { background: var(--yellow); }
+.jira-issue .jira-status.js-cancel { background: var(--red); }
+.jira-issue .jira-status.js-review { background: var(--purple); }
+.jira-issue .jira-status.js-qa { background: var(--cyan); }
+.jira-issue .jira-actions { display: flex; gap: 6px; }
+.jira-issue .jira-btn { font-size: 10px; padding: 3px 8px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text-dim); transition: all 0.15s; }
+.jira-issue .jira-btn:hover { border-color: var(--accent); color: var(--accent); }
+.jira-issue .jira-btn-open { color: var(--accent); }
+.jira-issue .jira-btn-assign { color: var(--green); }
+
+/* ─── Jira Move Dropdown ─────────────────── */
+.jira-move-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  min-width: 180px;
+  padding: 4px 0;
+  margin-top: 4px;
+}
+.jira-move-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+}
+.jira-move-option:hover { background: var(--bg-hover); }
+
+/* ─── Config View ─────────────────────────────── */
+.config-section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+.config-section h3 { font-size: 13px; color: var(--accent); margin-bottom: 12px; }
+.config-section .form-group { max-width: 400px; }
+
+/* ─── Log View ────────────────────────────────── */
+.log-entries { font-family: inherit; font-size: 12px; }
+.log-entry { padding: 4px 8px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
+.log-entry .log-time { color: var(--text-dim); min-width: 60px; flex-shrink: 0; }
+.log-entry .log-cat { font-weight: 600; min-width: 50px; flex-shrink: 0; }
+.log-entry .log-cat.cat-error { color: var(--red); }
+.log-entry .log-cat.cat-warn { color: var(--yellow); }
+.log-entry .log-cat.cat-sync { color: var(--cyan); }
+.log-entry .log-cat.cat-info { color: var(--text-dim); }
+.log-entry .log-msg { color: var(--text); }
+
+/* ─── Status Bar (footer) ─────────────────────── */
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 200px;
+  right: 0;
+  height: 24px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 10px;
+  color: var(--text-dim);
+  z-index: 50;
+}
+
+/* ─── Keyboard Shortcut Hint ───────────────── */
+.kbd-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 2px 5px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.btn-primary .kbd-hint { color: var(--bg); background: rgba(0,0,0,0.2); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>TextTaskManager</h1>
+    <div class="search-box">
+      <span class="search-icon">/</span>
+      <input type="text" id="search-input" placeholder="Search tasks... (press /)" autocomplete="off">
+      <div class="search-results" id="search-results"></div>
+    </div>
+    <div class="actions">
+      <span class="status-indicator" id="ind-sync" title="Sync">Sync <span class="ind-icon">?</span></span>
+      <span class="status-indicator" id="ind-jira" title="Jira">Jira <span class="ind-icon">?</span></span>
+      <button class="btn" onclick="loadView(currentView)" title="Refresh (r)">Refresh <span class="kbd-hint">r</span></button>
+      <button class="btn btn-primary" onclick="openNewTaskModal()">+ New Task <span class="kbd-hint">n</span></button>
+    </div>
+  </header>
+
+  <nav class="sidebar">
+    <div class="journal-selector">
+      <label style="font-size:9px;text-transform:uppercase;color:var(--dim);letter-spacing:0.5px">Journal</label>
+      <select id="journal-select" onchange="switchJournal(this.value)" style="width:100%;padding:4px 6px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;margin-top:2px"></select>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Views</div>
+      <a class="nav-item active" data-view="tasks"><span class="kbd-hint">t</span> Tasks</a>
+      <a class="nav-item" data-view="kanban"><span class="kbd-hint">k</span> Kanban</a>
+      <a class="nav-item" data-view="agenda"><span class="kbd-hint">a</span> Agenda</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reports</div>
+      <a class="nav-item" data-view="stats"><span class="kbd-hint">s</span> Stats</a>
+      <a class="nav-item" data-view="weekly"><span class="kbd-hint">w</span> Weekly Report</a>
+      <a class="nav-item" data-view="burndown"><span class="kbd-hint">b</span> Burndown</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Details</div>
+      <a class="nav-item" data-view="tags"><span class="kbd-hint">g</span> Tags</a>
+      <a class="nav-item" data-view="time"><span class="kbd-hint">i</span> Time Tracking</a>
+      <a class="nav-item" data-view="blockers"><span class="kbd-hint">x</span> Blockers</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Jira</div>
+      <a class="nav-item" data-view="jira" data-jira-filter="active"><span class="kbd-hint">j</span> Tasks</a>
+      <a class="nav-item" data-view="jira" data-jira-filter="notify"><span class="kbd-hint">o</span> Notifications</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">System</div>
+      <a class="nav-item" data-view="config"><span class="kbd-hint">c</span> Config</a>
+      <a class="nav-item" data-view="log"><span class="kbd-hint">l</span> Log</a>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Tasks View -->
+    <div id="view-tasks" class="view active">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 class="view-title">Tasks</h2>
+        <div>
+          <button class="btn btn-sm" id="btn-view-pending" onclick="loadTasks('pending')">Pending</button>
+          <button class="btn btn-sm" id="btn-view-all" onclick="loadTasks('all')">All</button>
+        </div>
+      </div>
+      <div class="filter-bar" id="filter-bar"></div>
+      <div class="sort-header" id="sort-header">
+        <span data-sort="id">ID</span>
+        <span data-sort="state">State</span>
+        <span data-sort="title">Title</span>
+        <span data-sort="priority">Priority</span>
+        <span data-sort="due_date">Due</span>
+      </div>
+      <ul class="task-list" id="task-list"></ul>
+    </div>
+
+    <!-- Kanban View -->
+    <div id="view-kanban" class="view">
+      <h2 class="view-title">Kanban Board</h2>
+      <div class="kanban-board" id="kanban-board"></div>
+    </div>
+
+    <!-- Agenda View -->
+    <div id="view-agenda" class="view">
+      <h2 class="view-title">Agenda</h2>
+      <div id="agenda-content"></div>
+    </div>
+
+    <!-- Stats View -->
+    <div id="view-stats" class="view">
+      <h2 class="view-title">Statistics</h2>
+      <div id="stats-content"></div>
+    </div>
+
+    <!-- Weekly Report View -->
+    <div id="view-weekly" class="view">
+      <h2 class="view-title">Weekly Report</h2>
+      <div id="weekly-content"></div>
+    </div>
+
+    <!-- Burndown View -->
+    <div id="view-burndown" class="view">
+      <h2 class="view-title">Burndown Chart</h2>
+      <div id="burndown-content"></div>
+    </div>
+
+    <!-- Tags View -->
+    <div id="view-tags" class="view">
+      <h2 class="view-title">Tags</h2>
+      <div id="tags-content"></div>
+      <div id="tags-tasks-section" style="display:none">
+        <h3 id="tags-tasks-title" style="font-size:13px;color:var(--accent);margin:16px 0 8px"></h3>
+        <ul id="tags-tasks-list" class="task-list"></ul>
+      </div>
+    </div>
+
+    <!-- Time Tracking View -->
+    <div id="view-time" class="view">
+      <h2 class="view-title">Time Tracking</h2>
+      <div id="time-content"></div>
+    </div>
+
+    <!-- Blockers View -->
+    <div id="view-blockers" class="view">
+      <h2 class="view-title">Blockers</h2>
+      <div id="blockers-content"></div>
+    </div>
+
+    <!-- Config View -->
+    <div id="view-config" class="view">
+      <h2 class="view-title">Configuration</h2>
+      <div id="config-content">
+        <div class="config-section">
+          <h3>Jira Integration</h3>
+          <div class="form-group">
+            <label>Jira URL</label>
+            <input type="text" id="cfg-jira-url" placeholder="https://your-org.atlassian.net">
+          </div>
+          <div class="form-group">
+            <label>Jira Email</label>
+            <input type="email" id="cfg-jira-email" placeholder="you@company.com">
+          </div>
+          <div class="form-group">
+            <label>API Token <span id="cfg-jira-token-status" style="font-size:9px;color:var(--green);text-transform:none"></span></label>
+            <input type="password" id="cfg-jira-token" placeholder="Jira API token">
+          </div>
+          <div class="form-group">
+            <label>Account ID</label>
+            <input type="text" id="cfg-jira-account-id" placeholder="Atlassian account ID">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Sync / Git</h3>
+          <div class="form-group">
+            <label>Sync Enabled</label>
+            <select id="cfg-sync-enabled">
+              <option value="false">Disabled</option>
+              <option value="true">Enabled</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Remote URL</label>
+            <input type="text" id="cfg-sync-remote" placeholder="git remote URL">
+          </div>
+          <div class="form-group">
+            <label>Branch</label>
+            <input type="text" id="cfg-sync-branch" placeholder="main">
+          </div>
+          <div class="form-group">
+            <label>Sync Token <span id="cfg-sync-token-status" style="font-size:9px;color:var(--green);text-transform:none"></span></label>
+            <input type="password" id="cfg-sync-token" placeholder="Auth token for sync">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>General</h3>
+          <div class="form-group">
+            <label>Date Format</label>
+            <input type="text" id="cfg-date-format" placeholder="%d/%m/%Y">
+          </div>
+          <div class="form-group">
+            <label>Agenda Days</label>
+            <input type="number" id="cfg-agenda-days" min="1" max="30">
+          </div>
+          <div class="form-group">
+            <label>Default State</label>
+            <input type="text" id="cfg-default-state" placeholder="BACKLOG">
+          </div>
+          <div class="form-group">
+            <label>Default Priority</label>
+            <input type="text" id="cfg-default-priority" placeholder="(none)">
+          </div>
+          <div class="form-group">
+            <label>Show Completed by Default</label>
+            <select id="cfg-show-done">
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Weekly Report Days</label>
+            <input type="number" id="cfg-weekly-report-days" min="1" max="30">
+          </div>
+          <div class="form-group">
+            <label>Max Undo</label>
+            <input type="number" id="cfg-max-undo" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>Prompt Format</label>
+            <input type="text" id="cfg-prompt-format" placeholder="{user} {time} > ">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>States</h3>
+          <div class="form-group">
+            <label>States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-states" placeholder="BACKLOG, IN PROGRESS, WAITING, ...">
+          </div>
+          <div class="form-group">
+            <label>Finished States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-finished-states" placeholder="DONE, CANCELLED">
+          </div>
+          <div class="form-group">
+            <label>Progress States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-progress-states" placeholder="IN PROGRESS">
+          </div>
+          <div class="form-group">
+            <label>Testing States <span style="font-size:9px;color:var(--dim)">(comma-separated)</span></label>
+            <input type="text" id="cfg-testing-states" placeholder="TESTING">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Priorities</h3>
+          <div class="form-group">
+            <label>Priorities <span style="font-size:9px;color:var(--dim)">(comma-separated, ordered)</span></label>
+            <input type="text" id="cfg-priorities" placeholder="LOW, MEDIUM, HIGH, URGENT">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Kanban</h3>
+          <div class="form-group">
+            <label>Kanban Columns <span style="font-size:9px;color:var(--dim)">(comma-separated states)</span></label>
+            <input type="text" id="cfg-kanban-columns" placeholder="BACKLOG, IN PROGRESS, ...">
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Sort &amp; Display</h3>
+          <div class="form-group">
+            <label>Sort By</label>
+            <select id="cfg-sort-by">
+              <option value="none">None</option>
+              <option value="priority">Priority</option>
+              <option value="due_date">Due Date</option>
+              <option value="state">State</option>
+              <option value="title">Title</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Sort Direction</label>
+            <select id="cfg-sort-direction">
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </div>
+        </div>
+        <div class="config-section">
+          <h3>Email Notifications</h3>
+          <div class="form-group">
+            <label>SMTP Host</label>
+            <input type="text" id="cfg-email-host" placeholder="smtp.gmail.com">
+          </div>
+          <div class="form-group">
+            <label>SMTP Port</label>
+            <input type="number" id="cfg-email-port" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label>SMTP User</label>
+            <input type="text" id="cfg-email-user" placeholder="you@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>SMTP Password</label>
+            <input type="password" id="cfg-email-password" placeholder="App password">
+          </div>
+          <div class="form-group">
+            <label>From Address</label>
+            <input type="text" id="cfg-email-from" placeholder="you@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>Default Recipient</label>
+            <input type="text" id="cfg-email-recipient" placeholder="team@company.com">
+          </div>
+          <div class="form-group">
+            <label>Subject Prefix</label>
+            <input type="text" id="cfg-email-prefix" placeholder="[TaskManager]">
+          </div>
+        </div>
+        <div class="config-actions" style="margin-top:16px">
+          <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+          <span id="config-status" style="margin-left:12px;font-size:11px;color:var(--green)"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log View -->
+    <div id="view-log" class="view">
+      <h2 class="view-title">Application Log</h2>
+      <div id="log-content" class="log-entries"></div>
+    </div>
+
+    <!-- Jira View -->
+    <div id="view-jira" class="view">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 class="view-title" id="jira-view-title">Jira Tasks</h2>
+      </div>
+      <div id="jira-filters" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px">
+        <span class="jira-chip active" data-jira-f="active">Active</span>
+        <span class="jira-chip" data-jira-f="todo">To Do</span>
+        <span class="jira-chip" data-jira-f="progress">In Progress</span>
+        <span class="jira-chip" data-jira-f="review">In Review</span>
+        <span class="jira-chip" data-jira-f="blocked">Blocked</span>
+        <span class="jira-chip" data-jira-f="overdue">Overdue</span>
+        <span class="jira-chip" data-jira-f="done">Done</span>
+        <span class="jira-chip" data-jira-f="cancelled">Cancelled</span>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          <input type="text" id="jira-search-input" placeholder="Search..." style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;font-size:11px;width:160px" onkeydown="if(event.key==='Enter')jiraSearch()">
+          <button class="btn btn-sm" onclick="jiraSearch()" style="font-size:11px;padding:4px 8px">Go</button>
+        </div>
+      </div>
+      <div id="jira-content"></div>
+    </div>
+  </main>
+</div>
+
+<div class="status-bar" id="status-bar"></div>
+
+<!-- Edit Task Modal -->
+<div class="modal-overlay" id="modal-edit">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modal-edit-title">Edit Task</h2>
+      <button class="modal-close" onclick="closeModal('modal-edit')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-task-id">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="edit-title">
+      </div>
+      <div class="form-group">
+        <label>State</label>
+        <select id="edit-state"></select>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <select id="edit-priority"></select>
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input type="date" id="edit-due">
+      </div>
+      <div class="form-group">
+        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated)</span></label>
+        <input type="text" id="edit-tags" placeholder="e.g. frontend, urgent">
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <ul class="notes-list" id="edit-notes-list"></ul>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <textarea id="edit-new-note" placeholder="Add a note..." rows="2" style="flex:1;resize:vertical"></textarea>
+          <button class="btn btn-sm" onclick="addNote()">Add</button>
+        </div>
+      </div>
+      <div class="form-group" id="edit-subtasks-group">
+        <label>Subtasks</label>
+        <div class="subtasks-section" id="edit-subtasks-list"></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <input type="text" id="edit-new-subtask" placeholder="Add a subtask..." style="flex:1">
+          <button class="btn btn-sm" onclick="addSubtask()">Add</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="deleteCurrentTask()">Delete</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="closeModal('modal-edit')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveTask()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Task Modal -->
+<div class="modal-overlay" id="modal-new">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>New Task</h2>
+      <button class="modal-close" onclick="closeModal('modal-new')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="new-title" autofocus>
+      </div>
+      <div class="form-group">
+        <label>State</label>
+        <select id="new-state"></select>
+      </div>
+      <div class="form-group">
+        <label>Priority</label>
+        <select id="new-priority"></select>
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input type="date" id="new-due">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="closeModal('modal-new')">Cancel</button>
+        <button class="btn btn-primary" onclick="createTask()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tag Tasks Modal -->
+<div class="modal-overlay" id="modal-tag">
+  <div class="modal" style="width:600px">
+    <div class="modal-header">
+      <h2 id="modal-tag-title">Tag Tasks</h2>
+      <button class="modal-close" onclick="closeModal('modal-tag')">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-tag-body">
+    </div>
+  </div>
+</div>
+
+<!-- Subtask Edit Modal -->
+<div class="modal-overlay" id="modal-subtask">
+  <div class="modal" style="width:460px">
+    <div class="modal-header">
+      <h2>Edit Subtask</h2>
+      <button class="modal-close" onclick="closeModal('modal-subtask')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="subtask-edit-id">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="subtask-edit-title">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="form-group">
+          <label>State</label>
+          <select id="subtask-edit-state"></select>
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="subtask-edit-due">
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="subtask-edit-priority">
+            <option value="">None</option>
+            <option value="LOW">LOW</option>
+            <option value="MEDIUM">MEDIUM</option>
+            <option value="HIGH">HIGH</option>
+            <option value="URGENT">URGENT</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated)</span></label>
+        <input type="text" id="subtask-edit-tags" placeholder="e.g. frontend, urgent">
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <div id="subtask-notes-list" style="margin-bottom:6px"></div>
+        <div style="display:flex;gap:6px">
+          <textarea id="subtask-new-note" placeholder="Add a note..." rows="2" style="flex:1;resize:vertical"></textarea>
+          <button class="btn btn-sm" onclick="addSubtaskNote()">Add</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="deleteSubtask()">Delete</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="closeModal('modal-subtask')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSubtask()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────
+let STATES = [];
+let PRIORITIES = [];
+let currentView = 'tasks';
+let currentTaskView = 'pending';
+let taskCache = {};  // id -> task object
+let subtaskCache = {};  // subtask_id -> subtask object
+let allTasks = [];   // flat list for filtering/sorting
+let activeFilters = { state: null, priority: null, tag: null, text: '' };
+let currentSort = { field: null, asc: true };
+let currentJiraFilter = 'active';
+
+// ─── API helpers ────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+function cacheTasks(tasks) {
+  tasks.forEach(t => {
+    taskCache[t.id] = t;
+    (t.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+  });
+}
+
+// ─── Navigation ─────────────────────────────────
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    el.classList.add('active');
+    const view = el.dataset.view;
+    if (view === 'jira' && el.dataset.jiraFilter) {
+      currentJiraFilter = el.dataset.jiraFilter;
+    }
+    switchView(view);
+  });
+});
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(`view-${view}`).classList.add('active');
+  loadView(view);
+}
+
+function loadView(view) {
+  const loaders = {
+    tasks: () => loadTasks(currentTaskView),
+    kanban: loadKanban,
+    agenda: loadAgenda,
+    stats: loadStats,
+    weekly: loadWeekly,
+    burndown: loadBurndown,
+    tags: loadTags,
+    time: loadTime,
+    blockers: loadBlockers,
+    jira: loadJira,
+    config: loadConfig,
+    log: loadLog,
+  };
+  if (loaders[view]) loaders[view]();
+}
+
+// ─── Tasks View ─────────────────────────────────
+async function loadTasks(view = 'pending') {
+  currentTaskView = view;
+  document.getElementById('btn-view-pending').classList.toggle('btn-primary', view === 'pending');
+  document.getElementById('btn-view-all').classList.toggle('btn-primary', view === 'all');
+
+  const data = await api('GET', `/api/tasks?view=${view}`);
+  if (data.states) STATES = data.states;
+  if (data.priorities) PRIORITIES = data.priorities;
+
+  if (!data.tasks || data.tasks.length === 0) {
+    document.getElementById('task-list').innerHTML = '<li class="empty">No tasks</li>';
+    document.getElementById('filter-bar').innerHTML = '';
+    return;
+  }
+
+  cacheTasks(data.tasks);
+  allTasks = data.tasks;
+  buildFilterBar(data.tasks);
+  renderFilteredTasks();
+}
+
+function buildFilterBar(tasks) {
+  const states = [...new Set(tasks.map(t => t.state))].sort();
+  const priorities = [...new Set(tasks.map(t => t.priority).filter(Boolean))];
+  const tags = [...new Set(tasks.flatMap(t => t.tags || []))].sort();
+
+  let html = '<span style="font-size:10px;color:var(--text-dim);margin-right:4px">Filter:</span>';
+  // Text filter
+  html += `<span class="kbd-hint" style="margin-right:4px">f</span><input type="text" id="filter-text-input" placeholder="text..." value="${h(activeFilters.text)}" 
+    style="width:120px;padding:3px 8px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit"
+    oninput="onFilterTextChange(this.value)">`;
+  html += '<span style="width:8px"></span>';
+  states.forEach(s => {
+    html += `<span class="filter-chip${activeFilters.state===s?' active':''}" onclick="toggleFilter('state','${s}')">${s}</span>`;
+  });
+  html += '<span style="width:8px"></span>';
+  priorities.forEach(p => {
+    html += `<span class="filter-chip${activeFilters.priority===p?' active':''}" onclick="toggleFilter('priority','${p}')">${p}</span>`;
+  });
+  if (tags.length) {
+    html += '<span style="width:8px"></span>';
+    tags.forEach(tag => {
+      html += `<span class="filter-chip${activeFilters.tag===tag?' active':''}" onclick="toggleFilter('tag','${tag}')">#${tag}</span>`;
+    });
+  }
+  if (activeFilters.state || activeFilters.priority || activeFilters.tag || activeFilters.text) {
+    html += `<span class="filter-clear" onclick="clearFilters()">Clear</span>`;
+  }
+  document.getElementById('filter-bar').innerHTML = html;
+}
+
+function onFilterTextChange(value) {
+  activeFilters.text = value.trim().toLowerCase();
+  renderFilteredTasks();
+}
+
+function toggleFilter(type, value) {
+  activeFilters[type] = activeFilters[type] === value ? null : value;
+  buildFilterBar(allTasks);
+  renderFilteredTasks();
+}
+
+function clearFilters() {
+  activeFilters = { state: null, priority: null, tag: null, text: '' };
+  buildFilterBar(allTasks);
+  renderFilteredTasks();
+}
+
+function renderFilteredTasks() {
+  let tasks = allTasks.filter(t => {
+    if (activeFilters.state && t.state !== activeFilters.state) return false;
+    if (activeFilters.priority && t.priority !== activeFilters.priority) return false;
+    if (activeFilters.tag && !(t.tags || []).includes(activeFilters.tag)) return false;
+    if (activeFilters.text) {
+      const q = activeFilters.text;
+      const inTitle = t.title.toLowerCase().includes(q);
+      const inTags = (t.tags || []).some(tag => tag.toLowerCase().includes(q));
+      const inNotes = (t.notes || []).some(n => n.toLowerCase().includes(q));
+      const inSubtasks = (t.subtasks || []).some(st => st.title.toLowerCase().includes(q));
+      if (!inTitle && !inTags && !inNotes && !inSubtasks) return false;
+    }
+    return true;
+  });
+
+  if (currentSort.field) {
+    tasks = [...tasks].sort((a, b) => {
+      let va = a[currentSort.field] || '';
+      let vb = b[currentSort.field] || '';
+      if (currentSort.field === 'id') { va = parseInt(va); vb = parseInt(vb); }
+      if (currentSort.field === 'priority') {
+        const order = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3, '': 4 };
+        va = order[va] ?? 4; vb = order[vb] ?? 4;
+      }
+      if (currentSort.field === 'due_date') {
+        va = va ? va.split('/').reverse().join('') : '9999';
+        vb = vb ? vb.split('/').reverse().join('') : '9999';
+      }
+      if (va < vb) return currentSort.asc ? -1 : 1;
+      if (va > vb) return currentSort.asc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  const list = document.getElementById('task-list');
+  if (tasks.length === 0) {
+    list.innerHTML = '<li class="empty">No tasks match filters</li>';
+  } else {
+    list.innerHTML = tasks.map(t => renderTaskItem(t)).join('');
+  }
+}
+
+// Sort header click
+document.getElementById('sort-header').addEventListener('click', e => {
+  const span = e.target.closest('[data-sort]');
+  if (!span) return;
+  const field = span.dataset.sort;
+  if (currentSort.field === field) {
+    currentSort.asc = !currentSort.asc;
+  } else {
+    currentSort = { field, asc: true };
+  }
+  // Update visual
+  document.querySelectorAll('.sort-header span').forEach(s => s.className = '');
+  span.className = 'sorted' + (currentSort.asc ? ' asc' : '');
+  renderFilteredTasks();
+});
+
+function renderTaskItem(t, showStateDropdown = true) {
+  return `
+    <li class="task-item" data-id="${t.id}" onclick="openEditModal('${t.id}')">
+      <div class="task-row">
+        <span class="task-id">#${t.id}</span>
+        <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
+        <span class="task-title">${h(stripTags(t.title))}</span>
+        <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
+        <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
+      </div>
+      ${t.tags && t.tags.length ? `<div class="task-tags">${t.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
+      ${t.subtasks && t.subtasks.length ? `
+        <ul class="task-subtasks">
+          ${t.subtasks.map(st => `
+            <li class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
+              <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
+              <span class="sub-title">${h(stripTags(st.title))}</span>
+              <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
+              <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
+            </li>
+            ${st.tags && st.tags.length ? `<li class="subtask-tags">${st.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</li>` : ''}
+            ${st.notes && st.notes.length ? st.notes.map(n => `
+              <li class="subtask-note"><span class="sn-text">${h(n)}</span></li>
+            `).join('') : ''}
+          `).join('')}
+        </ul>
+      ` : ''}
+      ${t.notes && t.notes.length ? `
+        <ul class="task-notes">
+          ${t.notes.map((n, i) => `
+            <li>
+              <span class="note-content">${h(n)}</span>
+              <span class="note-actions">
+                <span class="na-edit" onclick="event.stopPropagation();inlineEditNote('${t.id}',${i},'${h(n).replace(/'/g,"\\'")}')">edit</span>
+                <span class="na-del" onclick="event.stopPropagation();inlineDeleteNote('${t.id}',${i})">x</span>
+              </span>
+            </li>
+          `).join('')}
+        </ul>
+      ` : ''}
+    </li>`;
+}
+
+// ─── Inline Note Actions (Task List) ────────────
+async function inlineDeleteNote(taskId, index) {
+  if (!confirm('Delete this note?')) return;
+  const data = await api('POST', `/api/tasks/${taskId}/notes/delete`, { index });
+  if (data.id) { taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st); }
+  loadView(currentView);
+}
+
+async function inlineEditNote(taskId, index, oldNote) {
+  const newNote = prompt('Edit note:', oldNote);
+  if (newNote === null || newNote.trim() === '' || newNote === oldNote) return;
+  const data = await api('POST', `/api/tasks/${taskId}/notes/edit`, { index, note: newNote.trim() });
+  if (data.id) { taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st); }
+  loadView(currentView);
+}
+
+// ─── Kanban View ────────────────────────────────
+async function loadKanban() {
+  const data = await api('GET', '/api/kanban');
+  const board = document.getElementById('kanban-board');
+
+  // Pre-cache all kanban tasks
+  data.columns.forEach(col => cacheTasks(data.tasks[col] || []));
+
+  board.innerHTML = data.columns.map(col => `
+    <div class="kanban-col" data-column="${col}">
+      <div class="kanban-col-header">
+        <span>${col}</span>
+        <span class="kanban-col-count">${(data.tasks[col] || []).length}</span>
+      </div>
+      <div class="kanban-col-body" data-column="${col}"
+           ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">
+        ${(data.tasks[col] || []).map(t => `
+          <div class="kanban-card" draggable="true" data-id="${t.id}"
+               ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"
+               onclick="openEditModal('${t.id}')">
+            <div class="card-title">${h(t.title)}</div>
+            <div class="card-meta">
+              ${t.priority ? `<span class="priority-badge priority-${t.priority}" style="font-size:9px">${t.priority}</span>` : ''}
+              ${t.due_date ? `<span class="due-badge ${isOverdue(t.due_date) ? 'overdue' : ''}" style="font-size:10px">${t.due_date}</span>` : ''}
+              ${(t.tags || []).map(tag => `<span class="card-tag">#${tag}</span>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+// Drag & Drop
+function kanbanDragStart(e) {
+  e.target.classList.add('dragging');
+  e.dataTransfer.setData('text/plain', e.target.dataset.id);
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function kanbanDragEnd(e) {
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.kanban-col-body').forEach(el => el.classList.remove('drag-over'));
+}
+
+function kanbanDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.classList.add('drag-over');
+}
+
+function kanbanDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+async function kanbanDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const taskId = e.dataTransfer.getData('text/plain');
+  const newState = e.currentTarget.dataset.column;
+
+  await api('POST', `/api/tasks/${taskId}/state`, { state: newState });
+  loadKanban();
+}
+
+// ─── Agenda View ────────────────────────────────
+async function loadAgenda() {
+  const data = await api('GET', '/api/agenda');
+  const el = document.getElementById('agenda-content');
+
+  let html = '';
+  if (data.overdue.length > 0) {
+    html += `<div class="agenda-section"><h3 class="overdue">Overdue (${data.overdue.length})</h3>`;
+    html += taskListHtml(data.overdue);
+    html += '</div>';
+  }
+  if (data.due_today.length > 0) {
+    html += `<div class="agenda-section"><h3 class="today">Due Today (${data.due_today.length})</h3>`;
+    html += taskListHtml(data.due_today);
+    html += '</div>';
+  }
+  if (data.due_soon.length > 0) {
+    html += `<div class="agenda-section"><h3 class="soon">Due Soon (${data.due_soon.length})</h3>`;
+    html += taskListHtml(data.due_soon);
+    html += '</div>';
+  }
+  if (!html) html = '<div class="empty">No upcoming deadlines</div>';
+  el.innerHTML = html;
+}
+
+// ─── Stats View ─────────────────────────────────
+async function loadStats() {
+  const data = await api('GET', '/api/stats');
+  const el = document.getElementById('stats-content');
+
+  const maxState = Math.max(...Object.values(data.by_state), 1);
+  const maxPri = Math.max(...Object.values(data.by_priority || {}), 1);
+
+  el.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value">${data.total}</div><div class="stat-label">Total Tasks</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--red)">${data.overdue}</div><div class="stat-label">Overdue</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--green)">${data.due_today}</div><div class="stat-label">Due Today</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--yellow)">${data.due_this_week}</div><div class="stat-label">Due This Week</div></div>
+    </div>
+    <h3 style="margin:16px 0 8px;font-size:13px">By State</h3>
+    <div class="stat-bars">
+      ${Object.entries(data.by_state).map(([s, c]) => `
+        <div class="stat-bar-row">
+          <span class="stat-bar-label">${s}</span>
+          <div class="stat-bar"><div class="stat-bar-fill state-${s.replace(/ /g, '_')}" style="width:${(c/maxState)*100}%"></div></div>
+          <span class="stat-bar-count">${c}</span>
+        </div>
+      `).join('')}
+    </div>
+    ${Object.keys(data.by_priority || {}).length > 0 ? `
+      <h3 style="margin:16px 0 8px;font-size:13px">By Priority</h3>
+      <div class="stat-bars">
+        ${Object.entries(data.by_priority).map(([p, c]) => `
+          <div class="stat-bar-row">
+            <span class="stat-bar-label">${p}</span>
+            <div class="stat-bar"><div class="stat-bar-fill priority-${p}" style="width:${(c/maxPri)*100}%"></div></div>
+            <span class="stat-bar-count">${c}</span>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+  `;
+}
+
+// ─── Weekly Report ──────────────────────────────
+async function loadWeekly() {
+  const data = await api('GET', '/api/weekly');
+  const el = document.getElementById('weekly-content');
+
+  el.innerHTML = `
+    <div class="report-summary">
+      <div class="item"><div class="value">${data.total}</div><div class="label">Total</div></div>
+      <div class="item"><div class="value" style="color:var(--green)">${data.total_done}</div><div class="label">Done</div></div>
+      <div class="item"><div class="value" style="color:var(--accent)">${data.total_pending}</div><div class="label">Pending</div></div>
+      <div class="item"><div class="value" style="color:var(--green)">${data.completed.length}</div><div class="label">Completed (${data.days}d)</div></div>
+    </div>
+    <p style="font-size:11px;color:var(--text-dim);margin-bottom:16px">Period: ${data.period_start} - ${data.period_end}</p>
+    <div class="report-section">
+      <h3 style="color:var(--green)">Completed (${data.completed.length})</h3>
+      ${data.completed.length ? taskListHtml(data.completed) : '<div class="empty">None</div>'}
+    </div>
+    <div class="report-section">
+      <h3 style="color:var(--accent)">In Progress (${data.in_progress.length})</h3>
+      ${data.in_progress.length ? taskListHtml(data.in_progress) : '<div class="empty">None</div>'}
+    </div>
+    <div class="report-section">
+      <h3 style="color:var(--yellow)">Upcoming (${data.upcoming.length})</h3>
+      ${data.upcoming.length ? taskListHtml(data.upcoming) : '<div class="empty">None</div>'}
+    </div>
+  `;
+}
+
+// ─── Burndown Chart ─────────────────────────────
+async function loadBurndown() {
+  const data = await api('GET', '/api/burndown');
+  const el = document.getElementById('burndown-content');
+
+  if (!data.points || data.points.length === 0) {
+    el.innerHTML = '<div class="empty">No data to chart</div>';
+    return;
+  }
+
+  const maxVal = data.total_tasks;
+  const w = 700, ht = 300, pad = 40;
+  const chartW = w - pad * 2, chartH = ht - pad * 2;
+  const stepX = chartW / Math.max(data.points.length - 1, 1);
+
+  let path = '';
+  data.points.forEach((p, i) => {
+    const x = pad + i * stepX;
+    const y = pad + chartH - (p.remaining / maxVal) * chartH;
+    path += (i === 0 ? 'M' : 'L') + `${x},${y}`;
+  });
+
+  el.innerHTML = `
+    <div class="chart-container">
+      <div style="display:flex;gap:16px;margin-bottom:12px;font-size:11px;color:var(--text-dim)">
+        <span>Total: ${data.total_tasks}</span>
+        <span>Remaining: ${data.current_remaining}</span>
+        <span>Velocity: ${data.velocity} done</span>
+        <span>Ideal: -${data.ideal_per_day.toFixed(1)}/day</span>
+      </div>
+      <svg width="${w}" height="${ht}" style="width:100%;height:auto">
+        ${Array.from({length: 5}, (_, i) => {
+          const y = pad + (i / 4) * chartH;
+          const val = Math.round(maxVal - (i / 4) * maxVal);
+          return `<line x1="${pad}" y1="${y}" x2="${pad+chartW}" y2="${y}" stroke="var(--border)" stroke-dasharray="4"/>
+                  <text x="${pad-5}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--text-dim)">${val}</text>`;
+        }).join('')}
+        <line x1="${pad}" y1="${pad}" x2="${pad+chartW}" y2="${pad+chartH}" stroke="var(--text-dim)" stroke-dasharray="6" stroke-width="1.5"/>
+        <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        ${data.points.map((p, i) => {
+          const x = pad + i * stepX;
+          const y = pad + chartH - (p.remaining / maxVal) * chartH;
+          return `<circle cx="${x}" cy="${y}" r="3" fill="var(--accent)"/>`;
+        }).join('')}
+        ${data.points.filter((_, i) => i % Math.ceil(data.points.length / 7) === 0 || i === data.points.length - 1).map((p) => {
+          const i = data.points.indexOf(p);
+          const x = pad + i * stepX;
+          return `<text x="${x}" y="${ht-8}" text-anchor="middle" font-size="9" fill="var(--text-dim)">${p.date}</text>`;
+        }).join('')}
+      </svg>
+    </div>
+  `;
+}
+
+// ─── Tags View ──────────────────────────────────
+async function loadTags() {
+  const data = await api('GET', '/api/tags');
+  const el = document.getElementById('tags-content');
+  document.getElementById('tags-tasks-section').style.display = 'none';
+
+  if (!data.tags || Object.keys(data.tags).length === 0) {
+    el.innerHTML = '<div class="empty">No tags found</div>';
+    return;
+  }
+
+  const sorted = Object.entries(data.tags).sort((a, b) => b[1] - a[1]);
+  el.innerHTML = `
+    <div class="tags-cloud">
+      ${sorted.map(([tag, count]) => `
+        <span class="tag-chip" onclick="openTagTasks('${tag}')">#${tag}<span class="tag-count">${count}</span></span>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function openTagTasks(tag) {
+  const data = await api('GET', `/api/tags/tasks?tag=${encodeURIComponent(tag)}`);
+  const section = document.getElementById('tags-tasks-section');
+  document.getElementById('tags-tasks-title').textContent = '#' + tag;
+
+  const list = document.getElementById('tags-tasks-list');
+  if (!data.tasks || data.tasks.length === 0) {
+    list.innerHTML = '<div class="empty">No tasks with this tag</div>';
+  } else {
+    cacheTasks(data.tasks);
+    list.innerHTML = taskListHtml(data.tasks);
+  }
+  section.style.display = 'block';
+  section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ─── Time Tracking ──────────────────────────────
+async function loadTime() {
+  const data = await api('GET', '/api/time');
+  const el = document.getElementById('time-content');
+
+  if (!data.tasks || data.tasks.length === 0) {
+    el.innerHTML = '<div class="empty">No time tracked</div>';
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="time-total">Total time: <strong>${data.total_formatted}</strong></div>
+    ${data.tasks.map(item => `
+      <div class="time-item">
+        <span>${h(item.task.title)}</span>
+        <span style="color:var(--accent);font-weight:600">${item.formatted}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ─── Blockers View ──────────────────────────────
+async function loadBlockers() {
+  const data = await api('GET', '/api/blockers');
+  const el = document.getElementById('blockers-content');
+
+  if (!data.blockers || data.blockers.length === 0) {
+    el.innerHTML = '<div class="empty">No blockers</div>';
+    return;
+  }
+
+  el.innerHTML = data.blockers.map(b => `
+    <div class="blocker-item ${b.is_blocked ? 'blocked' : ''}">
+      <div style="font-weight:500">${h(b.task.title)}</div>
+      <div class="blocker-deps">
+        ${b.blocked_by.length ? `<span style="color:var(--red)">Blocked by: ${b.blocked_by.map(h).join(', ')}</span>` : ''}
+        ${b.blocks.length ? `<span style="color:var(--yellow)">Blocks: ${b.blocks.map(h).join(', ')}</span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── Jira View ──────────────────────────────────
+function jiraStatusClass(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('done') || s.includes('closed') || s.includes('resolved')) return 'js-done';
+  if (s.includes('backlog')) return 'js-todo';
+  if (s.includes('progress') || s.includes('development') || s.includes('refining')) return 'js-progress';
+  if (s.includes('review')) return 'js-review';
+  if (s.includes('hold') || s.includes('waiting') || s.includes('blocked')) return 'js-hold';
+  if (s.includes('cancel') || s.includes('discard')) return 'js-cancel';
+  if (s.includes('qa') || s.includes('test')) return 'js-qa';
+  return 'js-todo';
+}
+
+const JIRA_FILTER_LABELS = {
+  active: 'Active', todo: 'To Do', progress: 'In Progress',
+  review: 'In Review', blocked: 'Blocked', overdue: 'Overdue',
+  done: 'Done', cancelled: 'Cancelled', notify: 'Notifications'
+};
+let jiraBaseUrl = '';
+const jiraTransitionCache = {}; // cache by status name
+
+// Chip click handlers
+document.getElementById('jira-filters')?.addEventListener('click', (e) => {
+  const chip = e.target.closest('.jira-chip');
+  if (!chip) return;
+  document.querySelectorAll('.jira-chip').forEach(c => c.classList.remove('active'));
+  chip.classList.add('active');
+  currentJiraFilter = chip.dataset.jiraF;
+  loadJira();
+});
+
+async function loadJira() {
+  const filter = currentJiraFilter;
+
+  // If sidebar says "notify", hide filters bar, show notifications
+  const filtersBar = document.getElementById('jira-filters');
+  if (filter === 'notify') {
+    filtersBar.style.display = 'none';
+    document.getElementById('jira-view-title').textContent = 'Notifications';
+  } else {
+    filtersBar.style.display = 'flex';
+    document.getElementById('jira-view-title').textContent = 'Jira Tasks';
+  }
+
+  const el = document.getElementById('jira-content');
+  el.innerHTML = '<div class="empty">Loading...</div>';
+
+  const data = await api('GET', `/api/jira?filter=${filter}`);
+
+  if (!data.configured) {
+    el.innerHTML = '<div class="empty">Jira not configured. Run <code>config jira</code> in the CLI.</div>';
+    return;
+  }
+  if (data.error) {
+    el.innerHTML = `<div class="empty">Error: ${h(data.error)}</div>`;
+    return;
+  }
+
+  // Store base_url for "Open in Jira" links
+  if (data.base_url) jiraBaseUrl = data.base_url;
+
+  // Handle notifications view
+  if (filter === 'notify') {
+    renderJiraNotifications(data.notifications || []);
+    return;
+  }
+
+  // Issue list view
+  if (!data.issues || data.issues.length === 0) {
+    const label = JIRA_FILTER_LABELS[filter] || 'active';
+    el.innerHTML = `<div class="empty">No ${label.toLowerCase()} issues</div>`;
+    return;
+  }
+
+  el.innerHTML = data.issues.map(issue => `
+    <div class="jira-issue">
+      <span class="jira-key">${issue.key}</span>
+      <span class="jira-status ${jiraStatusClass(issue.status)}" onclick="event.stopPropagation();toggleJiraStatus(this, '${issue.key}', '${h(issue.status || '')}')">${issue.status || ''}</span>
+      <span class="jira-title">${h(issue.summary || '')}</span>
+      <div class="jira-actions">
+        <button class="jira-btn jira-btn-open" onclick="openInJira('${issue.key}')" title="Open in browser">Open</button>
+        <button class="jira-btn jira-btn-assign" onclick="assignJiraToTask('${issue.key}', '${h(issue.summary || '').replace(/'/g, "\\'")}')" title="Link to local task">Assign</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openInJira(key) {
+  if (!jiraBaseUrl) { alert('Jira URL not available'); return; }
+  const url = jiraBaseUrl.replace(/\/$/, '') + '/browse/' + key;
+  window.open(url, '_blank');
+}
+
+async function assignJiraToTask(jiraKey, summary) {
+  // Ask user which task to assign this Jira issue to, or create a new one
+  const choice = prompt(`Assign ${jiraKey} to an existing task ID, or type "new" to create a task:\n(${summary})`);
+  if (!choice) return;
+
+  if (choice.trim().toLowerCase() === 'new') {
+    // Create a new task with this Jira key
+    const data = await api('POST', '/api/tasks', { title: summary, state: 'IN PROGRESS', jira_key: jiraKey });
+    if (data.ok || data.id) {
+      alert(`Created task linked to ${jiraKey}`);
+      loadView('tasks');
+    } else {
+      alert('Failed to create task: ' + (data.error || 'unknown error'));
+    }
+  } else {
+    // Link existing task
+    const taskId = choice.trim();
+    const data = await api('POST', `/api/tasks/${taskId}/edit`, { jira_key: jiraKey });
+    if (data.ok || data.id) {
+      alert(`Linked ${jiraKey} to task ${taskId}`);
+    } else {
+      alert('Failed to link: ' + (data.error || 'Task not found'));
+    }
+  }
+}
+
+async function toggleJiraStatus(el, issueKey, currentStatus) {
+  // Remove any existing dropdown
+  document.querySelectorAll('.jira-move-dropdown').forEach(d => d.remove());
+
+  // Use cached transitions if available for this status
+  let transitions = jiraTransitionCache[currentStatus];
+  if (!transitions) {
+    const data = await api('GET', `/api/jira/transitions?key=${issueKey}`);
+    transitions = data.transitions || [];
+    if (currentStatus) jiraTransitionCache[currentStatus] = transitions;
+  }
+
+  if (transitions.length === 0) {
+    alert('No transitions available for ' + issueKey);
+    return;
+  }
+
+  // Create dropdown positioned relative to the status badge
+  const dropdown = document.createElement('div');
+  dropdown.className = 'jira-move-dropdown';
+  dropdown.innerHTML = transitions.map(tr => `
+    <div class="jira-move-option" onclick="event.stopPropagation();doJiraTransition('${issueKey}', '${tr.id}')">
+      <span>${h(tr.name)}</span>
+      ${tr.to && tr.to !== tr.name ? `<span style="color:var(--text-dim);font-size:10px">${h(tr.to)}</span>` : ''}
+    </div>
+  `).join('');
+
+  el.appendChild(dropdown);
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function handler(e) {
+      if (!dropdown.contains(e.target) && e.target !== el) {
+        dropdown.remove();
+        document.removeEventListener('click', handler);
+      }
+    });
+  }, 0);
+}
+
+async function doJiraTransition(issueKey, transitionId) {
+  document.querySelectorAll('.jira-move-dropdown').forEach(d => d.remove());
+
+  const data = await api('POST', '/api/jira/transition', { key: issueKey, transition_id: transitionId });
+  if (data.ok) {
+    loadJira();
+  } else {
+    alert('Failed to move ' + issueKey + ': ' + (data.error || 'unknown error'));
+  }
+}
+
+async function jiraSearch() {
+  const query = document.getElementById('jira-search-input').value.trim();
+  if (!query) return;
+
+  const el = document.getElementById('jira-content');
+  el.innerHTML = '<div class="empty">Searching...</div>';
+
+  const data = await api('GET', `/api/jira?filter=find&q=${encodeURIComponent(query)}`);
+
+  if (data.error) {
+    el.innerHTML = `<div class="empty">Error: ${h(data.error)}</div>`;
+    return;
+  }
+  if (data.base_url) jiraBaseUrl = data.base_url;
+  if (!data.issues || data.issues.length === 0) {
+    el.innerHTML = `<div class="empty">No results for "${h(query)}"</div>`;
+    return;
+  }
+
+  el.innerHTML = `<p style="font-size:11px;color:var(--text-dim);margin-bottom:8px">${data.issues.length} result(s) for "${h(query)}"</p>` +
+    data.issues.map(issue => `
+      <div class="jira-issue">
+        <span class="jira-key">${issue.key}</span>
+        <span class="jira-status ${jiraStatusClass(issue.status)}" onclick="event.stopPropagation();toggleJiraStatus(this, '${issue.key}', '${h(issue.status || '')}')">${issue.status || ''}</span>
+        <span class="jira-title">${h(issue.summary || '')}</span>
+        <div class="jira-actions">
+          <button class="jira-btn jira-btn-open" onclick="openInJira('${issue.key}')" title="Open in browser">Open</button>
+          <button class="jira-btn jira-btn-assign" onclick="assignJiraToTask('${issue.key}', '${h(issue.summary || '').replace(/'/g, "\\'")}')" title="Link to local task">Assign</button>
+        </div>
+      </div>
+    `).join('');
+}
+
+function renderJiraNotifications(notifications) {
+  const el = document.getElementById('jira-content');
+  if (!notifications.length) {
+    el.innerHTML = '<div class="empty">No unread notifications</div>';
+    return;
+  }
+
+  el.innerHTML = notifications.map(n => `
+    <div class="jira-notification">
+      <div class="jn-header">
+        <span class="jn-key" style="cursor:pointer" onclick="openInJira('${n.key}')">${n.key}</span>
+        <span class="jn-summary">${h(n.summary)}</span>
+        <span class="jn-reason">${n.reason}</span>
+      </div>
+      <div class="jn-body">${h(n.body)}</div>
+      <div class="jn-meta"><span class="author">${h(n.author)}</span> &mdash; ${n.date}</div>
+    </div>
+  `).join('');
+}
+
+// ─── State Dropdown ─────────────────────────────
+function toggleStateDropdown(el, taskId, currentState) {
+  document.querySelectorAll('.state-dropdown').forEach(d => d.remove());
+
+  const dd = document.createElement('div');
+  dd.className = 'state-dropdown open';
+  dd.innerHTML = STATES.map(s => `
+    <div class="option${s === currentState ? ' current' : ''}"
+         onclick="event.stopPropagation();changeState('${taskId}','${s}');this.parentElement.remove()">
+      ${s}
+    </div>
+  `).join('');
+
+  el.style.position = 'relative';
+  el.appendChild(dd);
+
+  setTimeout(() => {
+    document.addEventListener('click', function handler() {
+      dd.remove();
+      document.removeEventListener('click', handler);
+    }, { once: true });
+  }, 0);
+}
+
+async function changeState(taskId, state) {
+  await api('POST', `/api/tasks/${taskId}/state`, { state });
+  loadView(currentView);
+}
+
+// ─── Config View ────────────────────────────────
+async function loadConfig() {
+  const data = await api('GET', '/api/config');
+  if (!data) return;
+
+  const s = data.settings || {};
+  const sec = data.secrets || {};
+
+  // Populate Jira fields
+  document.getElementById('cfg-jira-url').value = sec.jira_url || '';
+  document.getElementById('cfg-jira-email').value = sec.jira_email || '';
+  document.getElementById('cfg-jira-token').value = '';
+  document.getElementById('cfg-jira-token-status').textContent = sec.jira_api_token ? '(set)' : '';
+  document.getElementById('cfg-jira-account-id').value = sec.jira_account_id || '';
+
+  // Populate Sync fields
+  const sync = s.sync || {};
+  document.getElementById('cfg-sync-enabled').value = sync.enabled ? 'true' : 'false';
+  document.getElementById('cfg-sync-remote').value = sync.remote || '';
+  document.getElementById('cfg-sync-branch').value = sync.branch || 'main';
+  document.getElementById('cfg-sync-token').value = '';
+  document.getElementById('cfg-sync-token-status').textContent = sec.sync_token ? '(set)' : '';
+
+  // Populate General fields
+  document.getElementById('cfg-date-format').value = s.date_format || '%d/%m/%Y';
+  document.getElementById('cfg-agenda-days').value = s.agenda_days || 7;
+  document.getElementById('cfg-default-state').value = s.default_state || 'BACKLOG';
+  document.getElementById('cfg-default-priority').value = s.default_priority || '';
+  document.getElementById('cfg-show-done').value = s.show_done_default ? 'true' : 'false';
+  document.getElementById('cfg-weekly-report-days').value = s.weekly_report_days || 7;
+  document.getElementById('cfg-max-undo').value = s.max_undo || 20;
+  document.getElementById('cfg-prompt-format').value = s.prompt_format || '';
+
+  // Populate States
+  document.getElementById('cfg-states').value = (s.states || []).join(', ');
+  document.getElementById('cfg-finished-states').value = (s.finished_states || []).join(', ');
+  document.getElementById('cfg-progress-states').value = (s.progress_states || []).join(', ');
+  document.getElementById('cfg-testing-states').value = (s.testing_states || []).join(', ');
+
+  // Populate Priorities
+  document.getElementById('cfg-priorities').value = (s.priorities || []).join(', ');
+
+  // Populate Kanban
+  document.getElementById('cfg-kanban-columns').value = (s.kanban_columns || []).join(', ');
+
+  // Populate Sort
+  document.getElementById('cfg-sort-by').value = s.sort_by || 'none';
+  document.getElementById('cfg-sort-direction').value = s.sort_direction || 'asc';
+
+  // Populate Email
+  const email = s.email || {};
+  document.getElementById('cfg-email-host').value = email.smtp_host || '';
+  document.getElementById('cfg-email-port').value = email.smtp_port || 587;
+  document.getElementById('cfg-email-user').value = email.smtp_user || '';
+  document.getElementById('cfg-email-password').value = '';
+  document.getElementById('cfg-email-from').value = email.from_address || '';
+  document.getElementById('cfg-email-recipient').value = email.default_recipient || '';
+  document.getElementById('cfg-email-prefix').value = email.subject_prefix || '[TaskManager]';
+
+  document.getElementById('config-status').textContent = '';
+}
+
+async function saveConfig() {
+  // Helper: split comma-separated string into trimmed array (filter blanks)
+  const csvToArr = v => v.split(',').map(s => s.trim()).filter(Boolean);
+
+  const payload = {
+    settings: {
+      sync: {
+        enabled: document.getElementById('cfg-sync-enabled').value === 'true',
+        remote: document.getElementById('cfg-sync-remote').value.trim(),
+        branch: document.getElementById('cfg-sync-branch').value.trim() || 'main',
+      },
+      email: {
+        smtp_host: document.getElementById('cfg-email-host').value.trim(),
+        smtp_port: parseInt(document.getElementById('cfg-email-port').value) || 587,
+        smtp_user: document.getElementById('cfg-email-user').value.trim(),
+        smtp_password: document.getElementById('cfg-email-password').value.trim() || undefined,
+        from_address: document.getElementById('cfg-email-from').value.trim(),
+        default_recipient: document.getElementById('cfg-email-recipient').value.trim(),
+        subject_prefix: document.getElementById('cfg-email-prefix').value.trim() || '[TaskManager]',
+      },
+      date_format: document.getElementById('cfg-date-format').value.trim(),
+      agenda_days: parseInt(document.getElementById('cfg-agenda-days').value) || 7,
+      default_state: document.getElementById('cfg-default-state').value.trim(),
+      default_priority: document.getElementById('cfg-default-priority').value.trim() || null,
+      show_done_default: document.getElementById('cfg-show-done').value === 'true',
+      weekly_report_days: parseInt(document.getElementById('cfg-weekly-report-days').value) || 7,
+      max_undo: parseInt(document.getElementById('cfg-max-undo').value) || 20,
+      prompt_format: document.getElementById('cfg-prompt-format').value,
+      states: csvToArr(document.getElementById('cfg-states').value),
+      finished_states: csvToArr(document.getElementById('cfg-finished-states').value),
+      progress_states: csvToArr(document.getElementById('cfg-progress-states').value),
+      testing_states: csvToArr(document.getElementById('cfg-testing-states').value),
+      priorities: csvToArr(document.getElementById('cfg-priorities').value),
+      kanban_columns: csvToArr(document.getElementById('cfg-kanban-columns').value),
+      sort_by: document.getElementById('cfg-sort-by').value,
+      sort_direction: document.getElementById('cfg-sort-direction').value,
+    },
+    secrets: {
+      jira_url: document.getElementById('cfg-jira-url').value.trim(),
+      jira_email: document.getElementById('cfg-jira-email').value.trim(),
+      jira_api_token: document.getElementById('cfg-jira-token').value.trim(),
+      jira_account_id: document.getElementById('cfg-jira-account-id').value.trim(),
+      sync_token: document.getElementById('cfg-sync-token').value.trim(),
+    },
+  };
+
+  // Don't send undefined smtp_password (keep existing)
+  if (!payload.settings.email.smtp_password) delete payload.settings.email.smtp_password;
+
+  const data = await api('POST', '/api/config', payload);
+  const statusEl = document.getElementById('config-status');
+  if (data.ok) {
+    statusEl.textContent = 'Saved!';
+    statusEl.style.color = 'var(--green)';
+  } else {
+    statusEl.textContent = 'Error: ' + (data.errors || []).join(', ');
+    statusEl.style.color = 'var(--red)';
+  }
+  setTimeout(() => { statusEl.textContent = ''; }, 3000);
+}
+
+// ─── Log View ───────────────────────────────────
+async function loadLog() {
+  const data = await api('GET', '/api/log');
+  const el = document.getElementById('log-content');
+  if (!data.entries || data.entries.length === 0) {
+    el.innerHTML = '<div class="empty">No log entries yet</div>';
+    return;
+  }
+  el.innerHTML = data.entries.slice().reverse().map(e => `
+    <div class="log-entry">
+      <span class="log-time">${e.time}</span>
+      <span class="log-cat cat-${e.category}">${e.category}</span>
+      <span class="log-msg">${h(e.message)}</span>
+    </div>
+  `).join('');
+}
+
+async function updateStatusBar() {
+  const data = await api('GET', '/api/log');
+  const bar = document.getElementById('status-bar');
+  if (data.entries && data.entries.length > 0) {
+    const last = data.entries[data.entries.length - 1];
+    bar.textContent = `${last.time} [${last.category}] ${last.message}`;
+  }
+}
+
+// Poll status bar every 10s
+updateStatusBar();
+setInterval(updateStatusBar, 10000);
+
+// ─── Service Status Indicators ──────────────────
+async function updateServiceStatus() {
+  const data = await api('GET', '/api/status');
+  const syncEl = document.querySelector('#ind-sync .ind-icon');
+  const jiraEl = document.querySelector('#ind-jira .ind-icon');
+  syncEl.textContent = data.sync ? '\u2713' : '\u2717';
+  syncEl.className = 'ind-icon ' + (data.sync ? 'ind-ok' : 'ind-fail');
+  jiraEl.textContent = data.jira ? '\u2713' : '\u2717';
+  jiraEl.className = 'ind-icon ' + (data.jira ? 'ind-ok' : 'ind-fail');
+}
+updateServiceStatus();
+
+// ─── Journal Selector ───────────────────────────
+async function loadJournals() {
+  const data = await api('GET', '/api/journals');
+  if (!data || !data.journals) return;
+  const sel = document.getElementById('journal-select');
+  sel.innerHTML = data.journals.map(j =>
+    `<option value="${h(j.name)}" ${j.current ? 'selected' : ''}>${h(j.stem)}</option>`
+  ).join('');
+}
+async function switchJournal(name) {
+  const data = await api('POST', '/api/journals/switch', { name });
+  if (data && data.ok) {
+    loadView(currentView);
+  }
+}
+loadJournals();
+
+// ─── Edit Modal ─────────────────────────────────
+function openEditModal(taskId) {
+  const task = taskCache[taskId];
+  if (!task) return;
+
+  document.getElementById('edit-task-id').value = taskId;
+  document.getElementById('edit-title').value = stripTags(task.title);
+  document.getElementById('edit-tags').value = (task.tags || []).join(', ');
+
+  const stateEl = document.getElementById('edit-state');
+  stateEl.innerHTML = STATES.map(s => `<option value="${s}" ${s === task.state ? 'selected' : ''}>${s}</option>`).join('');
+
+  const priEl = document.getElementById('edit-priority');
+  priEl.innerHTML = '<option value="">None</option>' + PRIORITIES.map(p => `<option value="${p}" ${p === task.priority ? 'selected' : ''}>${p}</option>`).join('');
+
+  const dueEl = document.getElementById('edit-due');
+  if (task.due_date) {
+    const parts = task.due_date.split('/');
+    if (parts.length === 3) dueEl.value = `${parts[2]}-${parts[1]}-${parts[0]}`;
+  } else {
+    dueEl.value = '';
+  }
+
+  // Notes
+  renderNotes(task.notes || []);
+
+  // Subtasks
+  renderSubtasksInModal(task.subtasks || []);
+
+  document.getElementById('modal-edit').classList.add('open');
+}
+
+function renderNotes(notes) {
+  const list = document.getElementById('edit-notes-list');
+  list.innerHTML = notes.map((note, i) => `
+    <li>
+      <span class="note-text">${h(note)}</span>
+      <span class="note-edit" onclick="editNoteInModal(${i},'${h(note).replace(/'/g,"\\'")}')">edit</span>
+      <span class="note-del" onclick="deleteNote(${i})">x</span>
+    </li>
+  `).join('');
+}
+
+function renderSubtasksInModal(subtasks) {
+  const el = document.getElementById('edit-subtasks-list');
+  if (!subtasks.length) {
+    el.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">No subtasks</span>';
+    return;
+  }
+  el.innerHTML = subtasks.map(st => `
+    <div class="subtask-row">
+      <span class="st-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
+      <span class="st-title">${h(st.title)}</span>
+      <span class="st-edit" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">edit</span>
+      <span class="st-del" onclick="event.stopPropagation();deleteSubtaskFromModal('${st.id}')">x</span>
+    </div>
+  `).join('');
+}
+
+async function addNote() {
+  const input = document.getElementById('edit-new-note');
+  const note = input.value.trim();
+  if (!note) return;
+
+  const taskId = document.getElementById('edit-task-id').value;
+  const data = await api('POST', `/api/tasks/${taskId}/notes`, { note });
+  if (data.notes) renderNotes(data.notes);
+  if (data.id) taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+  input.value = '';
+}
+
+async function editNoteInModal(index, oldNote) {
+  const newNote = prompt('Edit note:', oldNote);
+  if (newNote === null || newNote.trim() === '' || newNote === oldNote) return;
+  const taskId = document.getElementById('edit-task-id').value;
+  const data = await api('POST', `/api/tasks/${taskId}/notes/edit`, { index, note: newNote.trim() });
+  if (data.notes) renderNotes(data.notes);
+  if (data.id) taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+}
+
+async function deleteNote(index) {
+  const taskId = document.getElementById('edit-task-id').value;
+  const data = await api('POST', `/api/tasks/${taskId}/notes/delete`, { index });
+  if (data.notes) renderNotes(data.notes);
+  if (data.id) taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+}
+
+async function addSubtask() {
+  const input = document.getElementById('edit-new-subtask');
+  const title = input.value.trim();
+  if (!title) return;
+
+  const taskId = document.getElementById('edit-task-id').value;
+  const data = await api('POST', `/api/tasks/${taskId}/subtasks`, { title, state: 'BACKLOG' });
+  if (data.subtasks) renderSubtasksInModal(data.subtasks);
+  if (data.id) taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+  input.value = '';
+}
+
+async function deleteSubtaskFromModal(subtaskId) {
+  if (!confirm('Delete this subtask?')) return;
+  await api('POST', `/api/subtasks/${subtaskId}/delete`, {});
+  // Refresh the parent task data
+  const taskId = document.getElementById('edit-task-id').value;
+  const freshTasks = await api('GET', `/api/tasks?view=${currentTaskView}`);
+  if (freshTasks.tasks) {
+    cacheTasks(freshTasks.tasks);
+    const updated = taskCache[taskId];
+    if (updated) renderSubtasksInModal(updated.subtasks || []);
+  }
+}
+
+async function saveTask() {
+  const taskId = document.getElementById('edit-task-id').value;
+  const title = document.getElementById('edit-title').value.trim();
+  const state = document.getElementById('edit-state').value;
+  const priority = document.getElementById('edit-priority').value;
+  const dueRaw = document.getElementById('edit-due').value;
+  const tags = document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+
+  let due_date = '';
+  if (dueRaw) {
+    const parts = dueRaw.split('-');
+    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
+  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, due_date, tags });
+  closeModal('modal-edit');
+  loadView(currentView);
+}
+
+async function deleteCurrentTask() {
+  const taskId = document.getElementById('edit-task-id').value;
+  if (!confirm('Delete this task?')) return;
+  await api('POST', `/api/tasks/${taskId}/delete`, {});
+  closeModal('modal-edit');
+  loadView(currentView);
+}
+
+// ─── Subtask Modal ──────────────────────────────
+function openSubtaskModal(subtaskId) {
+  const st = subtaskCache[subtaskId];
+  if (!st) return;
+
+  document.getElementById('subtask-edit-id').value = subtaskId;
+  document.getElementById('subtask-edit-title').value = stripTags(st.title);
+  const stDueEl = document.getElementById('subtask-edit-due');
+  if (st.due_date) {
+    const parts = st.due_date.split('/');
+    stDueEl.value = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : st.due_date;
+  } else {
+    stDueEl.value = '';
+  }
+  document.getElementById('subtask-edit-tags').value = (st.tags || []).join(', ');
+
+  const stateEl = document.getElementById('subtask-edit-state');
+  stateEl.innerHTML = STATES.map(s => `<option value="${s}" ${s === st.state ? 'selected' : ''}>${s}</option>`).join('');
+
+  const prioEl = document.getElementById('subtask-edit-priority');
+  prioEl.value = st.priority || '';
+
+  renderSubtaskNotes(st.notes || []);
+  document.getElementById('subtask-new-note').value = '';
+
+  document.getElementById('modal-subtask').classList.add('open');
+}
+
+function renderSubtaskNotes(notes) {
+  const el = document.getElementById('subtask-notes-list');
+  if (!notes.length) {
+    el.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">No notes</span>';
+    return;
+  }
+  el.innerHTML = notes.map((n, i) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
+      <span style="flex:1;color:var(--text)">${h(n)}</span>
+      <span style="cursor:pointer;color:var(--accent);opacity:0.7" onclick="editSubtaskNote(${i})" title="Edit">edit</span>
+      <span style="cursor:pointer;color:var(--red);opacity:0.7" onclick="deleteSubtaskNote(${i})" title="Delete">x</span>
+    </div>
+  `).join('');
+}
+
+async function addSubtaskNote() {
+  const subtaskId = document.getElementById('subtask-edit-id').value;
+  const input = document.getElementById('subtask-new-note');
+  const note = input.value.trim();
+  if (!note) return;
+
+  await api('POST', `/api/subtasks/${subtaskId}/notes`, { note });
+  input.value = '';
+  // Refresh subtask data
+  const freshTasks = await api('GET', '/api/tasks');
+  if (freshTasks && freshTasks.tasks) {
+    cacheTasks(freshTasks.tasks);
+  }
+  const fresh = subtaskCache[subtaskId];
+  if (fresh) renderSubtaskNotes(fresh.notes || []);
+}
+
+async function deleteSubtaskNote(noteIndex) {
+  const subtaskId = document.getElementById('subtask-edit-id').value;
+  await api('POST', `/api/subtasks/${subtaskId}/notes/delete`, { note_index: noteIndex });
+  const freshTasks = await api('GET', '/api/tasks');
+  if (freshTasks && freshTasks.tasks) {
+    cacheTasks(freshTasks.tasks);
+  }
+  const fresh = subtaskCache[subtaskId];
+  if (fresh) renderSubtaskNotes(fresh.notes || []);
+}
+
+async function editSubtaskNote(noteIndex) {
+  const subtaskId = document.getElementById('subtask-edit-id').value;
+  const st = subtaskCache[subtaskId];
+  if (!st) return;
+  const current = (st.notes || [])[noteIndex] || '';
+  const newNote = prompt('Edit note:', current);
+  if (newNote === null || newNote.trim() === '') return;
+
+  await api('POST', `/api/subtasks/${subtaskId}/notes/edit`, { note_index: noteIndex, note: newNote.trim() });
+  const freshTasks = await api('GET', '/api/tasks');
+  if (freshTasks && freshTasks.tasks) {
+    cacheTasks(freshTasks.tasks);
+  }
+  const fresh = subtaskCache[subtaskId];
+  if (fresh) renderSubtaskNotes(fresh.notes || []);
+}
+
+async function saveSubtask() {
+  const subtaskId = document.getElementById('subtask-edit-id').value;
+  const title = document.getElementById('subtask-edit-title').value.trim();
+  const state = document.getElementById('subtask-edit-state').value;
+  const dueRaw = document.getElementById('subtask-edit-due').value || '';
+  const priority = document.getElementById('subtask-edit-priority').value || '';
+  const tags = document.getElementById('subtask-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+
+  let due_date = '';
+  if (dueRaw) {
+    const parts = dueRaw.split('-');
+    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
+  if (!title) return;
+  await api('POST', `/api/subtasks/${subtaskId}/edit`, { title, state, due_date, priority, tags });
+  closeModal('modal-subtask');
+  loadView(currentView);
+}
+
+async function deleteSubtask() {
+  const subtaskId = document.getElementById('subtask-edit-id').value;
+  if (!confirm('Delete this subtask?')) return;
+  await api('POST', `/api/subtasks/${subtaskId}/delete`, {});
+  closeModal('modal-subtask');
+  loadView(currentView);
+}
+
+// ─── New Task Modal ─────────────────────────────
+function openNewTaskModal() {
+  document.getElementById('new-title').value = '';
+  document.getElementById('new-due').value = '';
+
+  const stateEl = document.getElementById('new-state');
+  stateEl.innerHTML = STATES.map(s => `<option value="${s}" ${s === 'BACKLOG' ? 'selected' : ''}>${s}</option>`).join('');
+
+  const priEl = document.getElementById('new-priority');
+  priEl.innerHTML = '<option value="">None</option>' + PRIORITIES.map(p => `<option value="${p}">${p}</option>`).join('');
+
+  document.getElementById('modal-new').classList.add('open');
+  setTimeout(() => document.getElementById('new-title').focus(), 100);
+}
+
+async function createTask() {
+  const title = document.getElementById('new-title').value.trim();
+  if (!title) return;
+
+  const state = document.getElementById('new-state').value;
+  const priority = document.getElementById('new-priority').value;
+  const dueRaw = document.getElementById('new-due').value;
+
+  let due_date = '';
+  if (dueRaw) {
+    const parts = dueRaw.split('-');
+    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
+  await api('POST', '/api/tasks', { title, state, priority: priority || undefined, due_date: due_date || undefined });
+  closeModal('modal-new');
+  loadView(currentView);
+}
+
+// ─── Search ─────────────────────────────────────
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+let searchTimeout = null;
+let searchSelectedIdx = -1;
+
+function updateSearchSelection() {
+  const items = searchResults.querySelectorAll('.search-result-item');
+  items.forEach((el, i) => el.classList.toggle('sr-selected', i === searchSelectedIdx));
+  if (searchSelectedIdx >= 0 && items[searchSelectedIdx]) {
+    items[searchSelectedIdx].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+searchInput.addEventListener('keydown', e => {
+  if (!searchResults.classList.contains('open')) return;
+  const items = searchResults.querySelectorAll('.search-result-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchSelectedIdx = Math.min(searchSelectedIdx + 1, items.length - 1);
+    updateSearchSelection();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchSelectedIdx = Math.max(searchSelectedIdx - 1, 0);
+    updateSearchSelection();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (searchSelectedIdx >= 0 && items[searchSelectedIdx]) {
+      items[searchSelectedIdx].click();
+    }
+  }
+});
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  searchSelectedIdx = -1;
+  const q = searchInput.value.trim();
+  if (q.length < 2) {
+    searchResults.classList.remove('open');
+    return;
+  }
+  searchTimeout = setTimeout(async () => {
+    const data = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
+    if (data.tasks && data.tasks.length > 0) {
+      cacheTasks(data.tasks);
+      searchResults.innerHTML = data.tasks.slice(0, 12).map(t => `
+        <div class="search-result-item" onclick="searchResultClick('${t.id}')">
+          <span class="sr-id">#${t.id}</span>
+          <span class="sr-state state-badge state-${t.state.replace(/ /g,'_')}" style="font-size:9px;padding:1px 4px">${t.state}</span>
+          ${h(stripTags(t.title))}
+        </div>
+      `).join('');
+      searchResults.classList.add('open');
+    } else {
+      searchResults.innerHTML = '<div class="search-result-item" style="color:var(--text-dim)">No results</div>';
+      searchResults.classList.add('open');
+    }
+  }, 200);
+});
+
+searchInput.addEventListener('blur', () => {
+  setTimeout(() => searchResults.classList.remove('open'), 200);
+});
+
+function searchResultClick(taskId) {
+  searchResults.classList.remove('open');
+  searchInput.value = '';
+  openEditModal(taskId);
+}
+
+// ─── Modal helpers ──────────────────────────────
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  // Reset form fields so reopening doesn't show stale data
+  const modal = document.getElementById(id);
+  modal.querySelectorAll('input[type="text"], input[type="date"], input[type="hidden"]').forEach(el => el.value = '');
+  modal.querySelectorAll('textarea').forEach(el => el.value = '');
+  modal.querySelectorAll('select').forEach(el => el.selectedIndex = 0);
+  modal.querySelectorAll('.notes-list, .subtasks-section').forEach(el => el.innerHTML = '');
+}
+
+// ─── Keyboard Shortcuts ─────────────────────────
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
+
+document.addEventListener('keydown', e => {
+  // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  // Don't trigger shortcuts when typing in inputs
+  const tag = e.target.tagName;
+  const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    searchResults.classList.remove('open');
+    searchInput.blur();
+    return;
+  }
+
+  if (isInput) return;
+
+  if (NAV_KEYS[e.key]) {
+    e.preventDefault();
+    const target = NAV_KEYS[e.key];
+    if (target.includes(':')) {
+      const [view, filter] = target.split(':');
+      currentJiraFilter = filter;
+      switchView(view);
+    } else {
+      switchView(target);
+    }
+  } else if (e.key === 'r') {
+    e.preventDefault();
+    loadView(currentView);
+  } else if (e.key === 'n') {
+    e.preventDefault();
+    openNewTaskModal();
+  } else if (e.key === '/') {
+    e.preventDefault();
+    searchInput.focus();
+  } else if (e.key === 'f') {
+    e.preventDefault();
+    const filterInput = document.getElementById('filter-text-input');
+    if (filterInput) filterInput.focus();
+  }
+});
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+// ─── Utility ────────────────────────────────────
+function h(str) { return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function stripTags(str) { return String(str || '').replace(/#\w+/g, '').replace(/\s{2,}/g, ' ').trim(); }
+
+function isOverdue(dateStr) {
+  if (!dateStr) return false;
+  const parts = dateStr.split('/');
+  if (parts.length !== 3) return false;
+  const d = new Date(parts[2], parts[1] - 1, parts[0]);
+  return d < new Date(new Date().toDateString());
+}
+
+function taskListHtml(tasks) {
+  cacheTasks(tasks);
+  return `<ul class="task-list">${tasks.map(t => renderTaskItem(t, false)).join('')}</ul>`;
+}
+
+// ─── Init ───────────────────────────────────────
+loadTasks('pending');
+</script>
+</body>
+</html>

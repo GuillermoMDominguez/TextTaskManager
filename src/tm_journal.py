@@ -929,11 +929,14 @@ def update_task_metadata_in_file(
     due_date: Optional[datetime],
     priority: Optional[str],
     recurrence: Optional[str] = None,
+    jira_key: Optional[str] = None,
 ) -> bool:
     """Update due date, priority, and/or recurrence metadata for a parent task.
 
     recurrence=None means keep existing, recurrence="" means remove,
     recurrence="weekly" etc means set that value.
+    jira_key=None means keep existing, jira_key="" means remove,
+    jira_key="KEY-123" means set that value.
     """
     if task.source_line is None:
         return False
@@ -946,6 +949,14 @@ def update_task_metadata_in_file(
     else:
         effective_recurrence = recurrence  # set new value
 
+    # Determine effective jira_key
+    if jira_key is None:
+        effective_jira_key = task.jira_key  # keep existing
+    elif jira_key == "":
+        effective_jira_key = None  # remove
+    else:
+        effective_jira_key = jira_key  # set new value
+
     try:
         lines = _read_lines(filepath)
         line_index = task.source_line - 1
@@ -953,7 +964,7 @@ def update_task_metadata_in_file(
             return False
 
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=task.jira_key)
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=effective_jira_key)
         _write_lines(filepath, lines)
         return True
     except Exception:
@@ -1005,6 +1016,90 @@ def delete_subtask_in_file(filepath: str, subtask: Subtask) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         del lines[line_index]
+        _write_lines(filepath, lines)
+        return True
+    except Exception:
+        return False
+
+
+def _render_subtask_line(
+    title: str,
+    state: str,
+    due_date: Optional[datetime] = None,
+    priority: Optional[str] = None,
+    indent: str = "    ",
+) -> str:
+    """Render a subtask line: + title -- STATE -- due:... -- priority:..."""
+    parts = [f"{indent}+ {title} -- {state}"]
+    if due_date is not None:
+        parts.append(f"due:{due_date.strftime('%d/%m/%Y')}")
+    if priority:
+        parts.append(f"priority:{priority}")
+    return " -- ".join(parts) + "\n"
+
+
+def update_subtask_metadata_in_file(
+    filepath: str,
+    subtask: "Subtask",
+    due_date: Optional[datetime] = None,
+    priority: Optional[str] = None,
+    clear_due: bool = False,
+    clear_priority: bool = False,
+) -> bool:
+    """Update due date and/or priority on a subtask line."""
+    if subtask.source_line is None:
+        return False
+
+    effective_due = None if clear_due else (due_date if due_date is not None else subtask.due_date)
+    effective_priority = None if clear_priority else (priority if priority is not None else subtask.priority)
+
+    try:
+        lines = _read_lines(filepath)
+        line_index = subtask.source_line - 1
+        if line_index < 0 or line_index >= len(lines):
+            return False
+        indent = _task_line_indent(lines[line_index], "+")
+        lines[line_index] = _render_subtask_line(subtask.title, subtask.state, effective_due, effective_priority, indent)
+        _write_lines(filepath, lines)
+        return True
+    except Exception:
+        return False
+
+
+def add_note_to_subtask_in_file(filepath: str, subtask: "Subtask", note: str) -> bool:
+    """Add a note line after the subtask line."""
+    clean_note = note.strip()
+    if subtask.source_line is None or not clean_note:
+        return False
+
+    try:
+        lines = _read_lines(filepath)
+        line_index = subtask.source_line - 1
+        if line_index < 0 or line_index >= len(lines):
+            return False
+
+        # Determine indentation: subtask uses 4 spaces, note uses 6 or 8
+        base_indent = _task_line_indent(lines[line_index], "+")
+        note_indent = base_indent + "    "
+
+        # Find insertion point: right after the subtask line (and any existing notes)
+        insert_idx = line_index + 1
+        while insert_idx < len(lines):
+            cline = lines[insert_idx]
+            if not cline.strip():
+                break
+            # Subtask notes start with deeper indentation and ":"
+            stripped = cline.strip()
+            if stripped.startswith(":"):
+                insert_idx += 1
+                continue
+            # If it's deeper indentation content (continuation), skip
+            if len(cline) > len(base_indent) + 4 and cline[0].isspace():
+                insert_idx += 1
+                continue
+            break
+
+        lines.insert(insert_idx, f"{note_indent}: {clean_note}\n")
         _write_lines(filepath, lines)
         return True
     except Exception:
