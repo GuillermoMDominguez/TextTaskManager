@@ -61,7 +61,7 @@
         "time": "green",
         "date": "green",
         "journal": "green",
-        "separator": "green"
+        "separator": "gray"
     },
     "colors_enabled": true,
     "background_color": "0,0,0",

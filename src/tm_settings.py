@@ -42,7 +42,7 @@ DEFAULT_SETTINGS = {
         "time": "green",
         "date": "green",
         "journal": "green",
-        "separator": "green",
+        "separator": "gray",
     },
     "colors_enabled": True,
     "max_undo": 20,
