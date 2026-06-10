@@ -797,7 +797,14 @@ main {
 .jira-issue:hover { background: var(--bg-hover); }
 .jira-issue .jira-key { font-weight: 600; color: var(--accent); min-width: 80px; }
 .jira-issue .jira-title { flex: 1; color: var(--text); }
-.jira-issue .jira-status { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg); border: 1px solid var(--border); cursor: pointer; position: relative; }
+.jira-issue .jira-status { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; cursor: pointer; position: relative; background: var(--text-dim); color: var(--bg); flex-shrink: 0; }
+.jira-issue .jira-status.js-todo { background: var(--text-dim); }
+.jira-issue .jira-status.js-progress { background: var(--accent); }
+.jira-issue .jira-status.js-done { background: var(--green); }
+.jira-issue .jira-status.js-hold { background: var(--yellow); }
+.jira-issue .jira-status.js-cancel { background: var(--red); }
+.jira-issue .jira-status.js-review { background: var(--purple); }
+.jira-issue .jira-status.js-qa { background: var(--cyan); }
 .jira-issue .jira-actions { display: flex; gap: 6px; }
 .jira-issue .jira-btn { font-size: 10px; padding: 3px 8px; border-radius: 3px; cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--text-dim); transition: all 0.15s; }
 .jira-issue .jira-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -1661,12 +1668,24 @@ async function loadBlockers() {
 }
 
 // ─── Jira View ──────────────────────────────────
+function jiraStatusClass(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('done') || s.includes('closed') || s.includes('resolved')) return 'js-done';
+  if (s.includes('progress') || s.includes('development') || s.includes('refining')) return 'js-progress';
+  if (s.includes('review')) return 'js-review';
+  if (s.includes('hold') || s.includes('waiting') || s.includes('blocked')) return 'js-hold';
+  if (s.includes('cancel') || s.includes('discard')) return 'js-cancel';
+  if (s.includes('qa') || s.includes('test')) return 'js-qa';
+  return 'js-todo';
+}
+
 const JIRA_FILTER_LABELS = {
   active: 'Active', todo: 'To Do', progress: 'In Progress',
   review: 'In Review', blocked: 'Blocked', overdue: 'Overdue',
   done: 'Done', cancelled: 'Cancelled', notify: 'Notifications'
 };
 let jiraBaseUrl = '';
+const jiraTransitionCache = {}; // cache by status name
 
 // Chip click handlers
 document.getElementById('jira-filters')?.addEventListener('click', (e) => {
@@ -1724,8 +1743,8 @@ async function loadJira() {
   el.innerHTML = data.issues.map(issue => `
     <div class="jira-issue">
       <span class="jira-key">${issue.key}</span>
+      <span class="jira-status ${jiraStatusClass(issue.status)}" onclick="event.stopPropagation();toggleJiraStatus(this, '${issue.key}', '${h(issue.status || '')}')">${issue.status || ''}</span>
       <span class="jira-title">${h(issue.summary || '')}</span>
-      <span class="jira-status" onclick="event.stopPropagation();toggleJiraStatus(this, '${issue.key}')">${issue.status || ''}</span>
       <div class="jira-actions">
         <button class="jira-btn jira-btn-open" onclick="openInJira('${issue.key}')" title="Open in browser">Open</button>
         <button class="jira-btn jira-btn-assign" onclick="assignJiraToTask('${issue.key}', '${h(issue.summary || '').replace(/'/g, "\\'")}')" title="Link to local task">Assign</button>
@@ -1766,13 +1785,19 @@ async function assignJiraToTask(jiraKey, summary) {
   }
 }
 
-async function toggleJiraStatus(el, issueKey) {
+async function toggleJiraStatus(el, issueKey, currentStatus) {
   // Remove any existing dropdown
   document.querySelectorAll('.jira-move-dropdown').forEach(d => d.remove());
 
-  // Fetch transitions
-  const data = await api('GET', `/api/jira/transitions?key=${issueKey}`);
-  if (!data.transitions || data.transitions.length === 0) {
+  // Use cached transitions if available for this status
+  let transitions = jiraTransitionCache[currentStatus];
+  if (!transitions) {
+    const data = await api('GET', `/api/jira/transitions?key=${issueKey}`);
+    transitions = data.transitions || [];
+    if (currentStatus) jiraTransitionCache[currentStatus] = transitions;
+  }
+
+  if (transitions.length === 0) {
     alert('No transitions available for ' + issueKey);
     return;
   }
@@ -1780,7 +1805,7 @@ async function toggleJiraStatus(el, issueKey) {
   // Create dropdown positioned relative to the status badge
   const dropdown = document.createElement('div');
   dropdown.className = 'jira-move-dropdown';
-  dropdown.innerHTML = data.transitions.map(tr => `
+  dropdown.innerHTML = transitions.map(tr => `
     <div class="jira-move-option" onclick="event.stopPropagation();doJiraTransition('${issueKey}', '${tr.id}')">
       <span>${h(tr.name)}</span>
       ${tr.to && tr.to !== tr.name ? `<span style="color:var(--text-dim);font-size:10px">${h(tr.to)}</span>` : ''}
@@ -1834,8 +1859,8 @@ async function jiraSearch() {
     data.issues.map(issue => `
       <div class="jira-issue">
         <span class="jira-key">${issue.key}</span>
+        <span class="jira-status ${jiraStatusClass(issue.status)}" onclick="event.stopPropagation();toggleJiraStatus(this, '${issue.key}', '${h(issue.status || '')}')">${issue.status || ''}</span>
         <span class="jira-title">${h(issue.summary || '')}</span>
-        <span class="jira-status" onclick="event.stopPropagation();toggleJiraStatus(this, '${issue.key}')">${issue.status || ''}</span>
         <div class="jira-actions">
           <button class="jira-btn jira-btn-open" onclick="openInJira('${issue.key}')" title="Open in browser">Open</button>
           <button class="jira-btn jira-btn-assign" onclick="assignJiraToTask('${issue.key}', '${h(issue.summary || '').replace(/'/g, "\\'")}')" title="Link to local task">Assign</button>
