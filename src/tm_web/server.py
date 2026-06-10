@@ -134,6 +134,7 @@ def _serialize_task(item) -> dict:
                 "state": st.state,
                 "due_date": st.due_date.strftime("%Y-%m-%d") if st.due_date else None,
                 "priority": st.priority,
+                "tags": st.tags or [],
                 "notes": st.notes or [],
             }
             for st in item.subtasks
@@ -524,8 +525,20 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
     try:
         from datetime import datetime
 
-        # Edit title if provided
+        # Edit title if provided (tags are applied to title)
         new_title = body.get("title", "").strip()
+        new_tags = body.get("tags") if "tags" in body else None
+
+        # Apply tags to title
+        if new_tags is not None:
+            from src.tm_cmd_common import _apply_tags_to_text
+            clean_tags = [t.lstrip('#') for t in new_tags if t.strip()]
+            base_title = new_title if new_title else task.title
+            # Strip existing tags from base if we have explicit tags
+            from src.tm_cmd_common import _strip_inline_tags
+            base_title = _strip_inline_tags(base_title)
+            new_title = _apply_tags_to_text(base_title, clean_tags)
+
         if new_title and new_title != task.title:
             edit_task_title_in_file(_state.journal_path, task, new_title)
             _state.refresh()
@@ -747,6 +760,13 @@ def api_edit_subtask(handler: "TTMRequestHandler", params: dict) -> None:
         due_date_str = body.get("due_date", "").strip() if body.get("due_date") is not None else None
         priority_str = body.get("priority", "").strip() if body.get("priority") is not None else None
         note_to_add = body.get("add_note", "").strip() if body.get("add_note") else ""
+        new_tags = body.get("tags") if "tags" in body else None
+
+        # Apply tags to title if tags were provided
+        if new_tags is not None and new_title:
+            from src.tm_cmd_common import _apply_tags_to_text
+            clean_tags = [t.lstrip('#') for t in new_tags if t.strip()]
+            new_title = _apply_tags_to_text(new_title, clean_tags)
 
         if new_title and new_title != subtask.title:
             edit_subtask_title_in_file(_state.journal_path, subtask, new_title)

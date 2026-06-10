@@ -643,6 +643,7 @@ main {
   font-size: 12px;
 }
 .search-result-item:hover { background: var(--bg-hover); }
+.search-result-item.sr-selected { background: var(--bg-hover); outline: 1px solid var(--accent); }
 .search-result-item:last-child { border-bottom: none; }
 .search-result-item .sr-id { color: var(--text-dim); margin-right: 6px; }
 .search-result-item .sr-state { font-size: 9px; margin-right: 6px; }
@@ -729,7 +730,7 @@ main {
 /* ─── Subtask Clickable ────────────────────── */
 .task-subtask {
   display: grid;
-  grid-template-columns: 90px 1fr auto auto;
+  grid-template-columns: 90px 1fr 70px 90px;
   gap: 8px;
   align-items: center;
   padding: 2px 0;
@@ -739,9 +740,11 @@ main {
   transition: background 0.1s;
 }
 .task-subtask:hover { background: var(--bg-hover); }
-.task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; }
+.task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-align: center; }
+.task-subtask .sub-due { text-align: right; }
 .subtask-note { list-style: none; padding: 1px 0 1px 28px; font-size: 11px; color: var(--text-dim); font-style: italic; }
 .subtask-note .sn-text::before { content: "~ "; color: var(--border); }
+.subtask-tags { list-style: none; padding: 1px 0 1px 94px; display: flex; flex-wrap: wrap; gap: 3px; }
 
 /* ─── Subtask Section in Edit Modal ────────── */
 .subtasks-section { margin-top: 6px; }
@@ -1130,10 +1133,14 @@ main {
         <input type="date" id="edit-due">
       </div>
       <div class="form-group">
+        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated)</span></label>
+        <input type="text" id="edit-tags" placeholder="e.g. frontend, urgent">
+      </div>
+      <div class="form-group">
         <label>Notes</label>
         <ul class="notes-list" id="edit-notes-list"></ul>
         <div style="display:flex;gap:8px;margin-top:8px">
-          <input type="text" id="edit-new-note" placeholder="Add a note..." style="flex:1">
+          <textarea id="edit-new-note" placeholder="Add a note..." rows="2" style="flex:1;resize:vertical"></textarea>
           <button class="btn btn-sm" onclick="addNote()">Add</button>
         </div>
       </div>
@@ -1237,10 +1244,14 @@ main {
         </div>
       </div>
       <div class="form-group">
+        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated)</span></label>
+        <input type="text" id="subtask-edit-tags" placeholder="e.g. frontend, urgent">
+      </div>
+      <div class="form-group">
         <label>Notes</label>
         <div id="subtask-notes-list" style="margin-bottom:6px"></div>
         <div style="display:flex;gap:6px">
-          <input type="text" id="subtask-new-note" placeholder="Add a note..." style="flex:1">
+          <textarea id="subtask-new-note" placeholder="Add a note..." rows="2" style="flex:1;resize:vertical"></textarea>
           <button class="btn btn-sm" onclick="addSubtaskNote()">Add</button>
         </div>
       </div>
@@ -1455,7 +1466,7 @@ function renderTaskItem(t, showStateDropdown = true) {
       <div class="task-row">
         <span class="task-id">#${t.id}</span>
         <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
-        <span class="task-title">${h(t.title)}</span>
+        <span class="task-title">${h(stripTags(t.title))}</span>
         <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
         <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
       </div>
@@ -1465,10 +1476,11 @@ function renderTaskItem(t, showStateDropdown = true) {
           ${t.subtasks.map(st => `
             <li class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
               <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
-              <span class="sub-title">${h(st.title)}</span>
+              <span class="sub-title">${h(stripTags(st.title))}</span>
               <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
               <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
             </li>
+            ${st.tags && st.tags.length ? `<li class="subtask-tags">${st.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</li>` : ''}
             ${st.notes && st.notes.length ? st.notes.map(n => `
               <li class="subtask-note"><span class="sn-text">${h(n)}</span></li>
             `).join('') : ''}
@@ -2148,7 +2160,8 @@ function openEditModal(taskId) {
   if (!task) return;
 
   document.getElementById('edit-task-id').value = taskId;
-  document.getElementById('edit-title').value = task.title;
+  document.getElementById('edit-title').value = stripTags(task.title);
+  document.getElementById('edit-tags').value = (task.tags || []).join(', ');
 
   const stateEl = document.getElementById('edit-state');
   stateEl.innerHTML = STATES.map(s => `<option value="${s}" ${s === task.state ? 'selected' : ''}>${s}</option>`).join('');
@@ -2259,6 +2272,7 @@ async function saveTask() {
   const state = document.getElementById('edit-state').value;
   const priority = document.getElementById('edit-priority').value;
   const dueRaw = document.getElementById('edit-due').value;
+  const tags = document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
   let due_date = '';
   if (dueRaw) {
@@ -2266,7 +2280,7 @@ async function saveTask() {
     due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
 
-  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, due_date });
+  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, due_date, tags });
   closeModal('modal-edit');
   loadView(currentView);
 }
@@ -2285,8 +2299,9 @@ function openSubtaskModal(subtaskId) {
   if (!st) return;
 
   document.getElementById('subtask-edit-id').value = subtaskId;
-  document.getElementById('subtask-edit-title').value = st.title;
+  document.getElementById('subtask-edit-title').value = stripTags(st.title);
   document.getElementById('subtask-edit-due').value = st.due_date || '';
+  document.getElementById('subtask-edit-tags').value = (st.tags || []).join(', ');
 
   const stateEl = document.getElementById('subtask-edit-state');
   stateEl.innerHTML = STATES.map(s => `<option value="${s}" ${s === st.state ? 'selected' : ''}>${s}</option>`).join('');
@@ -2366,9 +2381,10 @@ async function saveSubtask() {
   const state = document.getElementById('subtask-edit-state').value;
   const due_date = document.getElementById('subtask-edit-due').value || '';
   const priority = document.getElementById('subtask-edit-priority').value || '';
+  const tags = document.getElementById('subtask-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
   if (!title) return;
-  await api('POST', `/api/subtasks/${subtaskId}/edit`, { title, state, due_date, priority });
+  await api('POST', `/api/subtasks/${subtaskId}/edit`, { title, state, due_date, priority, tags });
   closeModal('modal-subtask');
   loadView(currentView);
 }
@@ -2419,9 +2435,38 @@ async function createTask() {
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 let searchTimeout = null;
+let searchSelectedIdx = -1;
+
+function updateSearchSelection() {
+  const items = searchResults.querySelectorAll('.search-result-item');
+  items.forEach((el, i) => el.classList.toggle('sr-selected', i === searchSelectedIdx));
+  if (searchSelectedIdx >= 0 && items[searchSelectedIdx]) {
+    items[searchSelectedIdx].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+searchInput.addEventListener('keydown', e => {
+  if (!searchResults.classList.contains('open')) return;
+  const items = searchResults.querySelectorAll('.search-result-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchSelectedIdx = Math.min(searchSelectedIdx + 1, items.length - 1);
+    updateSearchSelection();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchSelectedIdx = Math.max(searchSelectedIdx - 1, 0);
+    updateSearchSelection();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (searchSelectedIdx >= 0 && items[searchSelectedIdx]) {
+      items[searchSelectedIdx].click();
+    }
+  }
+});
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimeout);
+  searchSelectedIdx = -1;
   const q = searchInput.value.trim();
   if (q.length < 2) {
     searchResults.classList.remove('open');
@@ -2435,7 +2480,7 @@ searchInput.addEventListener('input', () => {
         <div class="search-result-item" onclick="searchResultClick('${t.id}')">
           <span class="sr-id">#${t.id}</span>
           <span class="sr-state state-badge state-${t.state.replace(/ /g,'_')}" style="font-size:9px;padding:1px 4px">${t.state}</span>
-          ${h(t.title)}
+          ${h(stripTags(t.title))}
         </div>
       `).join('');
       searchResults.classList.add('open');
@@ -2459,9 +2504,17 @@ function searchResultClick(taskId) {
 // ─── Modal helpers ──────────────────────────────
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
+  // Reset form fields so reopening doesn't show stale data
+  const modal = document.getElementById(id);
+  modal.querySelectorAll('input[type="text"], input[type="date"], input[type="hidden"]').forEach(el => el.value = '');
+  modal.querySelectorAll('textarea').forEach(el => el.value = '');
+  modal.querySelectorAll('select').forEach(el => el.selectedIndex = 0);
+  modal.querySelectorAll('.notes-list, .subtasks-section').forEach(el => el.innerHTML = '');
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
+const NAV_KEYS = { '1': 'tasks', '2': 'kanban', '3': 'agenda', '4': 'stats', '5': 'weekly', '6': 'burndown', '7': 'tags', '8': 'time', '9': 'blockers', '0': 'jira' };
+
 document.addEventListener('keydown', e => {
   // Don't trigger shortcuts when typing in inputs
   const tag = e.target.tagName;
@@ -2476,7 +2529,10 @@ document.addEventListener('keydown', e => {
 
   if (isInput) return;
 
-  if (e.key === 'n') {
+  if (NAV_KEYS[e.key]) {
+    e.preventDefault();
+    switchView(NAV_KEYS[e.key]);
+  } else if (e.key === 'n') {
     e.preventDefault();
     openNewTaskModal();
   } else if (e.key === '/') {
@@ -2494,6 +2550,7 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 
 // ─── Utility ────────────────────────────────────
 function h(str) { return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function stripTags(str) { return String(str || '').replace(/#\w+/g, '').replace(/\s{2,}/g, ' ').trim(); }
 
 function isOverdue(dateStr) {
   if (!dateStr) return false;
