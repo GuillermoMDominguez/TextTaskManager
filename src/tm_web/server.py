@@ -1003,17 +1003,25 @@ def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
 
 def api_get_status(handler, params):
     """GET /api/status — returns sync and jira configuration status."""
-    try:
-        from src.tm_sync import is_configured as sync_configured
-        sync_ok = sync_configured()
-    except Exception:
-        sync_ok = False
+    from src.tm_settings import load_settings, load_secrets
 
-    try:
-        from src.tm_jira import is_configured as jira_configured
-        jira_ok = jira_configured()
-    except Exception:
-        jira_ok = False
+    project_dir = _PROJECT_ROOT
+    settings = load_settings(project_dir)
+    secrets = load_secrets(project_dir)
+
+    # Jira is configured if URL + email + token are set
+    jira_ok = bool(
+        secrets.get("jira_url")
+        and secrets.get("jira_email")
+        and secrets.get("jira_api_token")
+    )
+
+    # Sync is configured if enabled and remote is set
+    sync_settings = settings.get("sync", {})
+    sync_ok = bool(
+        sync_settings.get("enabled")
+        and sync_settings.get("remote")
+    )
 
     _json_response(handler, {"sync": sync_ok, "jira": jira_ok})
 
