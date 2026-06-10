@@ -740,8 +740,8 @@ main {
   transition: background 0.1s;
 }
 .task-subtask:hover { background: var(--bg-hover); }
-.task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-align: center; }
-.task-subtask .sub-due { text-align: right; }
+.task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; }
+.task-subtask .sub-due { font-size: 10px; color: var(--text-dim); }
 .subtask-note { list-style: none; padding: 1px 0 1px 28px; font-size: 11px; color: var(--text-dim); font-style: italic; }
 .subtask-note .sn-text::before { content: "~ "; color: var(--border); }
 .subtask-tags { list-style: none; padding: 1px 0 1px 94px; display: flex; flex-wrap: wrap; gap: 3px; }
@@ -891,7 +891,7 @@ main {
       <div class="search-results" id="search-results"></div>
     </div>
     <div class="actions">
-      <button class="btn" onclick="loadView(currentView)" title="Refresh">&#x21bb;</button>
+      <button class="btn" onclick="loadView(currentView)" title="Refresh (r)">Refresh <span class="kbd-hint">r</span></button>
       <button class="btn btn-primary" onclick="openNewTaskModal()">+ New Task <span class="kbd-hint">n</span></button>
     </div>
   </header>
@@ -982,6 +982,10 @@ main {
     <div id="view-tags" class="view">
       <h2 class="view-title">Tags</h2>
       <div id="tags-content"></div>
+      <div id="tags-tasks-section" style="display:none">
+        <h3 id="tags-tasks-title" style="font-size:13px;color:var(--accent);margin:16px 0 8px"></h3>
+        <ul id="tags-tasks-list" class="task-list"></ul>
+      </div>
     </div>
 
     <!-- Time Tracking View -->
@@ -1734,6 +1738,7 @@ async function loadBurndown() {
 async function loadTags() {
   const data = await api('GET', '/api/tags');
   const el = document.getElementById('tags-content');
+  document.getElementById('tags-tasks-section').style.display = 'none';
 
   if (!data.tags || Object.keys(data.tags).length === 0) {
     el.innerHTML = '<div class="empty">No tags found</div>';
@@ -1752,16 +1757,18 @@ async function loadTags() {
 
 async function openTagTasks(tag) {
   const data = await api('GET', `/api/tags/tasks?tag=${encodeURIComponent(tag)}`);
-  document.getElementById('modal-tag-title').textContent = '#' + tag;
+  const section = document.getElementById('tags-tasks-section');
+  document.getElementById('tags-tasks-title').textContent = '#' + tag;
 
-  const body = document.getElementById('modal-tag-body');
+  const list = document.getElementById('tags-tasks-list');
   if (!data.tasks || data.tasks.length === 0) {
-    body.innerHTML = '<div class="empty">No tasks with this tag</div>';
+    list.innerHTML = '<div class="empty">No tasks with this tag</div>';
   } else {
     cacheTasks(data.tasks);
-    body.innerHTML = taskListHtml(data.tasks);
+    list.innerHTML = taskListHtml(data.tasks);
   }
-  document.getElementById('modal-tag').classList.add('open');
+  section.style.display = 'block';
+  section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 // ─── Time Tracking ──────────────────────────────
@@ -2300,7 +2307,13 @@ function openSubtaskModal(subtaskId) {
 
   document.getElementById('subtask-edit-id').value = subtaskId;
   document.getElementById('subtask-edit-title').value = stripTags(st.title);
-  document.getElementById('subtask-edit-due').value = st.due_date || '';
+  const stDueEl = document.getElementById('subtask-edit-due');
+  if (st.due_date) {
+    const parts = st.due_date.split('/');
+    stDueEl.value = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : st.due_date;
+  } else {
+    stDueEl.value = '';
+  }
   document.getElementById('subtask-edit-tags').value = (st.tags || []).join(', ');
 
   const stateEl = document.getElementById('subtask-edit-state');
@@ -2379,9 +2392,15 @@ async function saveSubtask() {
   const subtaskId = document.getElementById('subtask-edit-id').value;
   const title = document.getElementById('subtask-edit-title').value.trim();
   const state = document.getElementById('subtask-edit-state').value;
-  const due_date = document.getElementById('subtask-edit-due').value || '';
+  const dueRaw = document.getElementById('subtask-edit-due').value || '';
   const priority = document.getElementById('subtask-edit-priority').value || '';
   const tags = document.getElementById('subtask-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+
+  let due_date = '';
+  if (dueRaw) {
+    const parts = dueRaw.split('-');
+    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
 
   if (!title) return;
   await api('POST', `/api/subtasks/${subtaskId}/edit`, { title, state, due_date, priority, tags });
@@ -2532,6 +2551,9 @@ document.addEventListener('keydown', e => {
   if (NAV_KEYS[e.key]) {
     e.preventDefault();
     switchView(NAV_KEYS[e.key]);
+  } else if (e.key === 'r') {
+    e.preventDefault();
+    loadView(currentView);
   } else if (e.key === 'n') {
     e.preventDefault();
     openNewTaskModal();

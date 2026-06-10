@@ -132,7 +132,7 @@ def _serialize_task(item) -> dict:
                 "id": st.task_id,
                 "title": st.title,
                 "state": st.state,
-                "due_date": st.due_date.strftime("%Y-%m-%d") if st.due_date else None,
+                "due_date": st.due_date.strftime("%d/%m/%Y") if st.due_date else None,
                 "priority": st.priority,
                 "tags": st.tags or [],
                 "notes": st.notes or [],
