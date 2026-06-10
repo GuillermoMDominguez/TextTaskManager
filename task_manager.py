@@ -611,6 +611,28 @@ def main() -> None:
                     print(f"{Colors.DIM}Goodbye!{Colors.RESET}")
                     break
 
+                # Journal switch requested
+                if outcome.new_journal_path:
+                    journal_path = outcome.new_journal_path
+                    command_context.journal_path = journal_path
+                    save_cached_journal(cache_path, Path(journal_path).name)
+                    tasks_cache = None
+                    try:
+                        tasks_by_date = refresh_tasks()
+                    except JournalError as exc:
+                        print(f"{Colors.ERROR}{exc}{Colors.RESET}")
+                        continue
+                    # Update web server if running
+                    try:
+                        from src.tm_web import is_running as _web_running
+                        if _web_running():
+                            from src.tm_web.server import _state as _web_state
+                            if _web_state:
+                                _web_state.journal_path = journal_path
+                                _web_state._tasks_by_date = None
+                    except Exception:
+                        pass
+
                 if outcome.skip_redraw:
                     # Command printed its own output (help, kb, stats) — don't overwrite
                     continue

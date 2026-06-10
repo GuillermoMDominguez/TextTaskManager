@@ -1001,6 +1001,68 @@ def api_search_tasks(handler: "TTMRequestHandler", params: dict) -> None:
     _json_response(handler, {"tasks": results, "query": query})
 
 
+# ─── Journals API ─────────────────────────────────────────────────────────────
+
+def api_get_journals(handler, params):
+    """GET /api/journals — list available journals and identify the current one."""
+    journal_dir = Path(_state.journal_path).parent
+    current_name = Path(_state.journal_path).name
+
+    journals = sorted(
+        [p for p in journal_dir.glob("*.txt") if p.is_file()],
+        key=lambda p: p.name.lower(),
+    )
+
+    items = []
+    for j in journals:
+        items.append({
+            "name": j.name,
+            "stem": j.stem,
+            "current": j.name == current_name,
+        })
+
+    _json_response(handler, {"journals": items, "current": current_name})
+
+
+def api_switch_journal(handler, params):
+    """POST /api/journals/switch — switch the active journal."""
+    body = _read_body(handler)
+    name = body.get("name", "").strip()
+    if not name:
+        _json_response(handler, {"ok": False, "error": "Missing journal name"}, status=400)
+        return
+
+    journal_dir = Path(_state.journal_path).parent
+
+    # Normalize extension
+    if not name.lower().endswith(".txt"):
+        name += ".txt"
+
+    # Find matching journal (case-insensitive)
+    target = None
+    for p in journal_dir.glob("*.txt"):
+        if p.is_file() and p.name.lower() == name.lower():
+            target = p
+            break
+
+    if target is None:
+        _json_response(handler, {"ok": False, "error": f"Journal '{name}' not found"}, status=404)
+        return
+
+    # Switch
+    _state.journal_path = str(target)
+    _state._tasks_by_date = None  # Force re-parse
+
+    # Update .last_journal cache
+    try:
+        cache_path = _PROJECT_ROOT / ".last_journal"
+        cache_path.write_text(f"{target.name}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+    _json_response(handler, {"ok": True, "current": target.name})
+
+
 def api_get_status(handler, params):
     """GET /api/status — returns sync and jira configuration status."""
     import subprocess
@@ -1170,6 +1232,7 @@ API_ROUTES = {
     ("GET", "/api/config"): api_get_config,
     ("GET", "/api/log"): api_get_log,
     ("GET", "/api/status"): api_get_status,
+    ("GET", "/api/journals"): api_get_journals,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,
@@ -1186,6 +1249,7 @@ API_ROUTES = {
     ("POST", "/api/subtasks/notes/edit"): api_edit_subtask_note,
     ("POST", "/api/jira/transition"): api_post_jira_transition,
     ("POST", "/api/config"): api_save_config,
+    ("POST", "/api/journals/switch"): api_switch_journal,
 }
 
 

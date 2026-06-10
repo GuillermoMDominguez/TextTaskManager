@@ -73,6 +73,12 @@ header .actions { display: flex; gap: 8px; align-items: center; }
   overflow-y: auto;
 }
 
+.journal-selector {
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
 .sidebar .nav-group {
   padding: 0 12px;
   margin-bottom: 16px;
@@ -905,6 +911,10 @@ main {
   </header>
 
   <nav class="sidebar">
+    <div class="journal-selector">
+      <label style="font-size:9px;text-transform:uppercase;color:var(--dim);letter-spacing:0.5px">Journal</label>
+      <select id="journal-select" onchange="switchJournal(this.value)" style="width:100%;padding:4px 6px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;margin-top:2px"></select>
+    </div>
     <div class="nav-group">
       <div class="nav-group-title">Views</div>
       <a class="nav-item active" data-view="tasks"><span class="kbd-hint">t</span> Tasks</a>
@@ -2332,6 +2342,23 @@ async function updateServiceStatus() {
   jiraEl.className = 'ind-icon ' + (data.jira ? 'ind-ok' : 'ind-fail');
 }
 updateServiceStatus();
+
+// ─── Journal Selector ───────────────────────────
+async function loadJournals() {
+  const data = await api('GET', '/api/journals');
+  if (!data || !data.journals) return;
+  const sel = document.getElementById('journal-select');
+  sel.innerHTML = data.journals.map(j =>
+    `<option value="${h(j.name)}" ${j.current ? 'selected' : ''}>${h(j.stem)}</option>`
+  ).join('');
+}
+async function switchJournal(name) {
+  const data = await api('POST', '/api/journals/switch', { name });
+  if (data && data.ok) {
+    loadView(currentView);
+  }
+}
+loadJournals();
 
 // ─── Edit Modal ─────────────────────────────────
 function openEditModal(taskId) {

@@ -68,6 +68,7 @@ class CommandOutcome:
     view_state: ViewState
     should_exit: bool = False
     skip_redraw: bool = False  # True = command printed its own output, don't clear
+    new_journal_path: Optional[str] = None  # Signal main loop to switch journal
 
 
 # ─── Rendering ─────────────────────────────────────────────────────────────

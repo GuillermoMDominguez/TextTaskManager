@@ -92,6 +92,7 @@ from .tm_cmd_system import (
     handle_log_hide,
     handle_log_clear,
     handle_web,
+    handle_journal,
 )
 
 
@@ -263,6 +264,11 @@ COMMAND_HELP = {
         "description": "Launch web UI in background (browser opens). 'web down' stops it.",
         "examples": ["web", "web down"],
     },
+    "journal": {
+        "syntax": "journal [<name>] | jn [<name>]",
+        "description": "List available journals or switch to another one.",
+        "examples": ["journal", "jn", "journal Javier", "jn Work"],
+    },
 }
 
 
@@ -293,6 +299,7 @@ ALIAS_TO_HELP_KEY = {
     "blocker": "block",
     "pomodoro": "pom",
     "burndown": "bd",
+    "jn": "journal",
 }
 
 
@@ -557,6 +564,10 @@ def execute_command(
         return result
 
     result = handle_log(command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_journal(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 
