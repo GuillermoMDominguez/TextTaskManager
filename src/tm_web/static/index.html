@@ -541,15 +541,31 @@ main {
   margin-bottom: 10px;
 }
 .blocker-item.blocked { border-left: 3px solid var(--red); }
-.blocker-deps { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+.blocker-header { font-weight: 500; margin-bottom: 4px; }
+.blocker-deps { font-size: 11px; display: flex; flex-wrap: wrap; gap: 6px; }
+.blocker-dep {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 3px; font-size: 10px;
+}
+.dep-blocked-by { background: rgba(255,85,85,0.15); color: var(--red); }
+.dep-blocks { background: rgba(255,204,0,0.15); color: var(--yellow); }
+.dep-remove { cursor: pointer; font-weight: 700; opacity: 0.6; }
+.dep-remove:hover { opacity: 1; }
+.blocker-toolbar, .time-toolbar {
+  margin-bottom: 12px;
+}
 
 /* ─── Time Tracking ────────────────────────── */
 .time-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
+.time-task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.time-value { color: var(--accent); font-weight: 600; font-size: 12px; }
 .time-total {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -559,6 +575,20 @@ main {
   font-size: 14px;
 }
 .time-total strong { color: var(--accent); }
+
+/* Buttons */
+.btn-sm {
+  background: var(--accent); color: var(--bg); border: none;
+  padding: 5px 12px; border-radius: 4px; font-size: 11px;
+  font-weight: 600; cursor: pointer;
+}
+.btn-sm:hover { opacity: 0.85; }
+.btn-xs {
+  background: transparent; color: var(--accent); border: 1px solid var(--accent);
+  padding: 2px 6px; border-radius: 3px; font-size: 10px;
+  cursor: pointer; line-height: 1;
+}
+.btn-xs:hover { background: var(--accent); color: var(--bg); }
 
 /* ─── Jira ─────────────────────────────────── */
 
@@ -1921,20 +1951,36 @@ async function loadTime() {
   const data = await api('GET', '/api/time');
   const el = document.getElementById('time-content');
 
-  if (!data.tasks || data.tasks.length === 0) {
-    el.innerHTML = '<div class="empty">No time tracked</div>';
-    return;
-  }
-
   el.innerHTML = `
-    <div class="time-total">Total time: <strong>${data.total_formatted}</strong></div>
-    ${data.tasks.map(item => `
-      <div class="time-item">
-        <span>${h(item.task.title)}</span>
-        <span style="color:var(--accent);font-weight:600">${item.formatted}</span>
-      </div>
-    `).join('')}
+    <div class="time-toolbar">
+      <button class="btn-sm" onclick="showLogTimeForm()">+ Log Time</button>
+    </div>
+    ${data.tasks && data.tasks.length ? `
+      <div class="time-total">Total time: <strong>${data.total_formatted}</strong></div>
+      ${data.tasks.map(item => `
+        <div class="time-item">
+          <span class="time-task-title">#${item.task.id} ${h(item.task.title)}</span>
+          <span class="time-value">${item.formatted}</span>
+          <button class="btn-xs" onclick="showLogTimeForm('${item.task.id}')">+</button>
+        </div>
+      `).join('')}
+    ` : '<div class="empty">No time tracked</div>'}
   `;
+}
+
+function showLogTimeForm(prefillId = '') {
+  const taskId = prompt('Task ID:', prefillId);
+  if (!taskId) return;
+  const timeStr = prompt('Time to log (e.g. 30m, 1h, 2h30m):');
+  if (!timeStr) return;
+  logTimeToTask(taskId.trim(), timeStr.trim());
+}
+
+async function logTimeToTask(taskId, timeStr) {
+  const data = await api('POST', `/api/tasks/${taskId}/time`, { time: timeStr });
+  if (data.ok) {
+    loadView('time');
+  }
 }
 
 // ─── Blockers View ──────────────────────────────
@@ -1942,20 +1988,66 @@ async function loadBlockers() {
   const data = await api('GET', '/api/blockers');
   const el = document.getElementById('blockers-content');
 
-  if (!data.blockers || data.blockers.length === 0) {
-    el.innerHTML = '<div class="empty">No blockers</div>';
-    return;
-  }
-
-  el.innerHTML = data.blockers.map(b => `
-    <div class="blocker-item ${b.is_blocked ? 'blocked' : ''}">
-      <div style="font-weight:500">${h(b.task.title)}</div>
-      <div class="blocker-deps">
-        ${b.blocked_by.length ? `<span style="color:var(--red)">Blocked by: ${b.blocked_by.map(h).join(', ')}</span>` : ''}
-        ${b.blocks.length ? `<span style="color:var(--yellow)">Blocks: ${b.blocks.map(h).join(', ')}</span>` : ''}
-      </div>
+  el.innerHTML = `
+    <div class="blocker-toolbar">
+      <button class="btn-sm" onclick="showAddBlockerForm()">+ Add Blocker</button>
     </div>
-  `).join('');
+    ${data.blockers && data.blockers.length ? data.blockers.map(b => `
+      <div class="blocker-item ${b.is_blocked ? 'blocked' : ''}">
+        <div class="blocker-header">
+          <span class="blocker-title">#${b.task.id} ${h(b.task.title)}</span>
+        </div>
+        <div class="blocker-deps">
+          ${b.blocked_by.length ? b.blocked_by.map(name => `
+            <span class="blocker-dep dep-blocked-by">
+              Blocked by: ${h(name)}
+              <span class="dep-remove" onclick="event.stopPropagation();removeBlocker('${b.task.id}','${h(name).replace(/'/g,"\\'")}')">x</span>
+            </span>
+          `).join('') : ''}
+          ${b.blocks.length ? b.blocks.map(name => `
+            <span class="blocker-dep dep-blocks">
+              Blocks: ${h(name)}
+              <span class="dep-remove" onclick="event.stopPropagation();removeBlock('${b.task.id}','${h(name).replace(/'/g,"\\'")}')">x</span>
+            </span>
+          `).join('') : ''}
+        </div>
+      </div>
+    `).join('') : '<div class="empty">No blockers</div>'}
+  `;
+}
+
+function showAddBlockerForm() {
+  const blockedId = prompt('Task ID being blocked:');
+  if (!blockedId) return;
+  const blockerId = prompt('Task ID that is blocking it:');
+  if (!blockerId) return;
+  addBlocker(blockedId.trim(), blockerId.trim());
+}
+
+async function addBlocker(blockedId, blockerId) {
+  const data = await api('POST', '/api/blockers/add', { blocked_id: blockedId, blocker_id: blockerId });
+  if (data.ok) {
+    loadView('blockers');
+  }
+}
+
+async function removeBlocker(blockedId, blockerTitle) {
+  if (!confirm(`Remove blocker "${blockerTitle}" from task #${blockedId}?`)) return;
+  // Need to find the blocker task by title to get its ID
+  const tasks = await api('GET', '/api/tasks');
+  const blocker = tasks.tasks.find(t => t.title.replace(/#\w+/g,'').trim() === blockerTitle || t.title.includes(blockerTitle));
+  if (!blocker) { alert('Could not find blocker task'); return; }
+  const data = await api('POST', '/api/blockers/delete', { blocked_id: blockedId, blocker_id: blocker.id });
+  if (data.ok) loadView('blockers');
+}
+
+async function removeBlock(blockerId, blockedTitle) {
+  if (!confirm(`Remove "blocks ${blockedTitle}" from task #${blockerId}?`)) return;
+  const tasks = await api('GET', '/api/tasks');
+  const blocked = tasks.tasks.find(t => t.title.replace(/#\w+/g,'').trim() === blockedTitle || t.title.includes(blockedTitle));
+  if (!blocked) { alert('Could not find blocked task'); return; }
+  const data = await api('POST', '/api/blockers/delete', { blocked_id: blocked.id, blocker_id: blockerId });
+  if (data.ok) loadView('blockers');
 }
 
 // ─── Jira View ──────────────────────────────────

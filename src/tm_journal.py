@@ -14,7 +14,7 @@ from .tm_models import Subtask, Task
 
 # ─── File lock (shared with tm_sync to prevent concurrent access) ──────────────
 # Acquire this lock before writing to any journal file.
-file_lock = threading.Lock()
+file_lock = threading.RLock()
 
 
 # ─── Post-write hooks ──────────────────────────────────────────────────────────

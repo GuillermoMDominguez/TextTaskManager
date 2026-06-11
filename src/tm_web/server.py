@@ -1212,6 +1212,229 @@ def api_save_config(handler, params):
         _json_response(handler, {"ok": True})
 
 
+# ─── Time Tracking Endpoints ─────────────────────────────────────────────────
+
+def api_log_time(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/time — log time to a task.
+
+    Body: {"time": "2h30m"} or {"minutes": 90}
+    """
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0]
+    time_str = body.get("time", "").strip()
+    minutes_raw = body.get("minutes")
+
+    if not task_id:
+        _error_response(handler, "task_id is required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    from src.tm_models import Subtask
+    if isinstance(task, Subtask):
+        _error_response(handler, "Time tracking only works on parent tasks")
+        return
+
+    from src.tm_features import parse_time_spent, format_time_spent
+
+    if minutes_raw is not None:
+        minutes = int(minutes_raw)
+    elif time_str:
+        minutes = parse_time_spent(time_str)
+        if minutes is None:
+            _error_response(handler, f"Invalid time format: {time_str}. Use e.g. 2h, 30m, 1h30m")
+            return
+    else:
+        _error_response(handler, "time or minutes is required")
+        return
+
+    if minutes <= 0:
+        _error_response(handler, "Time must be positive")
+        return
+
+    try:
+        from src.tm_journal import file_lock, write_journal
+        from src.tm_features import extract_time_spent_from_line, update_time_in_line
+        import re
+
+        with file_lock:
+            lines = Path(_state.journal_path).read_text(encoding="utf-8").split("\n")
+            line_index = task.source_line - 1
+            if line_index >= len(lines):
+                _error_response(handler, "Task line not found in journal", 500)
+                return
+
+            task_line = lines[line_index]
+            existing = extract_time_spent_from_line(task_line)
+            # Check continuation lines too
+            if existing is None:
+                for j in range(line_index + 1, len(lines)):
+                    cline = lines[j]
+                    if not cline or not cline[0].isspace():
+                        break
+                    if re.search(r"--\s*(?:spent|time)\s*[:=]\s*(\S+)", cline, re.IGNORECASE):
+                        existing = extract_time_spent_from_line(cline)
+                        lines.pop(j)
+                        break
+
+            total = (existing or 0) + minutes
+            lines[line_index] = update_time_in_line(task_line, total)
+            write_journal(_state.journal_path, "\n".join(lines))
+
+        _state.refresh()
+        updated = find_task_by_id(_state.tasks_by_date, task_id)
+        _json_response(handler, {
+            "ok": True,
+            "task": _serialize_task(_task_to_view_item(updated)) if updated else None,
+            "logged": format_time_spent(minutes),
+            "total": format_time_spent(total),
+        })
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+# ─── Blocker Endpoints ────────────────────────────────────────────────────────
+
+def api_add_blocker(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/blockers/add — add a blocker relationship.
+
+    Body: {"blocked_id": "5", "blocker_id": "3"}
+    Task <blocked_id> becomes blocked by task <blocker_id>.
+    """
+    body = _read_body(handler)
+    blocked_id = body.get("blocked_id", "").strip()
+    blocker_id = body.get("blocker_id", "").strip()
+
+    if not blocked_id or not blocker_id:
+        _error_response(handler, "blocked_id and blocker_id are required")
+        return
+
+    blocked_task = find_task_by_id(_state.tasks_by_date, blocked_id)
+    blocker_task = find_task_by_id(_state.tasks_by_date, blocker_id)
+
+    if not blocked_task:
+        _error_response(handler, f"Task {blocked_id} not found", 404)
+        return
+    if not blocker_task:
+        _error_response(handler, f"Task {blocker_id} not found", 404)
+        return
+
+    from src.tm_models import Subtask
+    if isinstance(blocked_task, Subtask) or isinstance(blocker_task, Subtask):
+        _error_response(handler, "Blockers only work on parent tasks")
+        return
+
+    try:
+        from src.tm_features import add_blocker_metadata, add_blocks_metadata
+        from src.tm_journal import file_lock, write_journal
+        from src.tm_cmd_common import _strip_inline_tags
+
+        blocked_title = _strip_inline_tags(blocked_task.title)
+        blocker_title = _strip_inline_tags(blocker_task.title)
+
+        with file_lock:
+            lines = Path(_state.journal_path).read_text(encoding="utf-8").split("\n")
+            updated = False
+
+            # Add blockedby: to the blocked task
+            if blocked_task.source_line:
+                idx = blocked_task.source_line - 1
+                if 0 <= idx < len(lines):
+                    lines[idx] = add_blocker_metadata(lines[idx], blocker_title)
+                    updated = True
+
+            # Add blocks: to the blocker task
+            if updated and blocker_task.source_line:
+                idx = blocker_task.source_line - 1
+                if 0 <= idx < len(lines):
+                    lines[idx] = add_blocks_metadata(lines[idx], blocked_title)
+
+            if updated:
+                write_journal(_state.journal_path, "\n".join(lines))
+
+        if updated:
+            _state.refresh()
+            _json_response(handler, {
+                "ok": True,
+                "message": f"Task {blocked_id} is now blocked by task {blocker_id}",
+            })
+        else:
+            _error_response(handler, "Could not update blocker relationship", 500)
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
+def api_delete_blocker(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/blockers/delete — remove a blocker relationship.
+
+    Body: {"blocked_id": "5", "blocker_id": "3"}
+    """
+    body = _read_body(handler)
+    blocked_id = body.get("blocked_id", "").strip()
+    blocker_id = body.get("blocker_id", "").strip()
+
+    if not blocked_id or not blocker_id:
+        _error_response(handler, "blocked_id and blocker_id are required")
+        return
+
+    blocked_task = find_task_by_id(_state.tasks_by_date, blocked_id)
+    blocker_task = find_task_by_id(_state.tasks_by_date, blocker_id)
+
+    if not blocked_task:
+        _error_response(handler, f"Task {blocked_id} not found", 404)
+        return
+    if not blocker_task:
+        _error_response(handler, f"Task {blocker_id} not found", 404)
+        return
+
+    from src.tm_models import Subtask
+    if isinstance(blocked_task, Subtask) or isinstance(blocker_task, Subtask):
+        _error_response(handler, "Blockers only work on parent tasks")
+        return
+
+    try:
+        from src.tm_features import remove_blocker_metadata, remove_blocks_metadata
+        from src.tm_journal import file_lock, write_journal
+        from src.tm_cmd_common import _strip_inline_tags
+
+        blocked_title = _strip_inline_tags(blocked_task.title)
+        blocker_title = _strip_inline_tags(blocker_task.title)
+
+        with file_lock:
+            lines = Path(_state.journal_path).read_text(encoding="utf-8").split("\n")
+            updated = False
+
+            # Remove blockedby: from the blocked task
+            if blocked_task.source_line:
+                idx = blocked_task.source_line - 1
+                if 0 <= idx < len(lines):
+                    lines[idx] = remove_blocker_metadata(lines[idx], blocker_title)
+                    updated = True
+
+            # Remove blocks: from the blocker task
+            if updated and blocker_task.source_line:
+                idx = blocker_task.source_line - 1
+                if 0 <= idx < len(lines):
+                    lines[idx] = remove_blocks_metadata(lines[idx], blocked_title)
+
+            if updated:
+                write_journal(_state.journal_path, "\n".join(lines))
+
+        if updated:
+            _state.refresh()
+            _json_response(handler, {
+                "ok": True,
+                "message": f"Removed blocker: {blocker_id} no longer blocks {blocked_id}",
+            })
+        else:
+            _error_response(handler, "Could not remove blocker relationship", 500)
+    except Exception as e:
+        _error_response(handler, str(e), 500)
+
+
 # ─── Route Table ──────────────────────────────────────────────────────────────
 
 API_ROUTES = {
@@ -1250,6 +1473,9 @@ API_ROUTES = {
     ("POST", "/api/jira/transition"): api_post_jira_transition,
     ("POST", "/api/config"): api_save_config,
     ("POST", "/api/journals/switch"): api_switch_journal,
+    ("POST", "/api/tasks/time"): api_log_time,
+    ("POST", "/api/blockers/add"): api_add_blocker,
+    ("POST", "/api/blockers/delete"): api_delete_blocker,
 }
 
 

@@ -368,7 +368,7 @@ def get_burndown_data(tasks_by_date: dict, sprint_days: int = 14) -> BurndownDat
 
 def get_blockers_data(tasks_by_date: dict) -> List[BlockerInfo]:
     """Get all tasks that have blocker/blocks relationships."""
-    from .tm_features import extract_blockers_from_line, extract_blocks_from_line, is_task_blocked
+    from .tm_features import is_task_blocked
 
     results: List[BlockerInfo] = []
 
@@ -376,14 +376,13 @@ def get_blockers_data(tasks_by_date: dict) -> List[BlockerInfo]:
         for task in tasks:
             if task.is_finished():
                 continue
-            raw_line = getattr(task, "raw_line", "") or ""
-            blocked_by = extract_blockers_from_line(raw_line)
-            blocks = extract_blocks_from_line(raw_line)
+            blocked_by = task.blocked_by or []
+            blocks = task.blocks or []
             if blocked_by or blocks:
                 results.append(BlockerInfo(
                     task=_task_to_view_item(task),
-                    blocked_by=blocked_by,
-                    blocks=blocks,
+                    blocked_by=list(blocked_by),
+                    blocks=list(blocks),
                     is_blocked=is_task_blocked(task, tasks_by_date),
                 ))
 
@@ -392,14 +391,13 @@ def get_blockers_data(tasks_by_date: dict) -> List[BlockerInfo]:
 
 def get_time_tracking_data(tasks_by_date: dict) -> List[TimeTrackingItem]:
     """Get all tasks with time tracking data."""
-    from .tm_features import extract_time_spent_from_line, format_time_spent
+    from .tm_features import format_time_spent
 
     results: List[TimeTrackingItem] = []
 
     for tasks in tasks_by_date.values():
         for task in tasks:
-            raw_line = getattr(task, "raw_line", "") or ""
-            minutes = extract_time_spent_from_line(raw_line)
+            minutes = task.time_spent
             if minutes and minutes > 0:
                 results.append(TimeTrackingItem(
                     task=_task_to_view_item(task),
