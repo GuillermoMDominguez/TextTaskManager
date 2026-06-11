@@ -73,6 +73,11 @@ def _parse_due_value(raw: str) -> Optional[datetime]:
     try:
         return datetime.strptime(raw.strip(), "%d/%m/%Y")
     except ValueError:
+        pass
+    # Support 2-digit year (e.g. 10/06/26 -> 10/06/2026)
+    try:
+        return datetime.strptime(raw.strip(), "%d/%m/%y")
+    except ValueError:
         return None
 
 
@@ -298,11 +303,16 @@ def parse_subtask_line(line: str) -> Optional[Subtask]:
 
 
 def parse_date(line: str) -> Optional[datetime]:
-    """Parse a date line in format '## dd/mm/yyyy'."""
-    match = re.match(r"^##\s*(\d{1,2}/\d{1,2}/\d{4})\s*$", line.strip())
+    """Parse a date line in format '## dd/mm/yyyy' or '## dd/mm/yy'."""
+    match = re.match(r"^##\s*(\d{1,2}/\d{1,2}/\d{2,4})\s*$", line.strip())
     if match:
+        date_str = match.group(1)
         try:
-            return datetime.strptime(match.group(1), "%d/%m/%Y")
+            return datetime.strptime(date_str, "%d/%m/%Y")
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(date_str, "%d/%m/%y")
         except ValueError:
             return None
     return None

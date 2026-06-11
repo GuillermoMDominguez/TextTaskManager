@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .tm_config import VALID_STATES, VALID_PRIORITIES, VALID_RECURRENCES
-from .tm_journal import parse_date, _parse_due_value, write_journal
+from .tm_journal import _parse_due_value, write_journal
 
 
 # Recurrence values accepted by the system (reference from tm_config)
@@ -21,8 +21,6 @@ _VALID_RECURRENCES = set(VALID_RECURRENCES)
 
 # Pattern to match a task line (starts with - but not --)
 _TASK_RE = re.compile(r"^-\s+(.+)")
-# Pattern to extract state from a task line
-_STATE_RE = re.compile(r"--\s*([A-Z_]+)(?:\s|$)")
 # Pattern to extract priority
 _PRIORITY_RE = re.compile(r"--\s*(?:priority|prio|p)\s*[:=]\s*(\S+)", re.IGNORECASE)
 # Pattern to extract due date
@@ -30,7 +28,7 @@ _DUE_RE = re.compile(r"--\s*(?:due|d)\s*[:=]\s*(\S+)", re.IGNORECASE)
 # Pattern to extract recurrence
 _RECUR_RE = re.compile(r"--\s*(?:recur|rec|r)\s*[:=]\s*(\S+)", re.IGNORECASE)
 # Pattern for date header
-_DATE_HEADER_RE = re.compile(r"^##\s*(\d{1,2}/\d{1,2}/\d{4})\s*$")
+_DATE_HEADER_RE = re.compile(r"^##\s*(\d{1,2}/\d{1,2}/\d{2,4})\s*$")
 
 
 def check_and_fix_journal(filepath: str, *, auto_fix: bool = False) -> Tuple[List[str], int]:
@@ -159,23 +157,77 @@ def check_and_fix_journal(filepath: str, *, auto_fix: bool = False) -> Tuple[Lis
     return (issues, fixes_applied if auto_fix else 0)
 
 
+def _extract_state(line: str) -> Tuple[Optional[str], Optional[Tuple[int, int]]]:
+    """Extract state from a task/subtask line by matching against known states.
+
+    Returns (state, (start, end)) where start/end are the character positions
+    of the state in the line, or (None, None) if no state found.
+    If a segment looks like a state (all uppercase, no colon) but isn't valid,
+    returns the raw text so it can be flagged as invalid.
+    """
+    # Metadata pattern: segments with key:value format (due:, priority:, recur:, etc.)
+    _metadata_re = re.compile(r"^(?:due|d|priority|prio|p|recur|rec|r|spent|blockedby|blocks|jira)\s*[:=]", re.IGNORECASE)
+
+    parts = line.split("--")
+    offset = 0
+    first_state_candidate = None
+    first_candidate_pos = None
+
+    for i, part in enumerate(parts):
+        if i == 0:
+            offset += len(part)
+            continue
+        candidate = part.strip()
+        candidate_upper = candidate.upper()
+
+        # Skip metadata segments (key:value)
+        if _metadata_re.match(candidate):
+            offset += 2 + len(part)
+            continue
+
+        # Check against valid states
+        for state in VALID_STATES:
+            if candidate_upper == state or candidate_upper.startswith(state + " "):
+                sep_pos = offset
+                state_start = line.index(candidate[:len(state)], sep_pos)
+                state_end = state_start + len(state)
+                return (candidate[:len(state)], (state_start, state_end))
+
+        # If it looks like a state (all uppercase letters/spaces/underscores, no colon)
+        # but didn't match any valid state, flag it
+        if first_state_candidate is None and re.match(r"^[A-Z][A-Z_ ]*$", candidate):
+            sep_pos = offset
+            state_start = line.index(candidate, sep_pos)
+            state_end = state_start + len(candidate)
+            first_state_candidate = candidate
+            first_candidate_pos = (state_start, state_end)
+
+        offset += 2 + len(part)
+
+    # Return the first state-like candidate that wasn't valid (so it gets flagged)
+    if first_state_candidate is not None:
+        return (first_state_candidate, first_candidate_pos)
+
+    return (None, None)
+
+
 def _check_task_line(stripped: str, line_num: int, issues: List[str], auto_fix: bool) -> Optional[str]:
     """Validate a task line. Returns fixed line if auto_fix needed, else None."""
     fixed = None
 
     # Check state
-    state_match = _STATE_RE.search(stripped)
-    if state_match:
-        state = state_match.group(1)
-        if state not in VALID_STATES:
+    state_raw, state_pos = _extract_state(stripped)
+    if state_raw is not None:
+        if state_raw not in VALID_STATES:
             # Try case-insensitive match
-            upper = state.upper()
+            upper = state_raw.upper()
             if upper in VALID_STATES and auto_fix:
-                issues.append(f"Line {line_num}: state '{state}' -> '{upper}'.")
-                stripped = stripped[:state_match.start(1)] + upper + stripped[state_match.end(1):]
+                issues.append(f"Line {line_num}: state '{state_raw}' -> '{upper}'.")
+                start, end = state_pos
+                stripped = stripped[:start] + upper + stripped[end:]
                 fixed = stripped
             else:
-                issues.append(f"Line {line_num}: invalid state '{state}'.")
+                issues.append(f"Line {line_num}: invalid state '{state_raw}'.")
 
     # Check priorities
     for m in _PRIORITY_RE.finditer(stripped):
@@ -208,11 +260,10 @@ def _check_subtask(stripped: str, line_num: int, issues: List[str]) -> None:
         return
 
     # Check state if present
-    state_match = _STATE_RE.search(stripped)
-    if state_match:
-        state = state_match.group(1)
-        if state not in VALID_STATES:
-            issues.append(f"Line {line_num}: subtask has invalid state '{state}'.")
+    state_raw, _ = _extract_state(stripped)
+    if state_raw is not None:
+        if state_raw not in VALID_STATES:
+            issues.append(f"Line {line_num}: subtask has invalid state '{state_raw}'.")
 
     # Check due date if present
     for m in _DUE_RE.finditer(stripped):
@@ -234,9 +285,14 @@ def _try_fix_date_header(stripped: str) -> Optional[str]:
 
 
 def _is_valid_date(date_str: str) -> bool:
-    """Check if dd/mm/yyyy is a real calendar date."""
+    """Check if dd/mm/yyyy or dd/mm/yy is a real calendar date."""
     try:
         datetime.strptime(date_str, "%d/%m/%Y")
+        return True
+    except ValueError:
+        pass
+    try:
+        datetime.strptime(date_str, "%d/%m/%y")
         return True
     except ValueError:
         return False

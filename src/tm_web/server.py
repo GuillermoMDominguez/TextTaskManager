@@ -488,11 +488,14 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
             try:
                 date_obj = datetime.strptime(due_date, "%d/%m/%Y")
             except ValueError:
-                # Try ISO format as fallback
                 try:
-                    date_obj = datetime.strptime(due_date, "%Y-%m-%d")
+                    date_obj = datetime.strptime(due_date, "%d/%m/%y")
                 except ValueError:
-                    pass
+                    # Try ISO format as fallback
+                    try:
+                        date_obj = datetime.strptime(due_date, "%Y-%m-%d")
+                    except ValueError:
+                        pass
 
         add_task_to_file(
             _state.journal_path,
@@ -573,9 +576,12 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
                     due_obj = datetime.strptime(new_due, "%d/%m/%Y")
                 except ValueError:
                     try:
-                        due_obj = datetime.strptime(new_due, "%Y-%m-%d")
+                        due_obj = datetime.strptime(new_due, "%d/%m/%y")
                     except ValueError:
-                        pass
+                        try:
+                            due_obj = datetime.strptime(new_due, "%Y-%m-%d")
+                        except ValueError:
+                            pass
 
         priority_val = new_priority if new_priority is not None else task.priority
         if priority_val == "":
@@ -795,7 +801,10 @@ def api_edit_subtask(handler: "TTMRequestHandler", params: dict) -> None:
                         try:
                             new_due = dt.strptime(due_date_str, "%d/%m/%Y")
                         except ValueError:
-                            pass
+                            try:
+                                new_due = dt.strptime(due_date_str, "%d/%m/%y")
+                            except ValueError:
+                                pass
 
             new_priority = None
             clear_priority = False
@@ -1151,6 +1160,7 @@ def api_get_config(handler, params):
             "weekly_report_days": settings.get("weekly_report_days", 7),
             "max_undo": settings.get("max_undo", 20),
             "prompt_format": settings.get("prompt_format", ""),
+            "web_theme": settings.get("web_theme", "auto"),
         },
         "secrets": masked_secrets,
     })

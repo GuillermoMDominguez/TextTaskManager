@@ -24,6 +24,59 @@
   --radius: 6px;
 }
 
+[data-theme="light"] {
+  --bg: #f8f9fc;
+  --bg-surface: #ffffff;
+  --bg-hover: #eef1f6;
+  --bg-card: #f1f3f8;
+  --border: #d8dde6;
+  --text: #1e293b;
+  --text-dim: #64748b;
+  --accent: #4f6df5;
+  --green: #16a34a;
+  --yellow: #ca8a04;
+  --red: #dc2626;
+  --purple: #9333ea;
+  --cyan: #0891b2;
+  --orange: #ea580c;
+}
+
+/* ─── Theme Toggle ─────────────────────────── */
+.theme-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.theme-toggle-track {
+  width: 36px;
+  height: 20px;
+  background: var(--border);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.25s;
+}
+.theme-toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 50%;
+  transition: transform 0.25s;
+}
+[data-theme="light"] .theme-toggle-track::after {
+  transform: translateX(16px);
+}
+.theme-toggle-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -412,6 +465,11 @@ main {
   font-family: inherit;
   font-size: 13px;
   color-scheme: dark;
+}
+[data-theme="light"] .form-group input,
+[data-theme="light"] .form-group select,
+[data-theme="light"] .form-group textarea {
+  color-scheme: light;
 }
 .form-group input:focus,
 .form-group select:focus,
@@ -973,6 +1031,10 @@ main {
       <div class="search-results" id="search-results"></div>
     </div>
     <div class="actions">
+      <label class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+        <span class="theme-toggle-icon" id="theme-icon">&#9790;</span>
+        <span class="theme-toggle-track"></span>
+      </label>
       <span class="status-indicator" id="ind-sync" title="Sync">Sync <span class="ind-icon">?</span></span>
       <span class="status-indicator" id="ind-jira" title="Jira">Jira <span class="ind-icon">?</span></span>
       <button class="btn" onclick="loadView(currentView)" title="Refresh (r)">Refresh <span class="kbd-hint">r</span></button>
@@ -1221,6 +1283,14 @@ main {
           <div class="form-group">
             <label>Prompt Format</label>
             <input type="text" id="cfg-prompt-format" placeholder="{user} {time} > ">
+          </div>
+          <div class="form-group">
+            <label>Web Theme</label>
+            <select id="cfg-web-theme">
+              <option value="auto">Auto (system)</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
           </div>
         </div>
         <div class="config-section">
@@ -1603,6 +1673,47 @@ main {
 </div>
 
 <script>
+// ─── Theme ──────────────────────────────────────
+(function initTheme() {
+  const stored = localStorage.getItem('ttm-theme');
+  let theme;
+  if (stored === 'light' || stored === 'dark') {
+    theme = stored;
+  } else if (window.__TTM_SERVER_THEME === 'light' || window.__TTM_SERVER_THEME === 'dark') {
+    theme = window.__TTM_SERVER_THEME;
+  } else {
+    theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  applyTheme(theme);
+})();
+
+function applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.innerHTML = theme === 'light' ? '&#9728;' : '&#9790;';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const next = current === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  localStorage.setItem('ttm-theme', next);
+  // Sync config selector if visible
+  const sel = document.getElementById('cfg-web-theme');
+  if (sel) sel.value = next;
+}
+
+// Listen for system theme changes
+window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', e => {
+  if (!localStorage.getItem('ttm-theme')) {
+    applyTheme(e.matches ? 'light' : 'dark');
+  }
+});
+
 // ─── State ──────────────────────────────────────
 let STATES = [];
 let PRIORITIES = [];
@@ -2775,6 +2886,15 @@ async function loadConfig() {
   document.getElementById('cfg-email-recipient').value = email.default_recipient || '';
   document.getElementById('cfg-email-prefix').value = email.subject_prefix || '[TaskManager]';
 
+  // Populate Theme
+  const themeSelect = document.getElementById('cfg-web-theme');
+  if (themeSelect) themeSelect.value = s.web_theme || 'auto';
+
+  // Apply server theme preference if user hasn't set one locally
+  if (!localStorage.getItem('ttm-theme') && s.web_theme && s.web_theme !== 'auto') {
+    applyTheme(s.web_theme);
+  }
+
   document.getElementById('config-status').textContent = '';
 }
 
@@ -2806,6 +2926,7 @@ async function saveConfig() {
       weekly_report_days: parseInt(document.getElementById('cfg-weekly-report-days').value) || 7,
       max_undo: parseInt(document.getElementById('cfg-max-undo').value) || 20,
       prompt_format: document.getElementById('cfg-prompt-format').value,
+      web_theme: document.getElementById('cfg-web-theme').value,
       states: csvToArr(document.getElementById('cfg-states').value),
       finished_states: csvToArr(document.getElementById('cfg-finished-states').value),
       progress_states: csvToArr(document.getElementById('cfg-progress-states').value),
@@ -2832,6 +2953,15 @@ async function saveConfig() {
   if (data.ok) {
     statusEl.textContent = 'Saved!';
     statusEl.style.color = 'var(--green)';
+    // Apply theme change immediately
+    const newTheme = document.getElementById('cfg-web-theme').value;
+    if (newTheme === 'auto') {
+      localStorage.removeItem('ttm-theme');
+      applyTheme(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    } else {
+      localStorage.setItem('ttm-theme', newTheme);
+      applyTheme(newTheme);
+    }
   } else {
     statusEl.textContent = 'Error: ' + (data.errors || []).join(', ');
     statusEl.style.color = 'var(--red)';

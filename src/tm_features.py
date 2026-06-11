@@ -414,15 +414,19 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
 
 # ─── Subtask due date helpers ──────────────────────────────────────────────
 
-SUBTASK_DUE_PATTERN = re.compile(r"\[due=(\d{1,2}/\d{1,2}/\d{4})\]", re.IGNORECASE)
+SUBTASK_DUE_PATTERN = re.compile(r"\[due=(\d{1,2}/\d{1,2}/\d{2,4})\]", re.IGNORECASE)
 
 
 def extract_subtask_due_date(title: str) -> Optional[datetime]:
-    """Extract inline due date from subtask title like [due=10/06/2026]."""
+    """Extract inline due date from subtask title like [due=10/06/2026] or [due=10/06/26]."""
     match = SUBTASK_DUE_PATTERN.search(title)
     if match:
         try:
             return datetime.strptime(match.group(1), "%d/%m/%Y")
+        except ValueError:
+            pass
+        try:
+            return datetime.strptime(match.group(1), "%d/%m/%y")
         except ValueError:
             pass
     return None

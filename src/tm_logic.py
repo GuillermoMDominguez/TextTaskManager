@@ -28,12 +28,18 @@ def normalize_priority_input(priority_input: str) -> Optional[str]:
 
 
 def parse_date_input(date_input: str) -> Optional[datetime]:
-    """Parse a date from dd/mm/yyyy or natural language (tomorrow, friday, +3d, etc.)."""
+    """Parse a date from dd/mm/yyyy, dd/mm/yy, or natural language (tomorrow, friday, +3d, etc.)."""
     raw = date_input.strip().lower()
 
-    # Standard format
+    # Standard format (4-digit year)
     try:
         return datetime.strptime(raw, "%d/%m/%Y")
+    except ValueError:
+        pass
+
+    # 2-digit year (e.g. 10/06/26 -> 10/06/2026)
+    try:
+        return datetime.strptime(raw, "%d/%m/%y")
     except ValueError:
         pass
 

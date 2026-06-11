@@ -471,6 +471,49 @@ def handle_edit(raw_command: str, tasks_by_date: dict, view_state: ViewState, co
             _log("info", f"Task {requested_id} updated.")
             _render(refreshed, view_state)
             return CommandOutcome(refreshed, view_state)
+        elif target and isinstance(target, Subtask):
+            from .tm_form import show_form, TextField, SelectField
+            from .tm_config import VALID_STATES
+
+            state_idx = VALID_STATES.index(target.state) if target.state in VALID_STATES else 0
+
+            form_fields = [
+                TextField("Title", value=target.title),
+                SelectField("State", VALID_STATES, selected=state_idx),
+            ]
+
+            try:
+                result = show_form(f"Edit Subtask — {target.title[:30]}", form_fields)
+            except Exception:
+                import traceback
+                Path("src/ttm_crash.log").write_text(traceback.format_exc(), encoding="utf-8")
+                clear_screen()
+                _render(updated_tasks, view_state)
+                _log("error", f"Form crashed. See src/ttm_crash.log")
+                return CommandOutcome(updated_tasks, view_state)
+            if result is None:
+                clear_screen()
+                _render(updated_tasks, view_state)
+                _log("info", f"Cancelled.")
+                return CommandOutcome(updated_tasks, view_state)
+
+            new_title = result["Title"].strip()
+            new_state = result.get("State") or target.state
+
+            if not new_title:
+                _log("error", "Title cannot be empty.")
+                return CommandOutcome(updated_tasks, view_state)
+
+            snapshot = read_journal_snapshot(context.journal_path)
+            edit_subtask_title_in_file(context.journal_path, target, new_title)
+            if new_state != target.state:
+                update_subtask_state_in_file(context.journal_path, target, new_state)
+            _save_undo_snapshot(context, snapshot)
+            refreshed = context.refresh_tasks()
+            clear_screen()
+            _log("info", f"Subtask {requested_id} updated.")
+            _render(refreshed, view_state)
+            return CommandOutcome(refreshed, view_state)
         elif target is None:
             _log("error", f"ID {requested_id} not found.")
             return CommandOutcome(updated_tasks, view_state)
