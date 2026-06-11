@@ -1439,6 +1439,103 @@ main {
   </div>
 </div>
 
+<!-- Log Time Modal -->
+<div class="modal-overlay" id="modal-logtime">
+  <div class="modal" style="width:400px">
+    <div class="modal-header">
+      <h2>Log Time</h2>
+      <button class="modal-close" onclick="closeModal('modal-logtime')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Task</label>
+        <select id="logtime-task"></select>
+      </div>
+      <div class="form-group">
+        <label>Time <span style="font-size:10px;color:var(--text-dim)">(e.g. 30m, 1h, 2h30m)</span></label>
+        <input type="text" id="logtime-value" placeholder="1h30m">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-logtime')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitLogTime()">Log Time</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Blocker Modal -->
+<div class="modal-overlay" id="modal-blocker">
+  <div class="modal" style="width:420px">
+    <div class="modal-header">
+      <h2>Add Blocker</h2>
+      <button class="modal-close" onclick="closeModal('modal-blocker')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Task being blocked</label>
+        <select id="blocker-blocked-task"></select>
+      </div>
+      <div class="form-group">
+        <label>Blocked by (blocker task)</label>
+        <select id="blocker-blocker-task"></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-blocker')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddBlocker()">Add Blocker</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Note Modal -->
+<div class="modal-overlay" id="modal-editnote">
+  <div class="modal" style="width:460px">
+    <div class="modal-header">
+      <h2>Edit Note</h2>
+      <button class="modal-close" onclick="closeModal('modal-editnote')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editnote-task-id">
+      <input type="hidden" id="editnote-index">
+      <div class="form-group">
+        <label>Note</label>
+        <textarea id="editnote-text" rows="4" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-editnote')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditNote()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Jira Modal -->
+<div class="modal-overlay" id="modal-jira-assign">
+  <div class="modal" style="width:440px">
+    <div class="modal-header">
+      <h2 id="jira-assign-title">Assign Jira Issue</h2>
+      <button class="modal-close" onclick="closeModal('modal-jira-assign')">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="jira-assign-key">
+      <input type="hidden" id="jira-assign-summary">
+      <p id="jira-assign-desc" style="margin-bottom:12px;color:var(--text-dim);font-size:12px"></p>
+      <div class="form-group">
+        <label>Assign to existing task</label>
+        <select id="jira-assign-task">
+          <option value="">-- Select a task --</option>
+        </select>
+      </div>
+      <div style="text-align:center;color:var(--text-dim);font-size:11px;margin:8px 0">or</div>
+      <button class="btn btn-primary" style="width:100%" onclick="submitJiraAssignNew()">Create New Task</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-jira-assign')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitJiraAssignExisting()">Link to Selected</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ──────────────────────────────────────
 let STATES = [];
@@ -1691,10 +1788,23 @@ async function inlineDeleteNote(taskId, index) {
 }
 
 async function inlineEditNote(taskId, index, oldNote) {
-  const newNote = prompt('Edit note:', oldNote);
-  if (newNote === null || newNote.trim() === '' || newNote === oldNote) return;
-  const data = await api('POST', `/api/tasks/${taskId}/notes/edit`, { index, note: newNote.trim() });
+  document.getElementById('editnote-task-id').value = taskId;
+  document.getElementById('editnote-index').value = index;
+  document.getElementById('editnote-text').value = oldNote;
+  document.getElementById('modal-editnote').classList.add('open');
+  document.getElementById('editnote-text').focus();
+}
+
+async function submitEditNote() {
+  // If a callback override is set (from edit-task-modal or subtask-modal), use it
+  if (window._editNoteCallback) { await window._editNoteCallback(); return; }
+  const taskId = document.getElementById('editnote-task-id').value;
+  const index = parseInt(document.getElementById('editnote-index').value);
+  const newNote = document.getElementById('editnote-text').value.trim();
+  if (!newNote) return;
+  const data = await api('POST', `/api/tasks/${taskId}/notes/edit`, { index, note: newNote });
   if (data.id) { taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st); }
+  closeModal('modal-editnote');
   loadView(currentView);
 }
 
@@ -1969,16 +2079,33 @@ async function loadTime() {
 }
 
 function showLogTimeForm(prefillId = '') {
-  const taskId = prompt('Task ID:', prefillId);
-  if (!taskId) return;
-  const timeStr = prompt('Time to log (e.g. 30m, 1h, 2h30m):');
-  if (!timeStr) return;
-  logTimeToTask(taskId.trim(), timeStr.trim());
+  // Populate task selector
+  const select = document.getElementById('logtime-task');
+  const allTasks = Object.values(taskCache);
+  select.innerHTML = allTasks.map(t =>
+    `<option value="${t.id}" ${t.id === prefillId ? 'selected' : ''}>#${t.id} — ${h(t.title).substring(0, 50)}</option>`
+  ).join('');
+  // If no tasks in cache, fetch them
+  if (!allTasks.length) {
+    api('GET', '/api/tasks').then(data => {
+      cacheTasks(data.tasks);
+      select.innerHTML = data.tasks.map(t =>
+        `<option value="${t.id}" ${t.id === prefillId ? 'selected' : ''}>#${t.id} — ${h(t.title).substring(0, 50)}</option>`
+      ).join('');
+    });
+  }
+  document.getElementById('logtime-value').value = '';
+  document.getElementById('modal-logtime').classList.add('open');
+  document.getElementById('logtime-value').focus();
 }
 
-async function logTimeToTask(taskId, timeStr) {
+async function submitLogTime() {
+  const taskId = document.getElementById('logtime-task').value;
+  const timeStr = document.getElementById('logtime-value').value.trim();
+  if (!taskId || !timeStr) return;
   const data = await api('POST', `/api/tasks/${taskId}/time`, { time: timeStr });
   if (data.ok) {
+    closeModal('modal-logtime');
     loadView('time');
   }
 }
@@ -2017,16 +2144,33 @@ async function loadBlockers() {
 }
 
 function showAddBlockerForm() {
-  const blockedId = prompt('Task ID being blocked:');
-  if (!blockedId) return;
-  const blockerId = prompt('Task ID that is blocking it:');
-  if (!blockerId) return;
-  addBlocker(blockedId.trim(), blockerId.trim());
+  // Populate both selectors with all tasks
+  const allTasks = Object.values(taskCache);
+  const buildOptions = (tasks) => tasks.map(t =>
+    `<option value="${t.id}">#${t.id} — ${h(t.title).substring(0, 45)}</option>`
+  ).join('');
+
+  const fill = (tasks) => {
+    document.getElementById('blocker-blocked-task').innerHTML = buildOptions(tasks);
+    document.getElementById('blocker-blocker-task').innerHTML = buildOptions(tasks);
+  };
+
+  if (allTasks.length) {
+    fill(allTasks);
+  } else {
+    api('GET', '/api/tasks').then(data => { cacheTasks(data.tasks); fill(data.tasks); });
+  }
+  document.getElementById('modal-blocker').classList.add('open');
 }
 
-async function addBlocker(blockedId, blockerId) {
+async function submitAddBlocker() {
+  const blockedId = document.getElementById('blocker-blocked-task').value;
+  const blockerId = document.getElementById('blocker-blocker-task').value;
+  if (!blockedId || !blockerId) return;
+  if (blockedId === blockerId) { alert('A task cannot block itself'); return; }
   const data = await api('POST', '/api/blockers/add', { blocked_id: blockedId, blocker_id: blockerId });
   if (data.ok) {
+    closeModal('modal-blocker');
     loadView('blockers');
   }
 }
@@ -2144,28 +2288,38 @@ function openInJira(key) {
 }
 
 async function assignJiraToTask(jiraKey, summary) {
-  // Ask user which task to assign this Jira issue to, or create a new one
-  const choice = prompt(`Assign ${jiraKey} to an existing task ID, or type "new" to create a task:\n(${summary})`);
-  if (!choice) return;
+  document.getElementById('jira-assign-key').value = jiraKey;
+  document.getElementById('jira-assign-summary').value = summary;
+  document.getElementById('jira-assign-title').textContent = `Assign ${jiraKey}`;
+  document.getElementById('jira-assign-desc').textContent = summary;
+  // Populate task selector
+  const select = document.getElementById('jira-assign-task');
+  const tasks = Object.values(taskCache);
+  const buildOpts = (ts) => '<option value="">-- Select a task --</option>' +
+    ts.map(t => `<option value="${t.id}">#${t.id} — ${h(t.title).substring(0, 40)}</option>`).join('');
+  if (tasks.length) { select.innerHTML = buildOpts(tasks); }
+  else { api('GET', '/api/tasks').then(data => { cacheTasks(data.tasks); select.innerHTML = buildOpts(data.tasks); }); }
+  document.getElementById('modal-jira-assign').classList.add('open');
+}
 
-  if (choice.trim().toLowerCase() === 'new') {
-    // Create a new task with this Jira key
-    const data = await api('POST', '/api/tasks', { title: summary, state: 'IN PROGRESS', jira_key: jiraKey });
-    if (data.ok || data.id) {
-      alert(`Created task linked to ${jiraKey}`);
-      loadView('tasks');
-    } else {
-      alert('Failed to create task: ' + (data.error || 'unknown error'));
-    }
-  } else {
-    // Link existing task
-    const taskId = choice.trim();
-    const data = await api('POST', `/api/tasks/${taskId}/edit`, { jira_key: jiraKey });
-    if (data.ok || data.id) {
-      alert(`Linked ${jiraKey} to task ${taskId}`);
-    } else {
-      alert('Failed to link: ' + (data.error || 'Task not found'));
-    }
+async function submitJiraAssignExisting() {
+  const taskId = document.getElementById('jira-assign-task').value;
+  const jiraKey = document.getElementById('jira-assign-key').value;
+  if (!taskId) return;
+  const data = await api('POST', `/api/tasks/${taskId}/edit`, { jira_key: jiraKey });
+  if (data.ok || data.id) {
+    closeModal('modal-jira-assign');
+    loadView('tasks');
+  }
+}
+
+async function submitJiraAssignNew() {
+  const jiraKey = document.getElementById('jira-assign-key').value;
+  const summary = document.getElementById('jira-assign-summary').value;
+  const data = await api('POST', '/api/tasks', { title: summary, state: 'IN PROGRESS', jira_key: jiraKey });
+  if (data.ok || data.id) {
+    closeModal('modal-jira-assign');
+    loadView('tasks');
   }
 }
 
@@ -2556,12 +2710,24 @@ async function addNote() {
 }
 
 async function editNoteInModal(index, oldNote) {
-  const newNote = prompt('Edit note:', oldNote);
-  if (newNote === null || newNote.trim() === '' || newNote === oldNote) return;
-  const taskId = document.getElementById('edit-task-id').value;
-  const data = await api('POST', `/api/tasks/${taskId}/notes/edit`, { index, note: newNote.trim() });
-  if (data.notes) renderNotes(data.notes);
-  if (data.id) taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+  // Reuse the editnote modal but with a callback that refreshes the edit-task modal notes
+  document.getElementById('editnote-task-id').value = document.getElementById('edit-task-id').value;
+  document.getElementById('editnote-index').value = index;
+  document.getElementById('editnote-text').value = oldNote;
+  document.getElementById('modal-editnote').classList.add('open');
+  document.getElementById('editnote-text').focus();
+  // Override submit to refresh notes in edit modal
+  window._editNoteCallback = async function() {
+    const taskId = document.getElementById('editnote-task-id').value;
+    const idx = parseInt(document.getElementById('editnote-index').value);
+    const newNote = document.getElementById('editnote-text').value.trim();
+    if (!newNote) return;
+    const data = await api('POST', `/api/tasks/${taskId}/notes/edit`, { index: idx, note: newNote });
+    if (data.notes) renderNotes(data.notes);
+    if (data.id) { taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st); }
+    closeModal('modal-editnote');
+    window._editNoteCallback = null;
+  };
 }
 
 async function deleteNote(index) {
@@ -2699,16 +2865,23 @@ async function editSubtaskNote(noteIndex) {
   const st = subtaskCache[subtaskId];
   if (!st) return;
   const current = (st.notes || [])[noteIndex] || '';
-  const newNote = prompt('Edit note:', current);
-  if (newNote === null || newNote.trim() === '') return;
-
-  await api('POST', `/api/subtasks/${subtaskId}/notes/edit`, { note_index: noteIndex, note: newNote.trim() });
-  const freshTasks = await api('GET', '/api/tasks');
-  if (freshTasks && freshTasks.tasks) {
-    cacheTasks(freshTasks.tasks);
-  }
-  const fresh = subtaskCache[subtaskId];
-  if (fresh) renderSubtaskNotes(fresh.notes || []);
+  // Use the editnote modal with a subtask callback
+  document.getElementById('editnote-task-id').value = subtaskId;
+  document.getElementById('editnote-index').value = noteIndex;
+  document.getElementById('editnote-text').value = current;
+  document.getElementById('modal-editnote').classList.add('open');
+  document.getElementById('editnote-text').focus();
+  window._editNoteCallback = async function() {
+    const newNote = document.getElementById('editnote-text').value.trim();
+    if (!newNote) return;
+    await api('POST', `/api/subtasks/${subtaskId}/notes/edit`, { note_index: parseInt(document.getElementById('editnote-index').value), note: newNote });
+    const freshTasks = await api('GET', '/api/tasks');
+    if (freshTasks && freshTasks.tasks) { cacheTasks(freshTasks.tasks); }
+    const fresh = subtaskCache[subtaskId];
+    if (fresh) renderSubtaskNotes(fresh.notes || []);
+    closeModal('modal-editnote');
+    window._editNoteCallback = null;
+  };
 }
 
 async function saveSubtask() {
@@ -2852,6 +3025,8 @@ function closeModal(id) {
   modal.querySelectorAll('textarea').forEach(el => el.value = '');
   modal.querySelectorAll('select').forEach(el => el.selectedIndex = 0);
   modal.querySelectorAll('.notes-list, .subtasks-section').forEach(el => el.innerHTML = '');
+  // Clear any note-edit callback override
+  if (id === 'modal-editnote') window._editNoteCallback = null;
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
