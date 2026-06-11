@@ -146,27 +146,41 @@ main {
 .task-list { list-style: none; }
 
 .task-item {
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   cursor: pointer;
-  transition: background 0.1s;
-  padding: 8px 12px;
+  transition: background 0.1s, border-color 0.15s;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-surface);
 }
-.task-item:hover { background: var(--bg-hover); }
+.task-item:hover { background: var(--bg-hover); border-color: var(--accent); }
 
 .task-row {
   display: grid;
   grid-template-columns: 40px 110px 1fr 70px 90px;
-  align-items: center;
+  align-items: start;
   gap: 8px;
 }
 
-.task-id { color: var(--text-dim); font-size: 11px; }
-.task-title { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-id { color: var(--text-dim); font-size: 11px; padding-top: 3px; }
+.task-title-col { min-width: 0; }
+.task-title { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
 
 .task-subtasks {
   list-style: none;
   margin-top: 4px;
-  padding-left: 52px;
+}
+
+.subtask-block {
+  border-left: 2px solid var(--border);
+  margin-bottom: 3px;
+  padding-left: 6px;
+  border-radius: 0 4px 4px 0;
+  transition: border-color 0.15s;
+}
+.subtask-block:hover {
+  border-left-color: var(--accent);
 }
 
 .task-subtask .sub-state {
@@ -175,18 +189,17 @@ main {
   border-radius: 2px;
   font-weight: 600;
   text-align: center;
-  min-width: 80px;
+  min-width: 70px;
 }
 .task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-subtask .sub-due { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
 
-.task-tags { padding-left: 52px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px; }
+.task-tags { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
 .task-tag { font-size: 10px; color: var(--cyan); background: rgba(125, 207, 255, 0.1); padding: 1px 6px; border-radius: 3px; }
 
 .task-notes {
   list-style: none;
   margin-top: 4px;
-  padding-left: 52px;
 }
 
 .state-badge {
@@ -200,6 +213,7 @@ main {
   position: relative;
   min-width: 90px;
   text-align: center;
+  margin-top: 1px;
 }
 
 .priority-badge {
@@ -208,11 +222,13 @@ main {
   border-radius: 3px;
   font-weight: 600;
   text-align: center;
+  margin-top: 1px;
 }
 
 .due-badge {
   font-size: 11px;
   color: var(--text-dim);
+  padding-top: 3px;
 }
 .due-badge.overdue { color: var(--red); font-weight: 600; }
 
@@ -717,9 +733,10 @@ main {
 .task-notes li {
   font-size: 11px;
   color: var(--text-dim);
-  padding: 2px 0 2px 10px;
-  border-left: 2px solid var(--border);
-  margin-bottom: 2px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  margin-bottom: 3px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -742,21 +759,30 @@ main {
 /* ─── Subtask Clickable ────────────────────── */
 .task-subtask {
   display: grid;
-  grid-template-columns: 90px 1fr 70px 90px;
-  gap: 8px;
+  grid-template-columns: 80px 1fr 60px 80px;
+  gap: 6px;
   align-items: center;
-  padding: 2px 0;
+  padding: 4px 6px;
   font-size: 11px;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 0 4px 4px 0;
   transition: background 0.1s;
 }
 .task-subtask:hover { background: var(--bg-hover); }
 .task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-align: center; }
 .task-subtask .sub-due { font-size: 10px; color: var(--text-dim); }
-.subtask-note { list-style: none; padding: 1px 0 1px 28px; font-size: 11px; color: var(--text-dim); font-style: italic; }
-.subtask-note .sn-text::before { content: "~ "; color: var(--border); }
-.subtask-tags { list-style: none; padding: 1px 0 1px 94px; display: flex; flex-wrap: wrap; gap: 3px; }
+.subtask-note {
+  list-style: none;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg);
+  border-radius: 4px;
+  margin: 2px 0 2px 8px;
+}
+.subtask-note .sn-text::before { content: ""; }
+.subtask-notes { margin-bottom: 2px; }
+.subtask-tags { list-style: none; padding: 2px 0 2px 8px; display: flex; flex-wrap: wrap; gap: 3px; }
 
 /* ─── Subtask Section in Edit Modal ────────── */
 .subtasks-section { margin-top: 6px; }
@@ -1578,45 +1604,51 @@ document.getElementById('sort-header').addEventListener('click', e => {
 });
 
 function renderTaskItem(t, showStateDropdown = true) {
+  const hasTags = t.tags && t.tags.length;
+  const hasSubtasks = t.subtasks && t.subtasks.length;
+  const hasNotes = t.notes && t.notes.length;
+  const hasExtra = hasTags || hasSubtasks || hasNotes;
   return `
     <li class="task-item" data-id="${t.id}" onclick="openEditModal('${t.id}')">
       <div class="task-row">
         <span class="task-id">#${t.id}</span>
         <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
-        <span class="task-title">${h(stripTags(t.title))}</span>
+        <div class="task-title-col">
+          <span class="task-title">${h(stripTags(t.title))}</span>
+          ${hasTags ? `<div class="task-tags">${t.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
+          ${hasSubtasks ? `
+            <div class="task-subtasks">
+              ${t.subtasks.map(st => `
+                <div class="subtask-block">
+                  <div class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
+                    <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
+                    <span class="sub-title">${h(stripTags(st.title))}</span>
+                    <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
+                    <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
+                  </div>
+                  ${st.tags && st.tags.length ? `<div class="subtask-tags">${st.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
+                  ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${h(n)}</span></div>`).join('')}</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          ${hasNotes ? `
+            <ul class="task-notes">
+              ${t.notes.map((n, i) => `
+                <li>
+                  <span class="note-content">${h(n)}</span>
+                  <span class="note-actions">
+                    <span class="na-edit" onclick="event.stopPropagation();inlineEditNote('${t.id}',${i},'${h(n).replace(/'/g,"\\'")}')">edit</span>
+                    <span class="na-del" onclick="event.stopPropagation();inlineDeleteNote('${t.id}',${i})">x</span>
+                  </span>
+                </li>
+              `).join('')}
+            </ul>
+          ` : ''}
+        </div>
         <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
         <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
       </div>
-      ${t.tags && t.tags.length ? `<div class="task-tags">${t.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
-      ${t.subtasks && t.subtasks.length ? `
-        <ul class="task-subtasks">
-          ${t.subtasks.map(st => `
-            <li class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
-              <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
-              <span class="sub-title">${h(stripTags(st.title))}</span>
-              <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
-              <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
-            </li>
-            ${st.tags && st.tags.length ? `<li class="subtask-tags">${st.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</li>` : ''}
-            ${st.notes && st.notes.length ? st.notes.map(n => `
-              <li class="subtask-note"><span class="sn-text">${h(n)}</span></li>
-            `).join('') : ''}
-          `).join('')}
-        </ul>
-      ` : ''}
-      ${t.notes && t.notes.length ? `
-        <ul class="task-notes">
-          ${t.notes.map((n, i) => `
-            <li>
-              <span class="note-content">${h(n)}</span>
-              <span class="note-actions">
-                <span class="na-edit" onclick="event.stopPropagation();inlineEditNote('${t.id}',${i},'${h(n).replace(/'/g,"\\'")}')">edit</span>
-                <span class="na-del" onclick="event.stopPropagation();inlineDeleteNote('${t.id}',${i})">x</span>
-              </span>
-            </li>
-          `).join('')}
-        </ul>
-      ` : ''}
     </li>`;
 }
 

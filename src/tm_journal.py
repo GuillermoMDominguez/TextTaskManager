@@ -1088,11 +1088,23 @@ def add_note_to_subtask_in_file(filepath: str, subtask: "Subtask", note: str) ->
             cline = lines[insert_idx]
             if not cline.strip():
                 break
-            # Subtask notes start with deeper indentation and ":"
             stripped = cline.strip()
+            # Another subtask at same or lesser indentation — stop
+            if stripped.startswith("+") or stripped.startswith("-"):
+                # Check if it's at same level or shallower
+                line_indent = len(cline) - len(cline.lstrip())
+                base_len = len(base_indent)
+                if line_indent <= base_len:
+                    break
+            # Subtask notes start with deeper indentation and ":"
             if stripped.startswith(":"):
-                insert_idx += 1
-                continue
+                # Only skip if it's OUR note (deeper than our base indent)
+                line_indent = len(cline) - len(cline.lstrip())
+                if line_indent > len(base_indent):
+                    insert_idx += 1
+                    continue
+                else:
+                    break
             # If it's deeper indentation content (continuation), skip
             if len(cline) > len(base_indent) + 4 and cline[0].isspace():
                 insert_idx += 1
