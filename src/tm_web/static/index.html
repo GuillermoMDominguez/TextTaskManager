@@ -947,6 +947,20 @@ main {
   margin-left: 4px;
 }
 .btn-primary .kbd-hint { color: var(--bg); background: rgba(0,0,0,0.2); }
+
+/* Pomodoro */
+.pomo-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--text-dim); background: transparent;
+  transition: background 0.3s;
+}
+.pomo-dot.filled { background: var(--accent); border-color: var(--accent); }
+#pomo-display.pomo-break { color: var(--green, #4caf50); }
+#pomo-display.pomo-work { color: var(--text); }
+.pomo-history-item {
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between;
+}
 </style>
 </head>
 <body>
@@ -987,6 +1001,7 @@ main {
       <div class="nav-group-title">Details</div>
       <a class="nav-item" data-view="tags"><span class="kbd-hint">g</span> Tags</a>
       <a class="nav-item" data-view="time"><span class="kbd-hint">i</span> Time Tracking</a>
+      <a class="nav-item" data-view="pomodoro"><span class="kbd-hint">p</span> Pomodoro</a>
       <a class="nav-item" data-view="blockers"><span class="kbd-hint">x</span> Blockers</a>
     </div>
     <div class="nav-group">
@@ -1066,6 +1081,57 @@ main {
     <div id="view-time" class="view">
       <h2 class="view-title">Time Tracking</h2>
       <div id="time-content"></div>
+    </div>
+
+    <!-- Pomodoro View -->
+    <div id="view-pomodoro" class="view">
+      <div style="max-width:480px;margin:0 auto;text-align:center;padding-top:24px">
+        <h2 class="view-title" style="margin-bottom:16px">Pomodoro Timer</h2>
+
+        <!-- Task selector -->
+        <div class="form-group" style="text-align:left;margin-bottom:20px">
+          <label>Working on</label>
+          <select id="pomo-task" style="width:100%">
+            <option value="">(no task — free focus)</option>
+          </select>
+        </div>
+
+        <!-- Timer display -->
+        <div id="pomo-display" style="font-size:72px;font-weight:700;font-family:monospace;letter-spacing:2px;margin:24px 0;color:var(--text)">25:00</div>
+
+        <!-- Mode indicator -->
+        <div id="pomo-mode" style="font-size:14px;color:var(--text-dim);margin-bottom:20px">WORK</div>
+
+        <!-- Progress dots -->
+        <div id="pomo-dots" style="display:flex;justify-content:center;gap:8px;margin-bottom:24px">
+          <span class="pomo-dot"></span><span class="pomo-dot"></span><span class="pomo-dot"></span><span class="pomo-dot"></span>
+        </div>
+
+        <!-- Controls -->
+        <div style="display:flex;gap:12px;justify-content:center;margin-bottom:24px">
+          <button class="btn btn-primary" id="pomo-start-btn" onclick="pomoStartPause()">Start</button>
+          <button class="btn" onclick="pomoReset()">Reset</button>
+          <button class="btn" onclick="pomoSkip()">Skip</button>
+        </div>
+
+        <!-- Settings -->
+        <div style="display:flex;gap:16px;justify-content:center;margin-top:16px;font-size:12px;color:var(--text-dim)">
+          <label>Work <input type="number" id="pomo-work-min" value="25" min="1" max="90" style="width:45px;text-align:center" onchange="pomoUpdateSettings()">m</label>
+          <label>Break <input type="number" id="pomo-break-min" value="5" min="1" max="30" style="width:45px;text-align:center" onchange="pomoUpdateSettings()">m</label>
+          <label>Long <input type="number" id="pomo-long-min" value="15" min="1" max="60" style="width:45px;text-align:center" onchange="pomoUpdateSettings()">m</label>
+        </div>
+
+        <!-- Auto-log checkbox -->
+        <div style="margin-top:16px;font-size:12px;color:var(--text-dim)">
+          <label><input type="checkbox" id="pomo-autolog" checked> Auto-log time to task on complete</label>
+        </div>
+
+        <!-- Session history -->
+        <div style="margin-top:32px;text-align:left">
+          <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:8px">Today's Sessions</h3>
+          <div id="pomo-history" style="font-size:12px;color:var(--text-dim)"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Blockers View -->
@@ -1594,6 +1660,7 @@ function loadView(view) {
     burndown: loadBurndown,
     tags: loadTags,
     time: loadTime,
+    pomodoro: loadPomodoro,
     blockers: loadBlockers,
     jira: loadJira,
     config: loadConfig,
@@ -2108,6 +2175,199 @@ async function submitLogTime() {
     closeModal('modal-logtime');
     loadView('time');
   }
+}
+
+// ─── Pomodoro Timer ─────────────────────────────
+let pomoState = {
+  running: false,
+  mode: 'work',        // 'work' | 'break' | 'longbreak'
+  secondsLeft: 25 * 60,
+  interval: null,
+  completedPomos: 0,   // in current cycle (resets after 4)
+  workMin: 25,
+  breakMin: 5,
+  longMin: 15,
+  sessions: [],        // { task, taskTitle, mode, duration, endedAt }
+};
+
+function loadPomodoro() {
+  // Populate task selector
+  const select = document.getElementById('pomo-task');
+  const tasks = Object.values(taskCache);
+  const buildOpts = (ts) => '<option value="">(no task — free focus)</option>' +
+    ts.map(t => `<option value="${t.id}">#${t.id} — ${h(t.title).substring(0, 45)}</option>`).join('');
+  if (tasks.length) { select.innerHTML = buildOpts(tasks); }
+  else { api('GET', '/api/tasks').then(data => { cacheTasks(data.tasks); select.innerHTML = buildOpts(data.tasks); }); }
+  pomoRenderDisplay();
+  pomoRenderDots();
+  pomoRenderHistory();
+}
+
+function pomoUpdateSettings() {
+  pomoState.workMin = parseInt(document.getElementById('pomo-work-min').value) || 25;
+  pomoState.breakMin = parseInt(document.getElementById('pomo-break-min').value) || 5;
+  pomoState.longMin = parseInt(document.getElementById('pomo-long-min').value) || 15;
+  if (!pomoState.running) {
+    pomoState.secondsLeft = pomoState.workMin * 60;
+    pomoRenderDisplay();
+  }
+}
+
+function pomoStartPause() {
+  if (pomoState.running) {
+    // Pause
+    clearInterval(pomoState.interval);
+    pomoState.running = false;
+    document.getElementById('pomo-start-btn').textContent = 'Resume';
+  } else {
+    // Start / Resume
+    pomoState.running = true;
+    document.getElementById('pomo-start-btn').textContent = 'Pause';
+    pomoState.interval = setInterval(pomoTick, 1000);
+    // Request notification permission
+    if (Notification && Notification.permission === 'default') Notification.requestPermission();
+  }
+}
+
+function pomoTick() {
+  pomoState.secondsLeft--;
+  pomoRenderDisplay();
+  if (pomoState.secondsLeft <= 0) {
+    clearInterval(pomoState.interval);
+    pomoState.running = false;
+    document.getElementById('pomo-start-btn').textContent = 'Start';
+    pomoComplete();
+  }
+}
+
+function pomoComplete() {
+  const wasWork = pomoState.mode === 'work';
+  const duration = wasWork ? pomoState.workMin : (pomoState.mode === 'break' ? pomoState.breakMin : pomoState.longMin);
+
+  // Record session
+  const taskId = document.getElementById('pomo-task').value;
+  const taskTitle = taskId ? (taskCache[taskId] ? taskCache[taskId].title : `#${taskId}`) : '';
+  pomoState.sessions.unshift({ task: taskId, taskTitle, mode: pomoState.mode, duration, endedAt: new Date() });
+  pomoRenderHistory();
+
+  // Auto-log time if work session + task selected + checkbox on
+  if (wasWork && taskId && document.getElementById('pomo-autolog').checked) {
+    api('POST', `/api/tasks/${taskId}/time`, { time: `${duration}m` });
+  }
+
+  // Notify
+  pomoNotify(wasWork ? 'Work session complete!' : 'Break is over — back to work!');
+
+  // Transition mode
+  if (wasWork) {
+    pomoState.completedPomos++;
+    pomoRenderDots();
+    if (pomoState.completedPomos >= 4) {
+      pomoState.completedPomos = 0;
+      pomoState.mode = 'longbreak';
+      pomoState.secondsLeft = pomoState.longMin * 60;
+    } else {
+      pomoState.mode = 'break';
+      pomoState.secondsLeft = pomoState.breakMin * 60;
+    }
+  } else {
+    pomoState.mode = 'work';
+    pomoState.secondsLeft = pomoState.workMin * 60;
+  }
+  pomoRenderDisplay();
+  pomoRenderDots();
+}
+
+function pomoReset() {
+  clearInterval(pomoState.interval);
+  pomoState.running = false;
+  pomoState.mode = 'work';
+  pomoState.secondsLeft = pomoState.workMin * 60;
+  pomoState.completedPomos = 0;
+  document.getElementById('pomo-start-btn').textContent = 'Start';
+  pomoRenderDisplay();
+  pomoRenderDots();
+}
+
+function pomoSkip() {
+  clearInterval(pomoState.interval);
+  pomoState.running = false;
+  document.getElementById('pomo-start-btn').textContent = 'Start';
+  // Move to next mode without logging
+  if (pomoState.mode === 'work') {
+    pomoState.completedPomos++;
+    pomoRenderDots();
+    if (pomoState.completedPomos >= 4) {
+      pomoState.completedPomos = 0;
+      pomoState.mode = 'longbreak';
+      pomoState.secondsLeft = pomoState.longMin * 60;
+    } else {
+      pomoState.mode = 'break';
+      pomoState.secondsLeft = pomoState.breakMin * 60;
+    }
+  } else {
+    pomoState.mode = 'work';
+    pomoState.secondsLeft = pomoState.workMin * 60;
+  }
+  pomoRenderDisplay();
+  pomoRenderDots();
+}
+
+function pomoRenderDisplay() {
+  const min = Math.floor(pomoState.secondsLeft / 60);
+  const sec = pomoState.secondsLeft % 60;
+  const display = document.getElementById('pomo-display');
+  display.textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  display.className = pomoState.mode === 'work' ? 'pomo-work' : 'pomo-break';
+  document.getElementById('pomo-mode').textContent = pomoState.mode === 'work' ? 'WORK' : pomoState.mode === 'break' ? 'SHORT BREAK' : 'LONG BREAK';
+  // Update page title with timer
+  if (pomoState.running) {
+    document.title = `${display.textContent} — Pomodoro | TTM`;
+  } else {
+    document.title = 'TextTaskManager';
+  }
+}
+
+function pomoRenderDots() {
+  const dots = document.querySelectorAll('.pomo-dot');
+  dots.forEach((dot, i) => {
+    dot.classList.toggle('filled', i < pomoState.completedPomos);
+  });
+}
+
+function pomoRenderHistory() {
+  const el = document.getElementById('pomo-history');
+  if (!pomoState.sessions.length) { el.innerHTML = '<span style="color:var(--text-dim)">No sessions yet</span>'; return; }
+  el.innerHTML = pomoState.sessions.slice(0, 15).map(s => {
+    const time = s.endedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const modeLabel = s.mode === 'work' ? 'Work' : s.mode === 'break' ? 'Break' : 'Long Break';
+    const taskLabel = s.taskTitle ? ` — ${h(s.taskTitle).substring(0, 30)}` : '';
+    return `<div class="pomo-history-item"><span>${time} · ${modeLabel} (${s.duration}m)${taskLabel}</span></div>`;
+  }).join('');
+}
+
+function pomoNotify(msg) {
+  // Browser notification
+  if (Notification && Notification.permission === 'granted') {
+    new Notification('Pomodoro', { body: msg, icon: '🍅' });
+  }
+  // Also play a beep
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 800;
+    gain.gain.value = 0.3;
+    osc.start(); osc.stop(ctx.currentTime + 0.3);
+    setTimeout(() => { osc.start; }, 400); // double beep
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.connect(gain2); gain2.connect(ctx.destination);
+    osc2.frequency.value = 1000;
+    gain2.gain.value = 0.3;
+    osc2.start(ctx.currentTime + 0.4); osc2.stop(ctx.currentTime + 0.7);
+  } catch(e) {}
 }
 
 // ─── Blockers View ──────────────────────────────
@@ -3030,7 +3290,7 @@ function closeModal(id) {
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
-const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
   // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)
