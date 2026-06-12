@@ -764,6 +764,70 @@ main {
 .search-result-item .sr-id { color: var(--text-dim); margin-right: 6px; }
 .search-result-item .sr-state { font-size: 9px; margin-right: 6px; }
 
+/* ─── Task Search Autocomplete (Modal) ────── */
+.task-search-container {
+  position: relative;
+}
+.task-search-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.task-search-input:focus { outline: none; border-color: var(--accent); }
+.task-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 300;
+  display: none;
+}
+.task-search-results.open { display: block; }
+.task-search-result {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.task-search-result:hover { background: var(--bg-hover); }
+.task-search-result.selected { background: var(--bg-hover); }
+.task-search-result:last-child { border-bottom: none; }
+.task-search-result .tsr-id { color: var(--text-dim); margin-right: 6px; font-weight: 500; }
+.task-search-result .tsr-state { font-size: 9px; margin-right: 6px; padding: 1px 4px; border-radius: 3px; }
+.task-search-selected {
+  margin-top: 6px;
+  display: none;
+}
+.task-search-selected.has-selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.task-search-selected .tss-label { color: var(--text-dim); font-size: 10px; }
+.task-search-selected .tss-task { flex: 1; }
+.task-search-selected .tss-clear {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+}
+.task-search-selected .tss-clear:hover { color: var(--red); }
+
 /* ─── Filter Chips ─────────────────────────── */
 .filter-bar {
   display: flex;
@@ -1609,11 +1673,21 @@ main {
     <div class="modal-body">
       <div class="form-group">
         <label>Task being blocked</label>
-        <select id="blocker-blocked-task"></select>
+        <div class="task-search-container">
+          <input type="text" id="blocker-blocked-input" class="task-search-input" placeholder="Type to search tasks..." autocomplete="off">
+          <input type="hidden" id="blocker-blocked-task">
+          <div class="task-search-results" id="blocker-blocked-results"></div>
+          <div class="task-search-selected" id="blocker-blocked-selected"></div>
+        </div>
       </div>
       <div class="form-group">
         <label>Blocked by (blocker task)</label>
-        <select id="blocker-blocker-task"></select>
+        <div class="task-search-container">
+          <input type="text" id="blocker-blocker-input" class="task-search-input" placeholder="Type to search tasks..." autocomplete="off">
+          <input type="hidden" id="blocker-blocker-task">
+          <div class="task-search-results" id="blocker-blocker-results"></div>
+          <div class="task-search-selected" id="blocker-blocker-selected"></div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2514,30 +2588,161 @@ async function loadBlockers() {
   `;
 }
 
+// Blocker search state
+let blockerTasksCache = [];
+let blockerSearchSelectedIndex = { blocked: -1, blocker: -1 };
+
 function showAddBlockerForm() {
-  // Populate both selectors with all tasks
+  // Reset state
+  document.getElementById('blocker-blocked-input').value = '';
+  document.getElementById('blocker-blocker-input').value = '';
+  document.getElementById('blocker-blocked-task').value = '';
+  document.getElementById('blocker-blocker-task').value = '';
+  document.getElementById('blocker-blocked-results').classList.remove('open');
+  document.getElementById('blocker-blocker-results').classList.remove('open');
+  document.getElementById('blocker-blocked-selected').classList.remove('has-selection');
+  document.getElementById('blocker-blocker-selected').classList.remove('has-selection');
+  document.getElementById('blocker-blocked-selected').innerHTML = '';
+  document.getElementById('blocker-blocker-selected').innerHTML = '';
+  blockerSearchSelectedIndex = { blocked: -1, blocker: -1 };
+
+  // Ensure we have tasks cached
   const allTasks = Object.values(taskCache);
-  const buildOptions = (tasks) => tasks.map(t =>
-    `<option value="${t.id}">#${t.id} — ${h(t.title).substring(0, 45)}</option>`
-  ).join('');
-
-  const fill = (tasks) => {
-    document.getElementById('blocker-blocked-task').innerHTML = buildOptions(tasks);
-    document.getElementById('blocker-blocker-task').innerHTML = buildOptions(tasks);
-  };
-
   if (allTasks.length) {
-    fill(allTasks);
+    blockerTasksCache = allTasks;
   } else {
-    api('GET', '/api/tasks').then(data => { cacheTasks(data.tasks); fill(data.tasks); });
+    api('GET', '/api/tasks').then(data => {
+      cacheTasks(data.tasks);
+      blockerTasksCache = data.tasks;
+    });
   }
+
+  // Setup event listeners
+  setupBlockerSearchInput('blocked');
+  setupBlockerSearchInput('blocker');
+
   document.getElementById('modal-blocker').classList.add('open');
+  document.getElementById('blocker-blocked-input').focus();
+}
+
+function setupBlockerSearchInput(type) {
+  const input = document.getElementById(`blocker-${type}-input`);
+  const results = document.getElementById(`blocker-${type}-results`);
+
+  // Remove old listeners by cloning
+  const newInput = input.cloneNode(true);
+  input.parentNode.replaceChild(newInput, input);
+
+  newInput.addEventListener('input', () => {
+    const query = newInput.value.trim().toLowerCase();
+    if (query.length === 0) {
+      results.classList.remove('open');
+      return;
+    }
+    const filtered = blockerTasksCache.filter(t =>
+      t.title.toLowerCase().includes(query) ||
+      String(t.id).includes(query)
+    ).slice(0, 10);
+
+    if (filtered.length === 0) {
+      results.innerHTML = '<div class="task-search-result" style="color:var(--text-dim)">No tasks found</div>';
+    } else {
+      results.innerHTML = filtered.map((t, i) => `
+        <div class="task-search-result${i === 0 ? ' selected' : ''}" data-id="${t.id}" data-title="${h(t.title)}">
+          <span class="tsr-id">#${t.id}</span>
+          <span class="tsr-state state-${t.state.toLowerCase().replace(/\s+/g, '-')}">${t.state}</span>
+          ${h(t.title).substring(0, 40)}
+        </div>
+      `).join('');
+
+      // Add click handlers
+      results.querySelectorAll('.task-search-result[data-id]').forEach(el => {
+        el.addEventListener('click', () => selectBlockerTask(type, el.dataset.id, el.dataset.title));
+      });
+    }
+    blockerSearchSelectedIndex[type] = filtered.length > 0 ? 0 : -1;
+    results.classList.add('open');
+  });
+
+  newInput.addEventListener('keydown', (e) => {
+    const items = results.querySelectorAll('.task-search-result[data-id]');
+    if (!items.length) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      blockerSearchSelectedIndex[type] = Math.min(blockerSearchSelectedIndex[type] + 1, items.length - 1);
+      updateBlockerSearchSelection(type, items);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      blockerSearchSelectedIndex[type] = Math.max(blockerSearchSelectedIndex[type] - 1, 0);
+      updateBlockerSearchSelection(type, items);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const idx = blockerSearchSelectedIndex[type];
+      if (idx >= 0 && items[idx]) {
+        selectBlockerTask(type, items[idx].dataset.id, items[idx].dataset.title);
+      }
+    } else if (e.key === 'Escape') {
+      results.classList.remove('open');
+    }
+  });
+
+  newInput.addEventListener('blur', () => {
+    // Delay to allow click on results
+    setTimeout(() => results.classList.remove('open'), 150);
+  });
+
+  newInput.addEventListener('focus', () => {
+    if (newInput.value.trim().length > 0) {
+      results.classList.add('open');
+    }
+  });
+}
+
+function updateBlockerSearchSelection(type, items) {
+  items.forEach((el, i) => {
+    el.classList.toggle('selected', i === blockerSearchSelectedIndex[type]);
+  });
+  // Scroll into view
+  const idx = blockerSearchSelectedIndex[type];
+  if (items[idx]) {
+    items[idx].scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function selectBlockerTask(type, id, title) {
+  document.getElementById(`blocker-${type}-task`).value = id;
+  document.getElementById(`blocker-${type}-input`).value = '';
+  document.getElementById(`blocker-${type}-results`).classList.remove('open');
+
+  const selectedEl = document.getElementById(`blocker-${type}-selected`);
+  selectedEl.innerHTML = `
+    <span class="tss-label">Selected:</span>
+    <span class="tss-task"><strong>#${id}</strong> ${h(title).substring(0, 35)}</span>
+    <span class="tss-clear" onclick="clearBlockerSelection('${type}')">&times;</span>
+  `;
+  selectedEl.classList.add('has-selection');
+
+  // Focus next input if first selection
+  if (type === 'blocked' && !document.getElementById('blocker-blocker-task').value) {
+    document.getElementById('blocker-blocker-input').focus();
+  }
+}
+
+function clearBlockerSelection(type) {
+  document.getElementById(`blocker-${type}-task`).value = '';
+  document.getElementById(`blocker-${type}-selected`).classList.remove('has-selection');
+  document.getElementById(`blocker-${type}-selected`).innerHTML = '';
+  document.getElementById(`blocker-${type}-input`).focus();
 }
 
 async function submitAddBlocker() {
   const blockedId = document.getElementById('blocker-blocked-task').value;
   const blockerId = document.getElementById('blocker-blocker-task').value;
-  if (!blockedId || !blockerId) return;
+  if (!blockedId || !blockerId) {
+    alert('Please select both tasks');
+    return;
+  }
   if (blockedId === blockerId) { alert('A task cannot block itself'); return; }
   const data = await api('POST', '/api/blockers/add', { blocked_id: blockedId, blocker_id: blockerId });
   if (data.ok) {
@@ -3484,9 +3689,9 @@ function isOverdue(dateStr) {
   return d < new Date(new Date().toDateString());
 }
 
-function taskListHtml(tasks) {
+function taskListHtml(tasks, showStateDropdown = true) {
   cacheTasks(tasks);
-  return `<ul class="task-list">${tasks.map(t => renderTaskItem(t, false)).join('')}</ul>`;
+  return `<ul class="task-list">${tasks.map(t => renderTaskItem(t, showStateDropdown)).join('')}</ul>`;
 }
 
 // ─── Init ───────────────────────────────────────

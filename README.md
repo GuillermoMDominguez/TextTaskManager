@@ -595,6 +595,96 @@ SSH remotes (`git@...`) require no token — they use your system SSH keys.
 
 ---
 
+## Web Interface
+
+TextTaskManager includes a modern web UI that provides a graphical alternative to the CLI.
+
+### Starting the Web Server
+
+```bash
+python3 -m src.tm_web.server           # Default port 5000
+python3 -m src.tm_web.server --port 8080  # Custom port
+```
+
+Or from within the CLI:
+
+```
+> web                    # Start web server on default port
+> web 8080               # Start on custom port
+```
+
+### Features
+
+The web interface provides:
+
+| View | Description |
+|------|-------------|
+| **Tasks** | Main task list with filters (All, Pending, In Progress, Done) |
+| **Kanban** | Drag-and-drop board with customizable columns |
+| **Agenda** | Tasks grouped by due date (Overdue, Today, Soon) |
+| **Stats** | Visual statistics with charts |
+| **Weekly Report** | Summary of completed work |
+| **Burndown** | Progress chart over time |
+| **Tags** | Tag cloud with task counts, click to filter |
+| **Time Tracking** | Log time spent on tasks |
+| **Pomodoro** | Built-in focus timer |
+| **Blockers** | Manage task dependencies |
+| **Jira** | View and manage linked Jira issues |
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `n` | New task |
+| `t` | Tasks view |
+| `k` | Kanban view |
+| `a` | Agenda view |
+| `s` | Stats view |
+| `w` | Weekly report |
+| `b` | Burndown chart |
+| `g` | Tags view |
+| `i` | Time tracking |
+| `p` | Pomodoro |
+| `x` | Blockers |
+| `j` | Jira view |
+| `r` | Refresh |
+| `/` | Focus search |
+| `Escape` | Close modal |
+
+### UI Components
+
+The web interface uses a single-page architecture with:
+
+- **State badges**: Click on any task's state to change it via dropdown
+- **Task search**: Autocomplete search in the header (press `/`)
+- **Blocker assignment**: Text search with autocomplete instead of dropdowns
+- **Modals**: For task creation/editing, time logging, etc.
+- **Dark/Light themes**: Toggle via the moon/sun icon
+
+### Architecture
+
+```
+src/tm_web/
+    ├── server.py            ← Flask-like HTTP server (no dependencies)
+    │   ├── GET /api/tasks   ← List tasks with filters
+    │   ├── POST /api/tasks  ← Create task
+    │   ├── PUT /api/tasks/<id>  ← Update task
+    │   ├── DELETE /api/tasks/<id>  ← Delete task
+    │   ├── GET /api/agenda  ← Agenda data
+    │   ├── GET /api/kanban  ← Kanban data
+    │   ├── GET /api/stats   ← Statistics
+    │   ├── GET /api/blockers  ← Blocker relationships
+    │   ├── POST /api/blockers/add  ← Add blocker
+    │   └── ... (more endpoints)
+    │
+    └── static/
+        └── index.html       ← Single-file SPA (HTML + CSS + JS)
+```
+
+The web server uses Python's built-in `http.server` module — no Flask or other frameworks required. The frontend is a single HTML file with embedded CSS and vanilla JavaScript.
+
+---
+
 ## Architecture
 
 Modular, no circular dependencies. Command dispatch is split into domain sub-modules:
@@ -621,7 +711,11 @@ task_manager.py              ← Entry point, prompt loop, crash handling
     ├── src/tm_sync.py       ← Git sync: push/pull/config wizard (optional)
     ├── src/tm_jira.py       ← Jira Cloud integration (optional, requires `requests`)
     ├── src/tm_email.py      ← Email: SMTP or mailto fallback
-    └── src/tm_integrity.py  ← Journal linting and auto-fix
+    ├── src/tm_integrity.py  ← Journal linting and auto-fix
+    │
+    └── src/tm_web/          ← Web interface (optional)
+        ├── server.py        ← HTTP server with REST API
+        └── static/index.html  ← Single-page app (no build step)
 ```
 
 ### Design Principles
@@ -632,6 +726,7 @@ task_manager.py              ← Entry point, prompt loop, crash handling
 - **Secrets isolated** — tokens/passwords in `.ttm_secrets` (gitignored, mode 600), never in `.git/config`
 - **Crash-safe** — undo snapshots before every write, atomic file operations where possible
 - **Offline-first sync** — git-based, fails silently with no network, retries on next change
+- **No build step** — web interface is vanilla HTML/CSS/JS, no npm or bundlers
 
 ---
 
