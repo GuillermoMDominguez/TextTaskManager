@@ -227,6 +227,7 @@ Burndown (14 days) — 24 total tasks
 | `t` / `testing` | Show testing tasks only |
 | `s` / `stats` | Show statistics with bar chart |
 | `ag [days]` | Agenda: tasks grouped by due date (default 7 days) |
+| `cal [week] [date]` | Calendar view (month or week) |
 | `kb` | Kanban board view |
 | `pj [#tag]` | Project/tag view |
 | `wr [days]` | Weekly report |
@@ -236,6 +237,10 @@ Burndown (14 days) — 24 total tasks
 
 ```
 > ag 14          # Agenda for next 14 days
+> cal            # Calendar for current month
+> cal week       # Calendar for current week
+> cal 06/2026    # Calendar for June 2026
+> cal week 15/06/2026  # Week containing that date
 > kb             # Kanban board
 > pj             # List all tags with counts
 > pj #backend   # Show all tasks tagged #backend
@@ -622,6 +627,7 @@ The web interface provides:
 | **Tasks** | Main task list with filters (All, Pending, In Progress, Done) |
 | **Kanban** | Drag-and-drop board with customizable columns |
 | **Agenda** | Tasks grouped by due date (Overdue, Today, Soon) |
+| **Calendar** | Month/week view with drag-and-drop to reschedule tasks |
 | **Stats** | Visual statistics with charts |
 | **Weekly Report** | Summary of completed work |
 | **Burndown** | Progress chart over time |
@@ -639,6 +645,7 @@ The web interface provides:
 | `t` | Tasks view |
 | `k` | Kanban view |
 | `a` | Agenda view |
+| `d` | Calendar view |
 | `s` | Stats view |
 | `w` | Weekly report |
 | `b` | Burndown chart |
@@ -671,6 +678,7 @@ src/tm_web/
     │   ├── PUT /api/tasks/<id>  ← Update task
     │   ├── DELETE /api/tasks/<id>  ← Delete task
     │   ├── GET /api/agenda  ← Agenda data
+    │   ├── GET /api/calendar  ← Calendar data (week/month)
     │   ├── GET /api/kanban  ← Kanban data
     │   ├── GET /api/stats   ← Statistics
     │   ├── GET /api/blockers  ← Blocker relationships

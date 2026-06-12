@@ -414,3 +414,82 @@ def get_all_tags_data(tasks_by_date: dict) -> Dict[str, int]:
     """Get all tags with their counts."""
     from .tm_features import get_all_tags
     return get_all_tags(tasks_by_date)
+
+
+# ─── Calendar Data ─────────────────────────────────────────────────────────────
+
+@dataclass
+class CalendarData:
+    """Structured calendar data for week or month view."""
+    view: str  # 'week' or 'month'
+    year: int
+    month: int
+    start_date: str  # dd/mm/yyyy
+    end_date: str    # dd/mm/yyyy
+    days: Dict[str, List[TaskViewItem]]  # date string -> tasks
+
+
+def get_calendar_data(
+    tasks_by_date: dict,
+    view: str = "month",
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    day: Optional[int] = None,
+) -> CalendarData:
+    """Get calendar data for a week or month view.
+    
+    Args:
+        tasks_by_date: Tasks grouped by date
+        view: 'week' or 'month'
+        year: Target year (default: current)
+        month: Target month (default: current)
+        day: Target day for week view (default: today)
+    
+    Returns:
+        CalendarData with tasks grouped by date string (dd/mm/yyyy)
+    """
+    import calendar
+    
+    today = datetime.now().date()
+    year = year or today.year
+    month = month or today.month
+    day = day or today.day
+    
+    if view == "week":
+        # Get the week containing the specified date
+        target_date = datetime(year, month, day).date()
+        # Start from Monday (weekday 0)
+        start_date = target_date - timedelta(days=target_date.weekday())
+        end_date = start_date + timedelta(days=6)
+    else:  # month
+        # Get all days in the month
+        _, num_days = calendar.monthrange(year, month)
+        start_date = datetime(year, month, 1).date()
+        end_date = datetime(year, month, num_days).date()
+    
+    # Build dict of days with their tasks
+    days: Dict[str, List[TaskViewItem]] = {}
+    current = start_date
+    while current <= end_date:
+        date_str = current.strftime("%d/%m/%Y")
+        days[date_str] = []
+        current += timedelta(days=1)
+    
+    # Collect tasks by their due_date
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            if task.due_date:
+                task_date = task.due_date.date()
+                if start_date <= task_date <= end_date:
+                    date_str = task_date.strftime("%d/%m/%Y")
+                    if date_str in days:
+                        days[date_str].append(_task_to_view_item(task))
+    
+    return CalendarData(
+        view=view,
+        year=year,
+        month=month,
+        start_date=start_date.strftime("%d/%m/%Y"),
+        end_date=end_date.strftime("%d/%m/%Y"),
+        days=days,
+    )

@@ -49,6 +49,7 @@ from src.tm_views_data import (
     get_blockers_data,
     get_time_tracking_data,
     get_all_tags_data,
+    get_calendar_data,
     _task_to_view_item,
 )
 
@@ -175,6 +176,39 @@ def api_get_agenda(handler: "TTMRequestHandler", params: dict) -> None:
         "due_today": [_serialize_task(t) for t in data.due_today],
         "due_soon": [_serialize_task(t) for t in data.due_soon],
         "days_ahead": data.days_ahead,
+    })
+
+
+def api_get_calendar(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/calendar — calendar view data.
+    
+    Query params:
+        view: 'week' or 'month' (default: 'month')
+        year: target year (default: current)
+        month: target month (default: current)
+        day: target day for week view (default: today)
+    """
+    _state.refresh()
+    
+    view = params.get("view", ["month"])[0]
+    year = int(params.get("year", [0])[0]) or None
+    month = int(params.get("month", [0])[0]) or None
+    day = int(params.get("day", [0])[0]) or None
+    
+    data = get_calendar_data(_state.tasks_by_date, view=view, year=year, month=month, day=day)
+    
+    # Serialize tasks in each day
+    days_serialized = {}
+    for date_str, tasks in data.days.items():
+        days_serialized[date_str] = [_serialize_task(t) for t in tasks]
+    
+    _json_response(handler, {
+        "view": data.view,
+        "year": data.year,
+        "month": data.month,
+        "start_date": data.start_date,
+        "end_date": data.end_date,
+        "days": days_serialized,
     })
 
 
@@ -1451,6 +1485,7 @@ API_ROUTES = {
     # Read endpoints
     ("GET", "/api/tasks"): api_get_tasks,
     ("GET", "/api/agenda"): api_get_agenda,
+    ("GET", "/api/calendar"): api_get_calendar,
     ("GET", "/api/kanban"): api_get_kanban,
     ("GET", "/api/stats"): api_get_stats,
     ("GET", "/api/weekly"): api_get_weekly_report,

@@ -521,6 +521,156 @@ main {
 .agenda-section h3.today { color: var(--green); }
 .agenda-section h3.soon { color: var(--yellow); }
 
+/* ─── Calendar ─────────────────────────────── */
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.calendar-nav .view-title { margin: 0; min-width: 180px; text-align: center; }
+.calendar-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.calendar-controls .btn-sm.active {
+  background: var(--accent);
+  color: var(--bg);
+}
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.calendar-grid.week-view {
+  grid-template-columns: repeat(7, 1fr);
+}
+.calendar-weekday {
+  background: var(--bg-surface);
+  padding: 8px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.calendar-day {
+  background: var(--bg);
+  min-height: 100px;
+  padding: 6px;
+  vertical-align: top;
+  position: relative;
+}
+.calendar-grid.week-view .calendar-day {
+  min-height: 200px;
+}
+.calendar-day.other-month {
+  background: var(--bg-surface);
+  opacity: 0.5;
+}
+.calendar-day.today {
+  background: rgba(88, 166, 255, 0.08);
+}
+.calendar-day.today .day-number {
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.day-number {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+.calendar-day.weekend .day-number {
+  color: var(--text-dim);
+}
+.calendar-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: calc(100% - 24px);
+  overflow: hidden;
+}
+.calendar-task {
+  font-size: 10px;
+  padding: 3px 6px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  cursor: grab;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 3px solid var(--accent);
+}
+.calendar-task:active { cursor: grabbing; }
+.calendar-task.priority-URGENT { border-left-color: var(--red); }
+.calendar-task.priority-HIGH { border-left-color: var(--yellow); }
+.calendar-task.priority-MEDIUM { border-left-color: var(--accent); }
+.calendar-task.priority-LOW { border-left-color: var(--text-dim); }
+.calendar-task.state-DONE,
+.calendar-task.state-CANCELLED {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.calendar-task.dragging {
+  opacity: 0.5;
+}
+.calendar-day.drag-over {
+  background: rgba(88, 166, 255, 0.15);
+}
+.calendar-more {
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 2px 4px;
+  text-align: center;
+}
+.calendar-more:hover {
+  text-decoration: underline;
+}
+/* Calendar popover for +N more */
+.calendar-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  padding: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.calendar-popover .calendar-task {
+  margin-bottom: 4px;
+}
+.calendar-day-clickable {
+  cursor: pointer;
+}
+.calendar-day-clickable:hover {
+  background: var(--bg-hover);
+}
+
 /* ─── Stats ────────────────────────────────── */
 .stats-grid {
   display: grid;
@@ -1116,6 +1266,7 @@ main {
       <a class="nav-item active" data-view="tasks"><span class="kbd-hint">t</span> Tasks</a>
       <a class="nav-item" data-view="kanban"><span class="kbd-hint">k</span> Kanban</a>
       <a class="nav-item" data-view="agenda"><span class="kbd-hint">a</span> Agenda</a>
+      <a class="nav-item" data-view="calendar"><span class="kbd-hint">d</span> Calendar</a>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Reports</div>
@@ -1173,6 +1324,24 @@ main {
     <div id="view-agenda" class="view">
       <h2 class="view-title">Agenda</h2>
       <div id="agenda-content"></div>
+    </div>
+
+    <!-- Calendar View -->
+    <div id="view-calendar" class="view">
+      <div class="calendar-header">
+        <div class="calendar-nav">
+          <button class="btn btn-sm" onclick="calendarPrev()">← Prev</button>
+          <h2 class="view-title" id="calendar-title">Calendar</h2>
+          <button class="btn btn-sm" onclick="calendarNext()">Next →</button>
+        </div>
+        <div class="calendar-controls">
+          <button class="btn btn-sm" id="cal-btn-week" onclick="setCalendarView('week')">Week</button>
+          <button class="btn btn-sm" id="cal-btn-month" onclick="setCalendarView('month')">Month</button>
+          <button class="btn btn-sm" onclick="calendarToday()">Today</button>
+          <button class="btn btn-sm btn-primary" onclick="openNewTaskModalWithDate()">+ Add Task</button>
+        </div>
+      </div>
+      <div id="calendar-content"></div>
     </div>
 
     <!-- Stats View -->
@@ -1840,6 +2009,7 @@ function loadView(view) {
     tasks: () => loadTasks(currentTaskView),
     kanban: loadKanban,
     agenda: loadAgenda,
+    calendar: loadCalendar,
     stats: loadStats,
     weekly: loadWeekly,
     burndown: loadBurndown,
@@ -2147,6 +2317,270 @@ async function loadAgenda() {
   }
   if (!html) html = '<div class="empty">No upcoming deadlines</div>';
   el.innerHTML = html;
+}
+
+// ─── Calendar View ──────────────────────────────
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+let calendarState = {
+  view: 'month',
+  year: new Date().getFullYear(),
+  month: new Date().getMonth() + 1,
+  day: new Date().getDate(),
+};
+
+async function loadCalendar() {
+  const { view, year, month, day } = calendarState;
+  const data = await api('GET', `/api/calendar?view=${view}&year=${year}&month=${month}&day=${day}`);
+  
+  // Update title
+  const titleEl = document.getElementById('calendar-title');
+  if (view === 'week') {
+    titleEl.textContent = `Week of ${data.start_date}`;
+  } else {
+    titleEl.textContent = `${MONTHS[month - 1]} ${year}`;
+  }
+  
+  // Update view buttons
+  document.getElementById('cal-btn-week').classList.toggle('active', view === 'week');
+  document.getElementById('cal-btn-month').classList.toggle('active', view === 'month');
+  
+  const el = document.getElementById('calendar-content');
+  const today = new Date();
+  const todayStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+  
+  // Build grid
+  let html = `<div class="calendar-grid ${view === 'week' ? 'week-view' : ''}">`;
+  
+  // Weekday headers
+  html += WEEKDAYS.map(d => `<div class="calendar-weekday">${d}</div>`).join('');
+  
+  // Get all dates we need to display
+  const dates = Object.keys(data.days).sort((a, b) => {
+    const [da, ma, ya] = a.split('/').map(Number);
+    const [db, mb, yb] = b.split('/').map(Number);
+    return new Date(ya, ma - 1, da) - new Date(yb, mb - 1, db);
+  });
+  
+  if (view === 'month') {
+    // For month view, we need to pad with days from prev/next month
+    const firstDate = dates[0];
+    const [fd, fm, fy] = firstDate.split('/').map(Number);
+    const firstDayOfMonth = new Date(fy, fm - 1, fd);
+    const startPad = (firstDayOfMonth.getDay() + 6) % 7; // Monday = 0
+    
+    // Add padding days before
+    for (let i = startPad - 1; i >= 0; i--) {
+      const padDate = new Date(fy, fm - 1, fd - (i + 1));
+      const padStr = formatDateStr(padDate);
+      html += renderCalendarDay(padStr, [], todayStr, true);
+    }
+  }
+  
+  // Render actual days
+  for (const dateStr of dates) {
+    const tasks = data.days[dateStr] || [];
+    const [d, m, y] = dateStr.split('/').map(Number);
+    const isOtherMonth = view === 'month' && m !== month;
+    html += renderCalendarDay(dateStr, tasks, todayStr, isOtherMonth);
+  }
+  
+  if (view === 'month') {
+    // Add padding days after to complete the grid (6 rows * 7 = 42 cells)
+    const totalCells = dates.length + ((new Date(year, month - 1, 1).getDay() + 6) % 7);
+    const remaining = (7 - (totalCells % 7)) % 7;
+    const lastDate = dates[dates.length - 1];
+    const [ld, lm, ly] = lastDate.split('/').map(Number);
+    for (let i = 1; i <= remaining; i++) {
+      const padDate = new Date(ly, lm - 1, ld + i);
+      const padStr = formatDateStr(padDate);
+      html += renderCalendarDay(padStr, [], todayStr, true);
+    }
+  }
+  
+  html += '</div>';
+  el.innerHTML = html;
+  
+  // Setup drag and drop
+  setupCalendarDragDrop();
+}
+
+function formatDateStr(date) {
+  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+}
+
+function renderCalendarDay(dateStr, tasks, todayStr, isOtherMonth = false) {
+  const [d, m, y] = dateStr.split('/').map(Number);
+  const date = new Date(y, m - 1, d);
+  const dayOfWeek = date.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const isToday = dateStr === todayStr;
+  const maxVisible = calendarState.view === 'week' ? 8 : 3;
+  
+  let classes = 'calendar-day calendar-day-clickable';
+  if (isOtherMonth) classes += ' other-month';
+  if (isToday) classes += ' today';
+  if (isWeekend) classes += ' weekend';
+  
+  const visibleTasks = tasks.slice(0, maxVisible);
+  const hiddenCount = tasks.length - maxVisible;
+  
+  let html = `<div class="${classes}" data-date="${dateStr}" ondragover="calendarDragOver(event)" ondrop="calendarDrop(event, '${dateStr}')" ondragleave="calendarDragLeave(event)" onclick="calendarDayClick(event, '${dateStr}')">`;
+  html += `<div class="day-number">${d}</div>`;
+  html += '<div class="calendar-tasks">';
+  
+  for (const task of visibleTasks) {
+    const prioClass = task.priority ? `priority-${task.priority}` : '';
+    const stateClass = task.state ? `state-${task.state.replace(/ /g, '_')}` : '';
+    html += `<div class="calendar-task ${prioClass} ${stateClass}" draggable="true" data-id="${task.id}" onclick="event.stopPropagation();openEditModal('${task.id}')" ondragstart="calendarDragStart(event, '${task.id}')" ondragend="calendarDragEnd(event)" title="#${task.id} ${h(task.title)}">#${task.id} ${h(task.title).substring(0, 20)}</div>`;
+  }
+  
+  if (hiddenCount > 0) {
+    html += `<div class="calendar-more" onclick="event.stopPropagation();showCalendarPopover(this, '${dateStr}')">+${hiddenCount} more</div>`;
+  }
+  
+  html += '</div></div>';
+  return html;
+}
+
+function setCalendarView(view) {
+  calendarState.view = view;
+  loadCalendar();
+}
+
+function calendarPrev() {
+  if (calendarState.view === 'week') {
+    const d = new Date(calendarState.year, calendarState.month - 1, calendarState.day - 7);
+    calendarState.year = d.getFullYear();
+    calendarState.month = d.getMonth() + 1;
+    calendarState.day = d.getDate();
+  } else {
+    calendarState.month--;
+    if (calendarState.month < 1) {
+      calendarState.month = 12;
+      calendarState.year--;
+    }
+  }
+  loadCalendar();
+}
+
+function calendarNext() {
+  if (calendarState.view === 'week') {
+    const d = new Date(calendarState.year, calendarState.month - 1, calendarState.day + 7);
+    calendarState.year = d.getFullYear();
+    calendarState.month = d.getMonth() + 1;
+    calendarState.day = d.getDate();
+  } else {
+    calendarState.month++;
+    if (calendarState.month > 12) {
+      calendarState.month = 1;
+      calendarState.year++;
+    }
+  }
+  loadCalendar();
+}
+
+function calendarToday() {
+  const today = new Date();
+  calendarState.year = today.getFullYear();
+  calendarState.month = today.getMonth() + 1;
+  calendarState.day = today.getDate();
+  loadCalendar();
+}
+
+// Calendar popover for +N more
+let activeCalendarPopover = null;
+function showCalendarPopover(el, dateStr) {
+  closeCalendarPopover();
+  
+  // Get all tasks for this date from the API cache or re-fetch
+  api('GET', `/api/calendar?view=week&year=${calendarState.year}&month=${calendarState.month}&day=1`).then(data => {
+    const tasks = data.days[dateStr] || [];
+    if (tasks.length === 0) return;
+    
+    const popover = document.createElement('div');
+    popover.className = 'calendar-popover';
+    popover.innerHTML = tasks.map(task => {
+      const prioClass = task.priority ? `priority-${task.priority}` : '';
+      const stateClass = task.state ? `state-${task.state.replace(/ /g, '_')}` : '';
+      return `<div class="calendar-task ${prioClass} ${stateClass}" draggable="true" data-id="${task.id}" onclick="event.stopPropagation();openEditModal('${task.id}')" ondragstart="calendarDragStart(event, '${task.id}')" ondragend="calendarDragEnd(event)">#${task.id} ${h(task.title)}</div>`;
+    }).join('');
+    
+    el.parentElement.parentElement.appendChild(popover);
+    activeCalendarPopover = popover;
+    
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', closeCalendarPopover, { once: true });
+    }, 0);
+  });
+}
+
+function closeCalendarPopover() {
+  if (activeCalendarPopover) {
+    activeCalendarPopover.remove();
+    activeCalendarPopover = null;
+  }
+}
+
+// Drag and drop
+let draggedTaskId = null;
+
+function setupCalendarDragDrop() {
+  // Already set up via inline handlers
+}
+
+function calendarDragStart(event, taskId) {
+  draggedTaskId = taskId;
+  event.target.classList.add('dragging');
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', taskId);
+}
+
+function calendarDragEnd(event) {
+  event.target.classList.remove('dragging');
+  draggedTaskId = null;
+  document.querySelectorAll('.calendar-day.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+function calendarDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  event.currentTarget.classList.add('drag-over');
+}
+
+function calendarDragLeave(event) {
+  event.currentTarget.classList.remove('drag-over');
+}
+
+async function calendarDrop(event, dateStr) {
+  event.preventDefault();
+  event.currentTarget.classList.remove('drag-over');
+  
+  const taskId = event.dataTransfer.getData('text/plain') || draggedTaskId;
+  if (!taskId) return;
+  
+  // Update task due date
+  const result = await api('POST', '/api/tasks/edit', { task_id: taskId, due_date: dateStr });
+  if (result && !result.error) {
+    loadCalendar();
+  }
+}
+
+// Click on empty day to create task
+function calendarDayClick(event, dateStr) {
+  // Only if clicking on the day itself, not on a task
+  if (event.target.classList.contains('calendar-day') || event.target.classList.contains('day-number') || event.target.classList.contains('calendar-tasks')) {
+    openNewTaskModalWithDate(dateStr);
+  }
+}
+
+function openNewTaskModalWithDate(dateStr) {
+  // Open the new task modal and pre-fill the due date
+  openNewTaskModal();
+  if (dateStr) {
+    document.getElementById('new-due-date').value = dateStr;
+  }
 }
 
 // ─── Stats View ─────────────────────────────────
@@ -3625,7 +4059,7 @@ function closeModal(id) {
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
-const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
   // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)

@@ -62,6 +62,7 @@ from .tm_cmd_views import (
     handle_agenda,
     handle_day,
     handle_check,
+    handle_calendar,
 )
 from .tm_cmd_features import (
     handle_archive,
@@ -521,12 +522,16 @@ def execute_command(
     if result:
         return result
 
-    # ── Agenda/Day ───────────────────────────────────────────────────
+    # ── Agenda/Day/Calendar ───────────────────────────────────────────
     result = handle_agenda(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 
     result = handle_day(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_calendar(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 

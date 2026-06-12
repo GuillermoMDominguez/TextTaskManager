@@ -279,3 +279,156 @@ def _print_agenda(tasks_by_date: dict, days_ahead: int = 7) -> None:
     _print_group("Overdue", data.overdue, "⚠ ")
     _print_group("Due Today", data.due_today, "◉ ")
     _print_group(f"Due Next {data.days_ahead} Days", data.due_soon, "◌ ")
+
+
+# ─── Calendar ─────────────────────────────────────────────────────────
+
+def handle_calendar(raw_command: str, tasks_by_date: dict, view_state: ViewState, context: CommandContext) -> Optional[CommandOutcome]:
+    """Handle: cal, calendar [week] [dd/mm/yyyy].
+    
+    Examples:
+        cal            - Show current month
+        cal week       - Show current week
+        cal 06/2026    - Show June 2026
+        cal week 15/06/2026  - Show week containing 15/06/2026
+    """
+    if not re.match(r"^\s*cal(?:endar)?(?:\s+.*)?\s*$", raw_command, re.IGNORECASE):
+        return None
+
+    parts = raw_command.strip().split()
+    view = "month"
+    target_date = None
+
+    # Parse arguments
+    for part in parts[1:]:
+        if part.lower() in ("week", "w"):
+            view = "week"
+        elif re.match(r"^\d{1,2}/\d{4}$", part):  # mm/yyyy
+            month, year = part.split("/")
+            target_date = datetime(int(year), int(month), 1)
+        elif re.match(r"^\d{1,2}/\d{1,2}/\d{2,4}$", part):  # dd/mm/yyyy
+            target_date = parse_date_input(part)
+
+    if target_date is None:
+        target_date = datetime.now()
+
+    refreshed = context.refresh_tasks()
+    _print_calendar(refreshed, view=view, target_date=target_date)
+    return CommandOutcome(refreshed, view_state, skip_redraw=True)
+
+
+def _print_calendar(tasks_by_date: dict, view: str = "month", target_date: datetime = None) -> None:
+    """Print ASCII calendar with tasks."""
+    from .tm_views_data import get_calendar_data
+    import calendar
+
+    if target_date is None:
+        target_date = datetime.now()
+
+    data = get_calendar_data(
+        tasks_by_date,
+        view=view,
+        year=target_date.year,
+        month=target_date.month,
+        day=target_date.day,
+    )
+
+    tw = shutil.get_terminal_size((80, 24)).columns
+    today = datetime.now().date()
+
+    # Title
+    if view == "week":
+        title = f"Week of {data.start_date}"
+    else:
+        title = f"{calendar.month_name[data.month]} {data.year}"
+
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'─' * 3} {title} {'─' * (tw - len(title) - 6)}{Colors.RESET}")
+
+    # Weekday headers
+    weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    col_width = max(12, (tw - 2) // 7)
+    header = "".join(f"{Colors.BOLD}{d:^{col_width}}{Colors.RESET}" for d in weekdays)
+    print(header)
+    print("─" * tw)
+
+    # Get sorted dates
+    dates = sorted(data.days.keys(), key=lambda x: datetime.strptime(x, "%d/%m/%Y"))
+
+    if view == "month":
+        # Pad start of month to align with weekday
+        first_date = datetime.strptime(dates[0], "%d/%m/%Y")
+        start_pad = (first_date.weekday())  # Monday = 0
+        dates = [None] * start_pad + dates
+
+    # Print calendar grid
+    row = []
+    for i, date_str in enumerate(dates):
+        if date_str is None:
+            row.append(" " * col_width)
+        else:
+            d, m, y = date_str.split("/")
+            date_obj = datetime(int(y), int(m), int(d)).date()
+            tasks = data.days.get(date_str, [])
+
+            # Day number with formatting
+            is_today = date_obj == today
+            is_weekend = date_obj.weekday() >= 5
+
+            if is_today:
+                day_str = f"{Colors.ACCENT}{Colors.BOLD}*{int(d)}{Colors.RESET}"
+            elif is_weekend:
+                day_str = f"{Colors.DIM}{int(d)}{Colors.RESET}"
+            else:
+                day_str = f"{int(d)}"
+
+            # Task count indicator
+            task_count = len(tasks)
+            if task_count > 0:
+                count_str = f" ({task_count})"
+            else:
+                count_str = ""
+
+            cell = f"{day_str}{count_str}"
+            # Pad cell (accounting for ANSI codes)
+            visible_len = len(str(int(d))) + len(count_str) + (1 if is_today else 0)
+            padding = col_width - visible_len
+            row.append(cell + " " * max(0, padding))
+
+        if len(row) == 7:
+            print("".join(row))
+            row = []
+
+    # Print remaining row
+    if row:
+        while len(row) < 7:
+            row.append(" " * col_width)
+        print("".join(row))
+
+    # Print task details for days with tasks (limited)
+    print()
+    task_dates = [(d, data.days[d]) for d in sorted(data.days.keys(), key=lambda x: datetime.strptime(x, "%d/%m/%Y")) if data.days[d]]
+
+    if task_dates:
+        print(f"{Colors.DIM}Tasks with due dates:{Colors.RESET}")
+        for date_str, tasks in task_dates[:10]:  # Limit to 10 dates
+            d, m, y = date_str.split("/")
+            date_obj = datetime(int(y), int(m), int(d)).date()
+            day_name = date_obj.strftime("%a")
+
+            is_overdue = date_obj < today
+            is_today_date = date_obj == today
+
+            if is_overdue:
+                date_color = Colors.ERROR
+            elif is_today_date:
+                date_color = Colors.SUCCESS
+            else:
+                date_color = Colors.DIM
+
+            print(f"\n  {date_color}{Colors.BOLD}{day_name} {date_str}{Colors.RESET}")
+            for task in tasks[:5]:  # Limit to 5 tasks per day
+                state_color = _get_state_color_inline(task.state)
+                prio = f" [P:{task.priority}]" if task.priority else ""
+                print(f"    [{Colors.BOLD}{task.task_id}{Colors.RESET}] {state_color}{task.state:<11}{Colors.RESET} {task.title}{Colors.DIM}{prio}{Colors.RESET}")
+            if len(tasks) > 5:
+                print(f"    {Colors.DIM}... and {len(tasks) - 5} more{Colors.RESET}")
