@@ -211,7 +211,7 @@ main {
 
 .task-row {
   display: grid;
-  grid-template-columns: 40px 110px 1fr 70px 90px;
+  grid-template-columns: 40px 110px 1fr minmax(60px, auto) 70px 90px;
   align-items: start;
   gap: 8px;
 }
@@ -247,8 +247,12 @@ main {
 .task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-subtask .sub-due { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
 
-.task-tags { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.task-tags-col { display: flex; flex-wrap: wrap; gap: 3px; align-items: flex-start; padding-top: 2px; }
 .task-tag { font-size: 10px; color: var(--cyan); background: rgba(125, 207, 255, 0.1); padding: 1px 6px; border-radius: 3px; }
+.tags-more { font-size: 9px; color: var(--text-dim); background: var(--bg-hover); padding: 1px 5px; border-radius: 3px; cursor: pointer; }
+.tags-more:hover { color: var(--accent); }
+.tags-hidden { display: none; }
+.tags-hidden.show { display: inline; }
 
 .task-notes {
   list-style: none;
@@ -1013,7 +1017,7 @@ main {
 /* ─── Sort Header ──────────────────────────── */
 .sort-header {
   display: grid;
-  grid-template-columns: 40px 110px 1fr 70px 90px;
+  grid-template-columns: 40px 110px 1fr minmax(60px, auto) 70px 90px;
   gap: 8px;
   padding: 4px 12px;
   border-bottom: 2px solid var(--border);
@@ -1062,7 +1066,7 @@ main {
 /* ─── Subtask Clickable ────────────────────── */
 .task-subtask {
   display: grid;
-  grid-template-columns: 80px 1fr 60px 80px;
+  grid-template-columns: 80px 1fr minmax(40px, auto) 60px 80px;
   gap: 6px;
   align-items: center;
   padding: 4px 6px;
@@ -1072,6 +1076,7 @@ main {
   transition: background 0.1s;
 }
 .task-subtask:hover { background: var(--bg-hover); }
+.task-subtask .sub-tags { display: flex; flex-wrap: wrap; gap: 2px; }
 .task-subtask .sub-priority { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-align: center; }
 .task-subtask .sub-due { font-size: 10px; color: var(--text-dim); }
 .subtask-note {
@@ -1309,6 +1314,7 @@ main {
         <span data-sort="id">ID</span>
         <span data-sort="state">State</span>
         <span data-sort="title">Title</span>
+        <span data-sort="tags">Tags</span>
         <span data-sort="priority">Priority</span>
         <span data-sort="due_date">Due</span>
       </div>
@@ -2151,6 +2157,26 @@ document.getElementById('sort-header').addEventListener('click', e => {
   renderFilteredTasks();
 });
 
+function renderTagsWithLimit(tags, limit = 3, containerId) {
+  if (!tags || !tags.length) return '';
+  const visible = tags.slice(0, limit);
+  const hidden = tags.slice(limit);
+  let html = visible.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('');
+  if (hidden.length > 0) {
+    html += `<span class="tags-hidden" id="${containerId}">${hidden.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</span>`;
+    html += `<span class="tags-more" onclick="event.stopPropagation();toggleTagsMore(this, '${containerId}')">+${hidden.length}</span>`;
+  }
+  return html;
+}
+
+function toggleTagsMore(btn, containerId) {
+  const container = document.getElementById(containerId);
+  if (container) {
+    container.classList.toggle('show');
+    btn.style.display = container.classList.contains('show') ? 'none' : 'inline';
+  }
+}
+
 function renderTaskItem(t, showStateDropdown = true) {
   const hasTags = t.tags && t.tags.length;
   const hasSubtasks = t.subtasks && t.subtasks.length;
@@ -2163,18 +2189,17 @@ function renderTaskItem(t, showStateDropdown = true) {
         <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
         <div class="task-title-col">
           <span class="task-title">${h(stripTags(t.title))}</span>
-          ${hasTags ? `<div class="task-tags">${t.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
           ${hasSubtasks ? `
             <div class="task-subtasks">
-              ${t.subtasks.map(st => `
+              ${t.subtasks.map((st, idx) => `
                 <div class="subtask-block">
                   <div class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
                     <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
                     <span class="sub-title">${h(stripTags(st.title))}</span>
+                    <span class="sub-tags">${renderTagsWithLimit(st.tags, 3, `st-tags-${t.id}-${idx}`)}</span>
                     <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
                     <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
                   </div>
-                  ${st.tags && st.tags.length ? `<div class="subtask-tags">${st.tags.map(tag => `<span class="task-tag">#${h(tag)}</span>`).join('')}</div>` : ''}
                   ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${h(n)}</span></div>`).join('')}</div>` : ''}
                 </div>
               `).join('')}
@@ -2194,6 +2219,7 @@ function renderTaskItem(t, showStateDropdown = true) {
             </ul>
           ` : ''}
         </div>
+        <span class="task-tags-col">${renderTagsWithLimit(t.tags, 3, `task-tags-${t.id}`)}</span>
         <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
         <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
       </div>
