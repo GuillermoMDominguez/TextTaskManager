@@ -1194,6 +1194,97 @@ main {
 .config-section h3 { font-size: 13px; color: var(--accent); margin-bottom: 12px; }
 .config-section .form-group { max-width: 400px; }
 
+/* ─── Sync View ──────────────────────────────── */
+.sync-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  max-width: 500px;
+}
+.sync-card h3 {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.sync-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sync-status-icon {
+  font-size: 16px;
+}
+.sync-status-icon.ok { color: var(--green); }
+.sync-status-icon.pending { color: var(--yellow); }
+.sync-status-icon.error { color: var(--red); }
+.sync-status-icon.offline { color: var(--text-dim); }
+.sync-status-text {
+  font-weight: 600;
+}
+.sync-detail {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.sync-detail:last-child { border-bottom: none; }
+.sync-detail-label { color: var(--text-dim); }
+.sync-detail-value { color: var(--text); font-family: monospace; }
+.sync-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+.sync-not-configured {
+  text-align: center;
+  padding: 40px 20px;
+}
+.sync-not-configured-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+.sync-not-configured h3 {
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.sync-not-configured p {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.sync-history-item {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.sync-history-item:last-child { border-bottom: none; }
+.sync-history-hash {
+  font-family: monospace;
+  color: var(--accent);
+}
+.sync-history-msg {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-history-date {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
 /* ─── Log View ────────────────────────────────── */
 .log-entries { font-family: inherit; font-size: 12px; }
 .log-entry { padding: 4px 8px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; }
@@ -1301,6 +1392,7 @@ main {
     </div>
     <div class="nav-group">
       <div class="nav-group-title">System</div>
+      <a class="nav-item" data-view="sync"><span class="kbd-hint">u</span> Sync</a>
       <a class="nav-item" data-view="config"><span class="kbd-hint">c</span> Config</a>
       <a class="nav-item" data-view="log"><span class="kbd-hint">l</span> Log</a>
     </div>
@@ -1445,6 +1537,12 @@ main {
     <div id="view-blockers" class="view">
       <h2 class="view-title">Blockers</h2>
       <div id="blockers-content"></div>
+    </div>
+
+    <!-- Sync View -->
+    <div id="view-sync" class="view">
+      <h2 class="view-title">Sync</h2>
+      <div id="sync-content"></div>
     </div>
 
     <!-- Config View -->
@@ -2030,6 +2128,7 @@ function loadView(view) {
     pomodoro: loadPomodoro,
     blockers: loadBlockers,
     jira: loadJira,
+    sync: loadSync,
     config: loadConfig,
     log: loadLog,
   };
@@ -3497,6 +3596,131 @@ async function changeState(taskId, state) {
   loadView(currentView);
 }
 
+// ─── Sync View ──────────────────────────────────
+async function loadSync() {
+  const el = document.getElementById('sync-content');
+  el.innerHTML = '<div class="empty">Loading...</div>';
+  
+  const data = await api('GET', '/api/sync/status');
+  if (!data) {
+    el.innerHTML = '<div class="empty">Failed to load sync status</div>';
+    return;
+  }
+  
+  if (!data.configured) {
+    el.innerHTML = `
+      <div class="sync-not-configured">
+        <div class="sync-not-configured-icon">⚠</div>
+        <h3>Sync not configured</h3>
+        <p>Sync keeps your journals backed up to a private git repository,<br>
+        allowing you to access them from multiple machines.</p>
+        <p style="font-size:12px;color:var(--text-dim)">Configure in: <strong>Config → Sync / Git</strong></p>
+      </div>
+    `;
+    return;
+  }
+  
+  // Status icon and text
+  let statusIcon, statusClass, statusText;
+  switch (data.status) {
+    case 'up_to_date':
+      statusIcon = '✓';
+      statusClass = 'ok';
+      statusText = 'Up to date';
+      break;
+    case 'pending':
+      statusIcon = '●';
+      statusClass = 'pending';
+      statusText = `Pending changes (${data.pending_files} file${data.pending_files !== 1 ? 's' : ''})`;
+      break;
+    case 'offline':
+      statusIcon = '○';
+      statusClass = 'offline';
+      statusText = 'Offline';
+      break;
+    default:
+      statusIcon = '✗';
+      statusClass = 'error';
+      statusText = 'Error';
+  }
+  
+  // Format history
+  let historyHtml = '';
+  if (data.history && data.history.length > 0) {
+    historyHtml = data.history.map(item => {
+      // Parse and format date
+      let dateStr = item.date;
+      try {
+        const d = new Date(item.date);
+        dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      } catch (e) {}
+      
+      return `
+        <div class="sync-history-item">
+          <span class="sync-history-hash">${h(item.hash)}</span>
+          <span class="sync-history-msg">${h(item.message)}</span>
+          <span class="sync-history-date">${h(dateStr)}</span>
+        </div>
+      `;
+    }).join('');
+  } else {
+    historyHtml = '<div class="empty">No sync history yet</div>';
+  }
+  
+  el.innerHTML = `
+    <div class="sync-card">
+      <h3>Status</h3>
+      <div class="sync-status-row">
+        <span class="sync-status-icon ${statusClass}">${statusIcon}</span>
+        <span class="sync-status-text">${statusText}</span>
+      </div>
+      ${data.last_error ? `<div style="color:var(--red);font-size:12px;margin-top:8px">${h(data.last_error)}</div>` : ''}
+      <div style="margin-top:12px">
+        <div class="sync-detail">
+          <span class="sync-detail-label">Remote</span>
+          <span class="sync-detail-value">${h(data.remote || 'Not set')}</span>
+        </div>
+        <div class="sync-detail">
+          <span class="sync-detail-label">Branch</span>
+          <span class="sync-detail-value">${h(data.branch || 'main')}</span>
+        </div>
+      </div>
+      <div class="sync-actions">
+        <button class="btn btn-primary" onclick="syncNow()">Sync Now</button>
+        <button class="btn" onclick="loadSync()">Refresh</button>
+      </div>
+    </div>
+    
+    <div class="sync-card">
+      <h3>Recent History</h3>
+      ${historyHtml}
+    </div>
+  `;
+}
+
+async function syncNow() {
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.textContent = 'Syncing...';
+  btn.disabled = true;
+  
+  try {
+    const result = await api('POST', '/api/sync/push');
+    if (result && result.success) {
+      // Reload sync view to show updated status
+      await loadSync();
+    } else {
+      alert('Sync failed: ' + (result?.error || 'Unknown error'));
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  } catch (e) {
+    alert('Sync failed: ' + e.message);
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
 // ─── Config View ────────────────────────────────
 async function loadConfig() {
   const data = await api('GET', '/api/config');
@@ -4090,7 +4314,7 @@ function closeModal(id) {
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
-const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira', o: 'jira:notify', c: 'config', l: 'log' };
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
   // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)

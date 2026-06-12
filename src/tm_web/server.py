@@ -1155,6 +1155,45 @@ def api_get_log(handler, params):
     _json_response(handler, {"entries": entries})
 
 
+# ─── Sync API ─────────────────────────────────────────────────────────────────
+
+def api_get_sync_status(handler, params):
+    """GET /api/sync/status — returns sync configuration and status."""
+    try:
+        from src.tm_sync import get_sync_info
+        info = get_sync_info()
+        _json_response(handler, info)
+    except Exception as e:
+        _json_response(handler, {
+            "configured": False,
+            "enabled": False,
+            "remote": None,
+            "branch": None,
+            "status": "error",
+            "pending_files": 0,
+            "last_error": str(e),
+            "history": []
+        })
+
+
+def api_post_sync_push(handler, params):
+    """POST /api/sync/push — force sync (pull + push)."""
+    try:
+        from src.tm_sync import sync_push_blocking, is_configured
+        
+        if not is_configured():
+            _json_response(handler, {"success": False, "error": "Sync not configured"})
+            return
+        
+        success = sync_push_blocking()
+        if success:
+            _json_response(handler, {"success": True})
+        else:
+            _json_response(handler, {"success": False, "error": "Sync failed - check terminal for details"})
+    except Exception as e:
+        _json_response(handler, {"success": False, "error": str(e)})
+
+
 def api_get_config(handler, params):
     """GET /api/config — returns user settings and secrets (masked)."""
     from src.tm_settings import load_settings, load_secrets
@@ -1504,6 +1543,7 @@ API_ROUTES = {
     ("GET", "/api/log"): api_get_log,
     ("GET", "/api/status"): api_get_status,
     ("GET", "/api/journals"): api_get_journals,
+    ("GET", "/api/sync/status"): api_get_sync_status,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,
@@ -1524,6 +1564,7 @@ API_ROUTES = {
     ("POST", "/api/tasks/time"): api_log_time,
     ("POST", "/api/blockers/add"): api_add_blocker,
     ("POST", "/api/blockers/delete"): api_delete_blocker,
+    ("POST", "/api/sync/push"): api_post_sync_push,
 }
 
 

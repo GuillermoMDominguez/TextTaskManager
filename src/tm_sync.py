@@ -187,6 +187,84 @@ def is_configured() -> bool:
     return _is_active()
 
 
+def get_sync_info() -> dict:
+    """Return detailed sync information for the web UI.
+    
+    Returns a dict with:
+        configured: bool - whether sync is set up
+        enabled: bool - whether sync is enabled in config
+        remote: str - remote URL (sanitized, no tokens)
+        branch: str - branch name
+        status: str - 'up_to_date', 'pending', 'error', 'offline'
+        pending_files: int - number of uncommitted files
+        last_error: str|None - last git error message
+        history: list - recent commits [{hash, message, date, author}, ...]
+    """
+    if not _is_active():
+        return {
+            "configured": False,
+            "enabled": False,
+            "remote": None,
+            "branch": None,
+            "status": "not_configured",
+            "pending_files": 0,
+            "last_error": None,
+            "history": []
+        }
+    
+    remote = _sync_config.get("remote", "")
+    branch = _sync_config.get("branch", "main")
+    
+    # Sanitize remote URL (remove tokens)
+    display_remote = _sanitize_error(remote)
+    # Further clean up: extract host/repo from URL
+    if "github.com" in display_remote:
+        match = re.search(r"github\.com[:/](.+?)(?:\.git)?$", display_remote)
+        if match:
+            display_remote = f"github.com/{match.group(1)}"
+    elif "gitlab.com" in display_remote:
+        match = re.search(r"gitlab\.com[:/](.+?)(?:\.git)?$", display_remote)
+        if match:
+            display_remote = f"gitlab.com/{match.group(1)}"
+    
+    # Check status
+    status = "up_to_date"
+    pending_files = 0
+    
+    result = _run_git(["status", "--porcelain"])
+    if result is None:
+        status = "offline"
+    elif result.strip():
+        status = "pending"
+        pending_files = len([l for l in result.strip().split("\n") if l.strip()])
+    
+    # Get recent commit history
+    history = []
+    log_result = _run_git(["log", "--oneline", "--format=%h|%s|%ai|%an", "-10"])
+    if log_result:
+        for line in log_result.strip().split("\n"):
+            if "|" in line:
+                parts = line.split("|", 3)
+                if len(parts) >= 4:
+                    history.append({
+                        "hash": parts[0],
+                        "message": parts[1],
+                        "date": parts[2],
+                        "author": parts[3]
+                    })
+    
+    return {
+        "configured": True,
+        "enabled": True,
+        "remote": display_remote,
+        "branch": branch,
+        "status": status,
+        "pending_files": pending_files,
+        "last_error": _sanitize_error(_last_git_error) if _last_git_error else None,
+        "history": history
+    }
+
+
 def shutdown() -> None:
     """Flush any pending push before exit."""
     global _push_timer
