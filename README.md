@@ -336,6 +336,7 @@ python3 task_manager.py [journal] [options]
 | `--date DATE` | `-d` | Target date section (dd/mm/yyyy or natural language) |
 | `--check` | | Run integrity check and exit |
 | `--fix` | | Run integrity check with auto-fix and exit |
+| `--web` | | Launch web UI in background alongside terminal interface |
 
 **Examples:**
 
@@ -354,6 +355,9 @@ python3 task_manager.py --check
 
 # Auto-fix and show what was repaired
 python3 task_manager.py --fix
+
+# Launch both web interface and terminal CLI
+python3 task_manager.py --web
 ```
 
 ---
@@ -699,6 +703,28 @@ src/tm_web/
 ```
 
 The web server uses Python's built-in `http.server` module — no Flask or other frameworks required. The frontend is a single HTML file with embedded CSS and vanilla JavaScript.
+
+### Quick Launch (No Terminal Knowledge Required)
+
+Launcher scripts are provided that open **both interfaces** with a double-click — the web UI in your browser and the terminal CLI in the same window:
+
+| Platform | File | How to use |
+|----------|------|------------|
+| **macOS** | `TextTaskManager.command` | Double-click in Finder |
+| **Windows** | `TextTaskManager.bat` | Double-click in Explorer |
+| **Linux** | `TextTaskManager.sh` | Double-click (if enabled) or run `./TextTaskManager.sh` |
+
+The launcher will:
+1. Check that Python is installed
+2. Start the web server in the background
+3. Open the web interface in your default browser
+4. Show the terminal CLI in the same window
+
+Both interfaces share the same journal — changes in one are immediately visible in the other (after refresh).
+
+To exit, type `q` in the terminal. This stops both the CLI and the web server.
+
+**Linux note:** Some file managers require you to enable "Run executable text files" in preferences, or right-click → "Run as Program". Alternatively, run from terminal: `./TextTaskManager.sh`
 
 ---
 

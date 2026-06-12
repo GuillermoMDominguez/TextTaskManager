@@ -5,6 +5,9 @@ Zero external dependencies — pure stdlib.
 
 import json
 import os
+import shutil
+import socket
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -1638,20 +1641,95 @@ def get_url() -> str:
     return f"http://127.0.0.1:{_server_port}"
 
 
+def _is_port_in_use(port: int) -> bool:
+    """Check if a port is already in use by another process."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+
+
 def is_running() -> bool:
     """Check if the background web server is running."""
     return _server_thread is not None and _server_thread.is_alive()
 
 
-def start_server_background(journal_path: str, port: int = 8080, open_browser: bool = True) -> None:
+def _open_browser_app_mode(url: str) -> bool:
+    """Open URL in browser's app mode (no address bar, looks like native app).
+    
+    Tries Chrome/Chromium/Edge/Brave in app mode, falls back to regular browser.
+    Returns True if app mode was used, False if fell back to regular browser.
+    """
+    # Browser paths by platform
+    if sys.platform == "darwin":  # macOS
+        browsers = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ]
+    elif sys.platform == "win32":  # Windows
+        browsers = [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        ]
+    else:  # Linux
+        browsers = [
+            shutil.which("google-chrome"),
+            shutil.which("google-chrome-stable"),
+            shutil.which("brave-browser"),
+            shutil.which("brave"),
+            shutil.which("chromium"),
+            shutil.which("chromium-browser"),
+            shutil.which("microsoft-edge"),
+        ]
+        browsers = [b for b in browsers if b]  # Filter None values
+    
+    # Try each browser in app mode
+    for browser_path in browsers:
+        if browser_path and os.path.exists(browser_path):
+            try:
+                subprocess.Popen(
+                    [browser_path, f"--app={url}"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True
+            except (OSError, subprocess.SubprocessError):
+                continue
+    
+    # Fallback to regular browser
+    webbrowser.open(url)
+    return False
+
+
+def start_server_background(journal_path: str, port: int = 8080, open_browser: bool = True) -> bool:
     """Start the web UI server in a background daemon thread.
 
     The server runs until stop_server() is called or the process exits.
+    
+    Returns:
+        True if server started successfully, False if port already in use.
     """
     global _state, _server_instance, _server_thread, _server_port
 
     if is_running():
-        return
+        return True
+
+    # Check if port is already in use by another process
+    if _is_port_in_use(port):
+        # Port in use - just open the browser to existing server
+        _server_port = port
+        if open_browser:
+            _open_browser_app_mode(get_url())
+        return False
 
     _server_port = port
     _state = WebState(journal_path)
@@ -1660,7 +1738,9 @@ def start_server_background(journal_path: str, port: int = 8080, open_browser: b
     _server_thread.start()
 
     if open_browser:
-        webbrowser.open(get_url())
+        _open_browser_app_mode(get_url())
+    
+    return True
 
 
 def stop_server() -> None:
@@ -1694,7 +1774,7 @@ def start_server(journal_path: str, port: int = 8080, open_browser: bool = True)
     print(f"  Press Ctrl+C to stop\n")
 
     if open_browser:
-        webbrowser.open(url)
+        _open_browser_app_mode(url)
 
     try:
         server.serve_forever()

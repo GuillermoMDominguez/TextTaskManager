@@ -194,7 +194,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", "-d", dest="quick_date", default=None, help="Target date section for quick-add (dd/mm/yyyy)")
     parser.add_argument("--check", action="store_true", help="Run integrity check and exit")
     parser.add_argument("--fix", action="store_true", help="Run integrity check with auto-fix and exit")
-    parser.add_argument("--web", action="store_true", help="Launch web UI instead of terminal interface")
+    parser.add_argument("--web", action="store_true", help="Launch web UI in background alongside terminal interface")
     parser.add_argument("--help", "-h", action="store_true", help="Show help")
     return parser
 
@@ -334,17 +334,6 @@ def main() -> None:
                 print(f"\n{Colors.HEADER}Found {len(issues)} issue(s). Run with --fix to auto-repair.{Colors.RESET}")
         sys.exit(0 if not issues or args.fix else 1)
 
-    # ─── Web UI mode (non-interactive) ─────────────────────────────────
-    if args.web:
-        journal_path = _resolve_journal_for_quick_ops(journals_dir, cache_path, args.journal)
-        if journal_path is None or not journal_path.exists():
-            print(f"{Colors.ERROR}No journal found. Run interactively first to create one.{Colors.RESET}")
-            sys.exit(1)
-
-        from src.tm_web import start_server
-        start_server(str(journal_path))
-        sys.exit(0)
-
     # ─── Interactive mode ──────────────────────────────────────────────
     if args.journal:
         selected_journal = resolve_journal_from_arg(args.journal, journals_dir)
@@ -385,6 +374,19 @@ def main() -> None:
 
     # Get git username for prompt (cached once at startup)
     _sync_user = get_sync_user() if sync_active else ""
+
+    # ─── Web UI background mode ───────────────────────────────────────
+    if args.web:
+        from src.tm_web import start_server_background, stop_server, is_running, get_url
+        # Stop any existing server instance in this process
+        if is_running():
+            stop_server()
+        started = start_server_background(journal_path)
+        if started:
+            atexit.register(stop_server)
+            print(f"{Colors.DIM}Web UI started at {get_url()}{Colors.RESET}")
+        else:
+            print(f"{Colors.DIM}Web UI already running at {get_url()} (another process){Colors.RESET}")
 
     tasks_cache: Optional[dict] = None
 

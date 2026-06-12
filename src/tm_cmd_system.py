@@ -195,6 +195,7 @@ def handle_web(
         return None
 
     from .tm_web import start_server_background, stop_server, is_running, get_url
+    from .tm_web.server import _open_browser_app_mode
 
     if command in ("web down", "web stop"):
         if is_running():
@@ -204,8 +205,9 @@ def handle_web(
             _log("info", "Web UI is not running.")
         return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
-    # 'web' — start (or report already running)
+    # 'web' — start (or open browser if already running)
     if is_running():
+        _open_browser_app_mode(get_url())
         _log("info", f"Web UI already running at {get_url()}")
     else:
         start_server_background(context.journal_path)
