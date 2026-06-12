@@ -658,6 +658,15 @@ The web interface provides:
 | `/` | Focus search |
 | `Escape` | Close modal |
 
+**Calendar view shortcuts** (when in calendar view):
+
+| Key | Action |
+|-----|--------|
+| `[` or `h` | Previous month/week |
+| `]` or `l` | Next month/week |
+| `m` | Switch to month view |
+| `y` | Switch to week view |
+
 ### UI Components
 
 The web interface uses a single-page architecture with:

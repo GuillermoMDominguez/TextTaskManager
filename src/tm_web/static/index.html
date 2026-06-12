@@ -1331,13 +1331,13 @@ main {
     <div id="view-calendar" class="view">
       <div class="calendar-header">
         <div class="calendar-nav">
-          <button class="btn btn-sm" onclick="calendarPrev()">← Prev</button>
+          <button class="btn btn-sm" onclick="calendarPrev()">← Prev <span class="kbd-hint">[</span></button>
           <h2 class="view-title" id="calendar-title">Calendar</h2>
-          <button class="btn btn-sm" onclick="calendarNext()">Next →</button>
+          <button class="btn btn-sm" onclick="calendarNext()">Next → <span class="kbd-hint">]</span></button>
         </div>
         <div class="calendar-controls">
-          <button class="btn btn-sm" id="cal-btn-week" onclick="setCalendarView('week')">Week</button>
-          <button class="btn btn-sm" id="cal-btn-month" onclick="setCalendarView('month')">Month</button>
+          <button class="btn btn-sm" id="cal-btn-week" onclick="setCalendarView('week')">Week <span class="kbd-hint">y</span></button>
+          <button class="btn btn-sm" id="cal-btn-month" onclick="setCalendarView('month')">Month <span class="kbd-hint">m</span></button>
         </div>
       </div>
       <div id="calendar-content"></div>
@@ -4099,6 +4099,21 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const filterInput = document.getElementById('filter-text-input');
     if (filterInput) filterInput.focus();
+  } else if (currentView === 'calendar') {
+    // Calendar-specific shortcuts
+    if (e.key === '[' || e.key === 'h') {
+      e.preventDefault();
+      calendarPrev();
+    } else if (e.key === ']' || e.key === 'l') {
+      e.preventDefault();
+      calendarNext();
+    } else if (e.key === 'm') {
+      e.preventDefault();
+      setCalendarView('month');
+    } else if (e.key === 'y') {
+      e.preventDefault();
+      setCalendarView('week');
+    }
   }
 });
 
