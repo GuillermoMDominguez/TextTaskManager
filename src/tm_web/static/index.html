@@ -612,7 +612,8 @@ main {
 .calendar-task {
   font-size: 10px;
   padding: 3px 6px;
-  background: var(--bg-surface);
+  background: var(--bg-hover);
+  color: var(--text);
   border-radius: 3px;
   cursor: grab;
   white-space: nowrap;
@@ -1337,8 +1338,6 @@ main {
         <div class="calendar-controls">
           <button class="btn btn-sm" id="cal-btn-week" onclick="setCalendarView('week')">Week</button>
           <button class="btn btn-sm" id="cal-btn-month" onclick="setCalendarView('month')">Month</button>
-          <button class="btn btn-sm" onclick="calendarToday()">Today</button>
-          <button class="btn btn-sm btn-primary" onclick="openNewTaskModalWithDate()">+ Add Task</button>
         </div>
       </div>
       <div id="calendar-content"></div>
@@ -2477,14 +2476,6 @@ function calendarNext() {
       calendarState.year++;
     }
   }
-  loadCalendar();
-}
-
-function calendarToday() {
-  const today = new Date();
-  calendarState.year = today.getFullYear();
-  calendarState.month = today.getMonth() + 1;
-  calendarState.day = today.getDate();
   loadCalendar();
 }
 
