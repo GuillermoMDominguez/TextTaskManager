@@ -640,6 +640,9 @@ The web interface provides:
 | **Pomodoro** | Built-in focus timer |
 | **Blockers** | Manage task dependencies |
 | **Jira** | View and manage linked Jira issues |
+| **Sync** | Monitor git sync status, view history, force sync |
+| **Config** | Configure settings, Jira, sync, and more |
+| **Log** | View application log |
 
 ### Keyboard Shortcuts
 
@@ -658,6 +661,9 @@ The web interface provides:
 | `p` | Pomodoro |
 | `x` | Blockers |
 | `j` | Jira view |
+| `u` | Sync view |
+| `c` | Config |
+| `l` | Log |
 | `r` | Refresh |
 | `/` | Focus search |
 | `Escape` | Close modal |
