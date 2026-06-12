@@ -548,7 +548,7 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
 def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
     """POST /api/tasks/<id>/edit — edit task title, priority, due date."""
     body = _read_body(handler)
-    task_id = params.get("task_id", [None])[0]
+    task_id = params.get("task_id", [None])[0] or body.get("task_id")
 
     if not task_id:
         _error_response(handler, "task_id is required")

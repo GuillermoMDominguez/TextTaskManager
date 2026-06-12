@@ -2484,8 +2484,11 @@ let activeCalendarPopover = null;
 function showCalendarPopover(el, dateStr) {
   closeCalendarPopover();
   
-  // Get all tasks for this date from the API cache or re-fetch
-  api('GET', `/api/calendar?view=week&year=${calendarState.year}&month=${calendarState.month}&day=1`).then(data => {
+  // Parse the date to get correct API params
+  const [d, m, y] = dateStr.split('/').map(Number);
+  
+  // Get all tasks for this date - use the date's own month/year for the API call
+  api('GET', `/api/calendar?view=month&year=${y}&month=${m}&day=${d}`).then(data => {
     const tasks = data.days[dateStr] || [];
     if (tasks.length === 0) return;
     
@@ -2497,13 +2500,17 @@ function showCalendarPopover(el, dateStr) {
       return `<div class="calendar-task ${prioClass} ${stateClass}" draggable="true" data-id="${task.id}" onclick="event.stopPropagation();openEditModal('${task.id}')" ondragstart="calendarDragStart(event, '${task.id}')" ondragend="calendarDragEnd(event)">#${task.id} ${h(task.title)}</div>`;
     }).join('');
     
-    el.parentElement.parentElement.appendChild(popover);
-    activeCalendarPopover = popover;
-    
-    // Close on outside click
-    setTimeout(() => {
-      document.addEventListener('click', closeCalendarPopover, { once: true });
-    }, 0);
+    // Append to the calendar-day element (el's grandparent: more -> calendar-tasks -> calendar-day)
+    const dayEl = el.closest('.calendar-day');
+    if (dayEl) {
+      dayEl.appendChild(popover);
+      activeCalendarPopover = popover;
+      
+      // Close on outside click
+      setTimeout(() => {
+        document.addEventListener('click', closeCalendarPopover, { once: true });
+      }, 0);
+    }
   });
 }
 
