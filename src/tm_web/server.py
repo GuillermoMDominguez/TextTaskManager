@@ -1194,6 +1194,29 @@ def api_post_sync_push(handler, params):
         _json_response(handler, {"success": False, "error": str(e)})
 
 
+def api_post_sync_settings(handler, params):
+    """POST /api/sync/settings — save remote and branch settings."""
+    try:
+        from src.tm_settings import load_settings, save_settings
+        
+        project_dir = _PROJECT_ROOT
+        settings = load_settings(project_dir, force_reload=True)
+        
+        if "sync" not in settings:
+            settings["sync"] = {}
+        
+        remote = params.get("remote", "").strip()
+        branch = params.get("branch", "").strip() or "main"
+        
+        settings["sync"]["remote"] = remote
+        settings["sync"]["branch"] = branch
+        
+        save_settings(project_dir, settings)
+        _json_response(handler, {"success": True})
+    except Exception as e:
+        _json_response(handler, {"success": False, "error": str(e)})
+
+
 def api_get_config(handler, params):
     """GET /api/config — returns user settings and secrets (masked)."""
     from src.tm_settings import load_settings, load_secrets
@@ -1565,6 +1588,7 @@ API_ROUTES = {
     ("POST", "/api/blockers/add"): api_add_blocker,
     ("POST", "/api/blockers/delete"): api_delete_blocker,
     ("POST", "/api/sync/push"): api_post_sync_push,
+    ("POST", "/api/sync/settings"): api_post_sync_settings,
 }
 
 

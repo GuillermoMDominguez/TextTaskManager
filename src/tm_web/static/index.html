@@ -1195,13 +1195,20 @@ main {
 .config-section .form-group { max-width: 400px; }
 
 /* ─── Sync View ──────────────────────────────── */
+.sync-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  max-width: 900px;
+}
+@media (max-width: 700px) {
+  .sync-container { grid-template-columns: 1fr; }
+}
 .sync-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px 20px;
-  margin-bottom: 16px;
-  max-width: 500px;
 }
 .sync-card h3 {
   font-size: 12px;
@@ -1216,7 +1223,7 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .sync-status-icon {
   font-size: 16px;
@@ -1228,20 +1235,35 @@ main {
 .sync-status-text {
   font-weight: 600;
 }
-.sync-detail {
-  display: flex;
-  justify-content: space-between;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
+.sync-field {
+  margin-bottom: 12px;
+}
+.sync-field label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.sync-field input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: monospace;
   font-size: 12px;
 }
-.sync-detail:last-child { border-bottom: none; }
-.sync-detail-label { color: var(--text-dim); }
-.sync-detail-value { color: var(--text); font-family: monospace; }
+.sync-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .sync-actions {
   margin-top: 16px;
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .sync-not-configured {
   text-align: center;
@@ -3668,32 +3690,32 @@ async function loadSync() {
   }
   
   el.innerHTML = `
-    <div class="sync-card">
-      <h3>Status</h3>
-      <div class="sync-status-row">
-        <span class="sync-status-icon ${statusClass}">${statusIcon}</span>
-        <span class="sync-status-text">${statusText}</span>
-      </div>
-      ${data.last_error ? `<div style="color:var(--red);font-size:12px;margin-top:8px">${h(data.last_error)}</div>` : ''}
-      <div style="margin-top:12px">
-        <div class="sync-detail">
-          <span class="sync-detail-label">Remote</span>
-          <span class="sync-detail-value">${h(data.remote || 'Not set')}</span>
+    <div class="sync-container">
+      <div class="sync-card">
+        <h3>Status</h3>
+        <div class="sync-status-row">
+          <span class="sync-status-icon ${statusClass}">${statusIcon}</span>
+          <span class="sync-status-text">${statusText}</span>
         </div>
-        <div class="sync-detail">
-          <span class="sync-detail-label">Branch</span>
-          <span class="sync-detail-value">${h(data.branch || 'main')}</span>
+        ${data.last_error ? `<div style="color:var(--red);font-size:12px;margin-bottom:12px">${h(data.last_error)}</div>` : ''}
+        <div class="sync-field">
+          <label>Remote</label>
+          <input type="text" id="sync-remote" value="${h(data.remote || '')}" placeholder="https://github.com/user/repo.git">
+        </div>
+        <div class="sync-field">
+          <label>Branch</label>
+          <input type="text" id="sync-branch" value="${h(data.branch || 'main')}" placeholder="main">
+        </div>
+        <div class="sync-actions">
+          <button class="btn btn-primary" onclick="syncNow()">Sync Now</button>
+          <button class="btn" onclick="saveSyncSettings()">Save Settings</button>
         </div>
       </div>
-      <div class="sync-actions">
-        <button class="btn btn-primary" onclick="syncNow()">Sync Now</button>
-        <button class="btn" onclick="loadSync()">Refresh</button>
+      
+      <div class="sync-card">
+        <h3>Recent History</h3>
+        ${historyHtml}
       </div>
-    </div>
-    
-    <div class="sync-card">
-      <h3>Recent History</h3>
-      ${historyHtml}
     </div>
   `;
 }
@@ -3718,6 +3740,18 @@ async function syncNow() {
     alert('Sync failed: ' + e.message);
     btn.textContent = originalText;
     btn.disabled = false;
+  }
+}
+
+async function saveSyncSettings() {
+  const remote = document.getElementById('sync-remote').value.trim();
+  const branch = document.getElementById('sync-branch').value.trim() || 'main';
+  
+  const result = await api('POST', '/api/sync/settings', { remote, branch });
+  if (result && result.success) {
+    await loadSync();
+  } else {
+    alert('Failed to save settings: ' + (result?.error || 'Unknown error'));
   }
 }
 
