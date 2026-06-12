@@ -1,5 +1,7 @@
 .vscode
 .venv
+.DS_Store
+**/.DS_Store
 Javier_Journal.txt
 .task_manager_history
 .last_journal
