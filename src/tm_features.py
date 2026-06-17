@@ -141,15 +141,22 @@ def _task_has_tag(task: Task, tag: str) -> bool:
     return tag_lower in task_tags or tag_lower in subtask_tags
 
 
-def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None, tag_filter: Optional[str] = None) -> str:
+def render_kanban(
+    tasks_by_date: dict,
+    columns: Optional[List[str]] = None,
+    tag_filter: Optional[str] = None,
+    search_query: Optional[str] = None,
+) -> str:
     """Render a kanban board as a string for terminal output.
     
     Args:
         tasks_by_date: Dictionary of tasks by date
         columns: Optional list of column names
-        tag_filter: Optional tag to filter tasks by (without # prefix)
+        tag_filter: Optional tag to filter tasks by (without # prefix) - legacy, use search_query
+        search_query: Optional search query (supports #tag, priority:X, due:X, free text)
     """
     from .tm_ui import Colors, get_state_color
+    from .tm_logic import task_matches_search
 
     if columns is None:
         columns = get_setting("kanban_columns", ["BACKLOG", "IN PROGRESS", "TESTING", "DONE"])
@@ -158,8 +165,12 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None, tag_
     column_tasks: dict = {col: [] for col in columns}
     for tasks in tasks_by_date.values():
         for task in tasks:
-            # Apply tag filter if specified
+            # Apply tag filter if specified (legacy support)
             if tag_filter and not _task_has_tag(task, tag_filter):
+                continue
+            
+            # Apply search query filter (supports priority:, due:, #tag, text)
+            if search_query and not task_matches_search(task, search_query):
                 continue
             
             if task.state in column_tasks:

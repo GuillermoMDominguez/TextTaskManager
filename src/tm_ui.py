@@ -537,7 +537,7 @@ def print_help() -> None:
         ("das / done all subtasks <id>", "Set all subtasks to DONE and auto-close parent"),
         ("ar / archive [dd/mm/yyyy]", "Archive finished tasks up to optional date"),
         ("ag / agenda [days]", "Show due-date agenda (default 7 days)"),
-        ("kb / kanban", "Show kanban board view"),
+        ("kb / kanban [filter]", "Kanban board (#tag, priority:X, due:X, text)"),
         ("pj / project [#tag]", "Show project/tag view (list tags or filter)"),
         ("sort <field> [asc|desc]", "Sort tasks (priority/due_date/state/none)"),
         ("tpl [name|save|del]", "Use, list, save, or delete task templates"),

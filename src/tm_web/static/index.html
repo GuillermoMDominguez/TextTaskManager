@@ -1488,11 +1488,7 @@ main {
     <!-- Kanban View -->
     <div id="view-kanban" class="view">
       <h2 class="view-title">Kanban Board</h2>
-      <div style="margin-bottom: 1rem;">
-        <select id="kanban-tag-filter" onchange="loadKanban()" style="padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text);">
-          <option value="">All tasks</option>
-        </select>
-      </div>
+      <div class="filter-bar" id="kanban-filter-bar"></div>
       <div class="kanban-board" id="kanban-board"></div>
     </div>
 
@@ -2156,6 +2152,9 @@ let taskCache = {};  // id -> task object
 let subtaskCache = {};  // subtask_id -> subtask object
 let allTasks = [];   // flat list for filtering/sorting
 let activeFilters = { state: null, priority: null, tag: null, text: '' };
+let kanbanFilters = { priority: null, tag: null, text: '' };
+let kanbanTagsExpanded = false;
+let allKanbanTasks = [];  // flat list for kanban filtering
 let currentSort = { field: null, asc: true };
 let currentJiraFilter = 'active';
 
@@ -2443,40 +2442,135 @@ async function submitEditNote() {
 
 // ─── Kanban View ────────────────────────────────
 async function loadKanban() {
-  // Get selected tag filter
-  const tagSelect = document.getElementById('kanban-tag-filter');
-  const selectedTag = tagSelect ? tagSelect.value : '';
-  
-  // Build API URL with tag parameter if selected
-  const url = selectedTag ? `/api/kanban?tag=${encodeURIComponent(selectedTag)}` : '/api/kanban';
-  const data = await api('GET', url);
+  // Always fetch all tasks (no server-side filtering)
+  const data = await api('GET', '/api/kanban');
   const board = document.getElementById('kanban-board');
 
-  // Populate tag filter dropdown if empty
-  if (tagSelect && tagSelect.options.length === 1) {
-    const tagsData = await api('GET', '/api/tags');
-    const tags = Object.keys(tagsData.tags || {}).sort();
-    tags.forEach(tag => {
-      const option = document.createElement('option');
-      option.value = tag;
-      option.textContent = `#${tag}`;
-      tagSelect.appendChild(option);
+  // Flatten all tasks for filtering
+  allKanbanTasks = [];
+  data.columns.forEach(col => {
+    (data.tasks[col] || []).forEach(t => {
+      t._column = col;  // Track original column
+      allKanbanTasks.push(t);
     });
-    if (selectedTag) tagSelect.value = selectedTag;
-  }
-
+  });
+  
   // Pre-cache all kanban tasks
-  data.columns.forEach(col => cacheTasks(data.tasks[col] || []));
+  cacheTasks(allKanbanTasks);
+  
+  // Build filter bar and render
+  buildKanbanFilterBar(allKanbanTasks, data.columns);
+  renderFilteredKanban(data.columns);
+}
 
-  board.innerHTML = data.columns.map(col => `
+function buildKanbanFilterBar(tasks, columns) {
+  const priorities = [...new Set(tasks.map(t => t.priority).filter(Boolean))];
+  const allTags = [...new Set(tasks.flatMap(t => t.tags || []))].sort();
+  const MAX_VISIBLE_TAGS = 8;
+
+  let html = '<span style="font-size:10px;color:var(--text-dim);margin-right:4px">Filter:</span>';
+  
+  // Text filter
+  html += `<span class="kbd-hint" style="margin-right:4px">f</span><input type="text" id="kanban-filter-text" placeholder="text..." value="${h(kanbanFilters.text || '')}" 
+    style="width:120px;padding:3px 8px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit"
+    oninput="onKanbanFilterTextChange(this.value)">`;
+  html += '<span style="width:8px"></span>';
+  
+  // Priorities as chips
+  priorities.forEach(p => {
+    html += `<span class="filter-chip${kanbanFilters.priority===p?' active':''}" onclick="toggleKanbanFilter('priority','${p}')">${p}</span>`;
+  });
+  
+  // Tags as chips (with limit + show all)
+  if (allTags.length) {
+    html += '<span style="width:8px"></span>';
+    const visibleTags = kanbanTagsExpanded ? allTags : allTags.slice(0, MAX_VISIBLE_TAGS);
+    const hiddenCount = allTags.length - MAX_VISIBLE_TAGS;
+    
+    visibleTags.forEach(tag => {
+      html += `<span class="filter-chip${kanbanFilters.tag===tag?' active':''}" onclick="toggleKanbanFilter('tag','${tag}')">#${tag}</span>`;
+    });
+    
+    if (hiddenCount > 0 && !kanbanTagsExpanded) {
+      html += `<span class="filter-chip" style="background:var(--bg-tertiary);font-style:italic" onclick="expandKanbanTags()">+${hiddenCount} more</span>`;
+    } else if (kanbanTagsExpanded && allTags.length > MAX_VISIBLE_TAGS) {
+      html += `<span class="filter-chip" style="background:var(--bg-tertiary);font-style:italic" onclick="collapseKanbanTags()">Show less</span>`;
+    }
+  }
+  
+  // Clear button
+  if (kanbanFilters.priority || kanbanFilters.tag || kanbanFilters.text) {
+    html += `<span class="filter-clear" onclick="clearKanbanFilters()">Clear</span>`;
+  }
+  
+  document.getElementById('kanban-filter-bar').innerHTML = html;
+}
+
+function onKanbanFilterTextChange(value) {
+  kanbanFilters.text = value.trim().toLowerCase();
+  // Re-render without rebuilding filter bar (to keep focus)
+  const data = { columns: [...new Set(allKanbanTasks.map(t => t._column))] };
+  renderFilteredKanban(data.columns.length ? data.columns : ['BACKLOG', 'IN PROGRESS', 'TESTING', 'DONE']);
+}
+
+function toggleKanbanFilter(type, value) {
+  kanbanFilters[type] = kanbanFilters[type] === value ? null : value;
+  buildKanbanFilterBar(allKanbanTasks, [...new Set(allKanbanTasks.map(t => t._column))]);
+  renderFilteredKanban([...new Set(allKanbanTasks.map(t => t._column))]);
+}
+
+function clearKanbanFilters() {
+  kanbanFilters = { priority: null, tag: null, text: '' };
+  kanbanTagsExpanded = false;
+  buildKanbanFilterBar(allKanbanTasks, [...new Set(allKanbanTasks.map(t => t._column))]);
+  renderFilteredKanban([...new Set(allKanbanTasks.map(t => t._column))]);
+}
+
+function expandKanbanTags() {
+  kanbanTagsExpanded = true;
+  buildKanbanFilterBar(allKanbanTasks, [...new Set(allKanbanTasks.map(t => t._column))]);
+}
+
+function collapseKanbanTags() {
+  kanbanTagsExpanded = false;
+  buildKanbanFilterBar(allKanbanTasks, [...new Set(allKanbanTasks.map(t => t._column))]);
+}
+
+function renderFilteredKanban(columns) {
+  // Apply filters
+  let tasks = allKanbanTasks.filter(t => {
+    if (kanbanFilters.priority && t.priority !== kanbanFilters.priority) return false;
+    if (kanbanFilters.tag && !(t.tags || []).includes(kanbanFilters.tag)) return false;
+    if (kanbanFilters.text) {
+      const q = kanbanFilters.text;
+      const inTitle = t.title.toLowerCase().includes(q);
+      const inTags = (t.tags || []).some(tag => tag.toLowerCase().includes(q));
+      const inNotes = (t.notes || []).some(n => n.toLowerCase().includes(q));
+      const inSubtasks = (t.subtasks || []).some(st => st.title.toLowerCase().includes(q));
+      if (!inTitle && !inTags && !inNotes && !inSubtasks) return false;
+    }
+    return true;
+  });
+  
+  // Group by column
+  const tasksByColumn = {};
+  columns.forEach(col => tasksByColumn[col] = []);
+  tasks.forEach(t => {
+    if (tasksByColumn[t._column]) {
+      tasksByColumn[t._column].push(t);
+    }
+  });
+  
+  const board = document.getElementById('kanban-board');
+  board.innerHTML = columns.map(col => `
     <div class="kanban-col" data-column="${col}">
       <div class="kanban-col-header">
         <span>${col}</span>
-        <span class="kanban-col-count">${(data.tasks[col] || []).length}</span>
+        <span class="kanban-col-count">${(tasksByColumn[col] || []).length}</span>
       </div>
       <div class="kanban-col-body" data-column="${col}"
            ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">
-        ${(data.tasks[col] || []).map(t => `
+        ${(tasksByColumn[col] || []).map(t => `
           <div class="kanban-card" draggable="true" data-id="${t.id}"
                ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"
                onclick="openEditModal('${t.id}')">

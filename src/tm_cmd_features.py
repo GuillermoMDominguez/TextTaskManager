@@ -682,19 +682,40 @@ def handle_kanban(
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'kb|kanban [#tag]' command with optional tag filter."""
+    """Handle 'kb|kanban [filter]' command with optional filters.
+    
+    Supports:
+      kb                     - Show all tasks
+      kb #tag                - Filter by tag
+      kb priority:high       - Filter by priority
+      kb due:today           - Filter by due date
+      kb "search text"       - Free text search
+      kb #tag priority:high  - Combined filters (multiple calls)
+    """
     if not re.match(r"^\s*(?:kb|kanban)\b", raw_command, re.IGNORECASE):
         return None
 
     refreshed = context.refresh_tasks()
     match = re.match(r"^\s*(?:kb|kanban)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
-    tag_arg = match.group(1).strip() if match and match.group(1) else None
+    filter_arg = match.group(1).strip() if match and match.group(1) else None
 
-    if tag_arg:
-        # Filter by tag
-        tag = tag_arg.lstrip("#")
-        print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board - #{tag}{Colors.RESET}\n")
-        print(render_kanban(refreshed, tag_filter=tag))
+    if filter_arg:
+        # Determine filter type and display appropriate header
+        filter_display = filter_arg
+        
+        # Check if it's a tag filter (starts with #)
+        if filter_arg.startswith("#"):
+            tag = filter_arg.lstrip("#")
+            print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board - #{tag}{Colors.RESET}\n")
+            print(render_kanban(refreshed, tag_filter=tag))
+        # Check if it's a special filter (priority:, due:)
+        elif ":" in filter_arg:
+            print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board - {filter_arg}{Colors.RESET}\n")
+            print(render_kanban(refreshed, search_query=filter_arg))
+        # Otherwise treat as free text search
+        else:
+            print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board - \"{filter_arg}\"{Colors.RESET}\n")
+            print(render_kanban(refreshed, search_query=filter_arg))
     else:
         print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board{Colors.RESET}\n")
         print(render_kanban(refreshed))
