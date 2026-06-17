@@ -486,7 +486,7 @@ def execute_command(
     if result:
         return result
 
-    result = handle_kanban(command, tasks_by_date, view_state, context)
+    result = handle_kanban(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 

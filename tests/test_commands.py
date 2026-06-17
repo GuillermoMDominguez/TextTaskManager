@@ -15,6 +15,9 @@ from src.tm_commands import (
     ViewState,
     CommandOutcome,
 )
+from src.tm_features import render_kanban
+from src.tm_models import Subtask, Task
+from src.tm_views_data import get_kanban_data
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +135,25 @@ class TestApplyTagsToText(unittest.TestCase):
     def test_only_tag_replaced(self):
         result = _apply_tags_to_text("#old", ["new"])
         self.assertEqual(result, "#new")
+
+
+class TestKanbanTagFilter(unittest.TestCase):
+    """Tests for kanban tag filtering shared by terminal and web data."""
+
+    def test_filter_matches_subtask_tags(self):
+        task = Task(
+            title="Parent task",
+            state="BACKLOG",
+            subtasks=[Subtask(title="Child task #backend", state="TODO")],
+            task_id="1",
+        )
+        tasks_by_date = {None: [task]}
+
+        terminal_output = render_kanban(tasks_by_date, columns=["BACKLOG"], tag_filter="backend")
+        web_data = get_kanban_data(tasks_by_date, columns=["BACKLOG"], tag_filter="#backend")
+
+        self.assertIn("Parent task", terminal_output)
+        self.assertEqual(len(web_data.column_tasks["BACKLOG"]), 1)
 
 
 # ---------------------------------------------------------------------------

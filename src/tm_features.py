@@ -133,6 +133,14 @@ def get_all_tags(tasks_by_date: dict) -> dict:
 
 # ─── Kanban View ───────────────────────────────────────────────────────────
 
+def _task_has_tag(task: Task, tag: str) -> bool:
+    """Return whether a task or one of its subtasks contains tag."""
+    tag_lower = tag.lstrip("#").lower()
+    task_tags = [t.lower() for t in task.get_tags()]
+    subtask_tags = [t.lower() for subtask in task.subtasks for t in subtask.get_tags()]
+    return tag_lower in task_tags or tag_lower in subtask_tags
+
+
 def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None, tag_filter: Optional[str] = None) -> str:
     """Render a kanban board as a string for terminal output.
     
@@ -151,10 +159,8 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None, tag_
     for tasks in tasks_by_date.values():
         for task in tasks:
             # Apply tag filter if specified
-            if tag_filter:
-                task_tags = [t.lower() for t in task.get_tags()]
-                if tag_filter.lower() not in task_tags:
-                    continue
+            if tag_filter and not _task_has_tag(task, tag_filter):
+                continue
             
             if task.state in column_tasks:
                 column_tasks[task.state].append(task)

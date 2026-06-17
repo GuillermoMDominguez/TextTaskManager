@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -1776,6 +1777,17 @@ def _open_browser_app_mode(url: str) -> bool:
     return False
 
 
+def _wait_for_server(port: int, timeout: float = 2.0) -> None:
+    """Wait briefly until the local server accepts connections."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return
+        except OSError:
+            time.sleep(0.05)
+
+
 def start_server_background(journal_path: str, port: int = 8080, open_browser: bool = True) -> bool:
     """Start the web UI server in a background daemon thread.
 
@@ -1804,6 +1816,7 @@ def start_server_background(journal_path: str, port: int = 8080, open_browser: b
     _server_thread.start()
 
     if open_browser:
+        _wait_for_server(port)
         _open_browser_app_mode(get_url())
     
     return True

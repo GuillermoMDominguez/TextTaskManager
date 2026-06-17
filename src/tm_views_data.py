@@ -212,8 +212,10 @@ def get_kanban_data(tasks_by_date: dict, columns: Optional[List[str]] = None, ta
         for task in tasks:
             # Apply tag filter if specified
             if tag_filter:
+                tag = tag_filter.lstrip("#").lower()
                 task_tags = [t.lower() for t in task.get_tags()]
-                if tag_filter.lower() not in task_tags:
+                subtask_tags = [t.lower() for st in task.subtasks for t in st.get_tags()]
+                if tag not in task_tags and tag not in subtask_tags:
                     continue
             
             if task.state in column_tasks:
