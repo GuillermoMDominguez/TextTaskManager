@@ -1715,14 +1715,14 @@ def get_url() -> str:
     return f"http://127.0.0.1:{_server_port}"
 
 
-def _is_port_in_use(port: int) -> bool:
-    """Check if a port is already in use by another process."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+def _bind_available_server(start_port: int, attempts: int = 50) -> Optional[tuple[HTTPServer, int]]:
+    """Create an HTTP server on start_port or the next available local port."""
+    for port in range(start_port, start_port + attempts):
         try:
-            s.bind(("127.0.0.1", port))
-            return False
+            return HTTPServer(("127.0.0.1", port), TTMRequestHandler), port
         except OSError:
-            return True
+            continue
+    return None
 
 
 def is_running() -> bool:
@@ -1801,29 +1801,24 @@ def start_server_background(journal_path: str, port: int = 8080, open_browser: b
     The server runs until stop_server() is called or the process exits.
     
     Returns:
-        True if server started successfully, False if port already in use.
+        True if server started successfully, False if no port was available.
     """
     global _state, _server_instance, _server_thread, _server_port
 
     if is_running():
         return True
 
-    # Check if port is already in use by another process
-    if _is_port_in_use(port):
-        # Port in use - just open the browser to existing server
-        _server_port = port
-        if open_browser:
-            _open_browser_app_mode(get_url())
+    bound = _bind_available_server(port)
+    if bound is None:
         return False
 
-    _server_port = port
+    _server_instance, _server_port = bound
     _state = WebState(journal_path)
-    _server_instance = HTTPServer(("127.0.0.1", port), TTMRequestHandler)
     _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
     _server_thread.start()
 
     if open_browser:
-        _wait_for_server(port)
+        _wait_for_server(_server_port)
         _open_browser_app_mode(get_url())
     
     return True
@@ -1849,10 +1844,12 @@ def start_server(journal_path: str, port: int = 8080, open_browser: bool = True)
         open_browser: Whether to open the browser automatically.
     """
     global _state, _server_port
-    _server_port = port
-    _state = WebState(journal_path)
+    bound = _bind_available_server(port)
+    if bound is None:
+        raise OSError(f"No available port found from {port} to {port + 49}")
 
-    server = HTTPServer(("127.0.0.1", port), TTMRequestHandler)
+    server, _server_port = bound
+    _state = WebState(journal_path)
     url = get_url()
 
     print(f"\n  Web UI running at: \033[1m\033[96m{url}\033[0m")

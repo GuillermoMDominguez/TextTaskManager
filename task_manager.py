@@ -386,7 +386,7 @@ def main() -> None:
             atexit.register(stop_server)
             print(f"{Colors.DIM}Web UI started at {get_url()}{Colors.RESET}")
         else:
-            print(f"{Colors.DIM}Web UI already running at {get_url()} (another process){Colors.RESET}")
+            print(f"{Colors.DIM}Web UI could not start: no available port found.{Colors.RESET}")
 
     tasks_cache: Optional[dict] = None
 

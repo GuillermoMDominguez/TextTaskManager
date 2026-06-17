@@ -622,7 +622,7 @@ TextTaskManager includes a modern web UI that provides a graphical alternative t
 ### Starting the Web Server
 
 ```bash
-python3 -m src.tm_web.server           # Default port 5000
+python3 -m src.tm_web.server           # Default port 8080
 python3 -m src.tm_web.server --port 8080  # Custom port
 ```
 
@@ -632,6 +632,8 @@ Or from within the CLI:
 > web                    # Start web server on default port
 > web 8080               # Start on custom port
 ```
+
+If the requested port is busy, TextTaskManager automatically uses the next available port and opens that URL.
 
 ### Features
 

@@ -190,14 +190,18 @@ def handle_web(
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'web' / 'web down' — launch or stop the background web UI server."""
-    if command not in ("web", "web down", "web stop"):
+    """Handle 'web [port]' / 'web down' — launch or stop the background web UI server."""
+    parts = command.split()
+    if not parts or parts[0] != "web":
         return None
+    if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ("down", "stop") and not parts[1].isdigit()):
+        _log("error", "Usage: web [port] | web down")
+        return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
     from .tm_web import start_server_background, stop_server, is_running, get_url
     from .tm_web.server import _open_browser_app_mode
 
-    if command in ("web down", "web stop"):
+    if len(parts) == 2 and parts[1] in ("down", "stop"):
         if is_running():
             stop_server()
             _log("info", "Web UI stopped.")
@@ -210,8 +214,12 @@ def handle_web(
         _open_browser_app_mode(get_url())
         _log("info", f"Web UI already running at {get_url()}")
     else:
-        start_server_background(context.journal_path)
-        _log("info", f"Web UI started at {get_url()} — use 'web down' to stop.")
+        port = int(parts[1]) if len(parts) == 2 else 8080
+        started = start_server_background(context.journal_path, port=port)
+        if started:
+            _log("info", f"Web UI started at {get_url()} — use 'web down' to stop.")
+        else:
+            _log("error", "Web UI could not start: no available port found.")
 
     return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 

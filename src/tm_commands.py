@@ -261,9 +261,9 @@ COMMAND_HELP = {
         "examples": ["bd", "bd 7", "bd 30"],
     },
     "web": {
-        "syntax": "web | web down",
-        "description": "Launch web UI in background (browser opens). 'web down' stops it.",
-        "examples": ["web", "web down"],
+        "syntax": "web [port] | web down",
+        "description": "Launch web UI in background (browser opens). If the port is busy, the next available port is used.",
+        "examples": ["web", "web 8081", "web down"],
     },
     "journal": {
         "syntax": "journal [<name>] | jn [<name>]",
