@@ -677,18 +677,28 @@ def handle_burndown(
 
 
 def handle_kanban(
-    command: str,
+    raw_command: str,
     tasks_by_date: dict,
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'kb|kanban' command."""
-    if command not in ("kb", "kanban"):
+    """Handle 'kb|kanban [#tag]' command with optional tag filter."""
+    if not re.match(r"^\s*(?:kb|kanban)\b", raw_command, re.IGNORECASE):
         return None
 
     refreshed = context.refresh_tasks()
-    print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board{Colors.RESET}\n")
-    print(render_kanban(refreshed))
+    match = re.match(r"^\s*(?:kb|kanban)(?:\s+(.+))?\s*$", raw_command, re.IGNORECASE)
+    tag_arg = match.group(1).strip() if match and match.group(1) else None
+
+    if tag_arg:
+        # Filter by tag
+        tag = tag_arg.lstrip("#")
+        print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board - #{tag}{Colors.RESET}\n")
+        print(render_kanban(refreshed, tag_filter=tag))
+    else:
+        print(f"\n{Colors.HEADER}{Colors.BOLD}Kanban Board{Colors.RESET}\n")
+        print(render_kanban(refreshed))
+    
     return CommandOutcome(refreshed, view_state, skip_redraw=True)
 
 

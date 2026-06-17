@@ -133,8 +133,14 @@ def get_all_tags(tasks_by_date: dict) -> dict:
 
 # ─── Kanban View ───────────────────────────────────────────────────────────
 
-def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> str:
-    """Render a kanban board as a string for terminal output."""
+def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None, tag_filter: Optional[str] = None) -> str:
+    """Render a kanban board as a string for terminal output.
+    
+    Args:
+        tasks_by_date: Dictionary of tasks by date
+        columns: Optional list of column names
+        tag_filter: Optional tag to filter tasks by (without # prefix)
+    """
     from .tm_ui import Colors, get_state_color
 
     if columns is None:
@@ -144,6 +150,12 @@ def render_kanban(tasks_by_date: dict, columns: Optional[List[str]] = None) -> s
     column_tasks: dict = {col: [] for col in columns}
     for tasks in tasks_by_date.values():
         for task in tasks:
+            # Apply tag filter if specified
+            if tag_filter:
+                task_tags = [t.lower() for t in task.get_tags()]
+                if tag_filter.lower() not in task_tags:
+                    continue
+            
             if task.state in column_tasks:
                 column_tasks[task.state].append(task)
 

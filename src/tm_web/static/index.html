@@ -871,6 +871,49 @@ main {
 .tag-chip:hover { border-color: var(--cyan); background: var(--bg-hover); }
 .tag-chip .tag-count { color: var(--text-dim); margin-left: 4px; font-size: 10px; }
 
+/* Tag Suggestions Dropdown */
+.tag-input-container {
+  position: relative;
+}
+.tag-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 300;
+  display: none;
+  margin-top: 4px;
+}
+.tag-suggestions.open { display: block; }
+.tag-suggestions-header {
+  padding: 6px 10px;
+  font-size: 10px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.tag-suggestion-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.tag-suggestion-item:last-child { border-bottom: none; }
+.tag-suggestion-item:hover { background: var(--bg-hover); }
+.tag-suggestion-item .tag-name { color: var(--cyan); }
+.tag-suggestion-item .tag-count { color: var(--text-dim); font-size: 10px; }
+.tag-suggestion-item.already-added { opacity: 0.5; }
+.tag-suggestion-item.already-added .tag-name::after { content: ' ✓'; color: var(--green); }
+
 /* ─── Empty State ──────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
 
@@ -1445,6 +1488,11 @@ main {
     <!-- Kanban View -->
     <div id="view-kanban" class="view">
       <h2 class="view-title">Kanban Board</h2>
+      <div style="margin-bottom: 1rem;">
+        <select id="kanban-tag-filter" onchange="loadKanban()" style="padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text);">
+          <option value="">All tasks</option>
+        </select>
+      </div>
       <div class="kanban-board" id="kanban-board"></div>
     </div>
 
@@ -1807,8 +1855,11 @@ main {
         <input type="date" id="edit-due">
       </div>
       <div class="form-group">
-        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated)</span></label>
-        <input type="text" id="edit-tags" placeholder="e.g. frontend, urgent">
+        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated, click for suggestions)</span></label>
+        <div class="tag-input-container">
+          <input type="text" id="edit-tags" placeholder="e.g. frontend, urgent" onfocus="showTagSuggestions()" autocomplete="off">
+          <div class="tag-suggestions" id="edit-tag-suggestions"></div>
+        </div>
       </div>
       <div class="form-group">
         <label>Notes</label>
@@ -2385,8 +2436,27 @@ async function submitEditNote() {
 
 // ─── Kanban View ────────────────────────────────
 async function loadKanban() {
-  const data = await api('GET', '/api/kanban');
+  // Get selected tag filter
+  const tagSelect = document.getElementById('kanban-tag-filter');
+  const selectedTag = tagSelect ? tagSelect.value : '';
+  
+  // Build API URL with tag parameter if selected
+  const url = selectedTag ? `/api/kanban?tag=${encodeURIComponent(selectedTag)}` : '/api/kanban';
+  const data = await api('GET', url);
   const board = document.getElementById('kanban-board');
+
+  // Populate tag filter dropdown if empty
+  if (tagSelect && tagSelect.options.length === 1) {
+    const tagsData = await api('GET', '/api/tags');
+    const tags = Object.keys(tagsData.tags || {}).sort();
+    tags.forEach(tag => {
+      const option = document.createElement('option');
+      option.value = tag;
+      option.textContent = `#${tag}`;
+      tagSelect.appendChild(option);
+    });
+    if (selectedTag) tagSelect.value = selectedTag;
+  }
 
   // Pre-cache all kanban tasks
   data.columns.forEach(col => cacheTasks(data.tasks[col] || []));
@@ -4047,6 +4117,97 @@ async function editNoteInModal(index, oldNote) {
     window._editNoteCallback = null;
   };
 }
+
+// ─── Tag Suggestions ─────────────────────────────────
+let cachedAllTags = null;
+
+async function loadAllTags() {
+  try {
+    const data = await api('GET', '/api/tags');
+    if (data && data.tags) {
+      cachedAllTags = data.tags;
+      return data.tags;
+    }
+  } catch (e) {
+    console.error('Failed to load tags:', e);
+  }
+  return {};
+}
+
+async function showTagSuggestions() {
+  const suggestionsEl = document.getElementById('edit-tag-suggestions');
+  const inputEl = document.getElementById('edit-tags');
+  
+  // Load tags if not cached
+  if (!cachedAllTags) {
+    await loadAllTags();
+  }
+  
+  const tags = cachedAllTags || {};
+  const tagEntries = Object.entries(tags).sort((a, b) => b[1] - a[1]); // Sort by count desc
+  
+  if (tagEntries.length === 0) {
+    suggestionsEl.innerHTML = '<div class="tag-suggestions-header">No existing tags</div>';
+  } else {
+    const currentTags = inputEl.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    
+    suggestionsEl.innerHTML = `
+      <div class="tag-suggestions-header">Click to add existing tags</div>
+      ${tagEntries.map(([tag, count]) => {
+        const isAlreadyAdded = currentTags.includes(tag.toLowerCase());
+        return `
+          <div class="tag-suggestion-item ${isAlreadyAdded ? 'already-added' : ''}" 
+               onclick="addTagSuggestion('${tag.replace(/'/g, "\\'")}')">
+            <span class="tag-name">#${tag}</span>
+            <span class="tag-count">${count} task${count !== 1 ? 's' : ''}</span>
+          </div>
+        `;
+      }).join('')}
+    `;
+  }
+  
+  suggestionsEl.classList.add('open');
+}
+
+function addTagSuggestion(tag) {
+  const inputEl = document.getElementById('edit-tags');
+  const currentTags = inputEl.value.split(',').map(t => t.trim()).filter(Boolean);
+  
+  // Check if tag already exists (case insensitive)
+  if (!currentTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+    if (currentTags.length > 0) {
+      inputEl.value = currentTags.join(', ') + ', ' + tag;
+    } else {
+      inputEl.value = tag;
+    }
+  }
+  
+  // Update suggestions to reflect new state
+  showTagSuggestions();
+  inputEl.focus();
+}
+
+function hideTagSuggestions() {
+  const suggestionsEl = document.getElementById('edit-tag-suggestions');
+  suggestionsEl.classList.remove('open');
+}
+
+// Close suggestions when clicking outside
+document.addEventListener('click', function(e) {
+  const container = document.querySelector('.tag-input-container');
+  const suggestionsEl = document.getElementById('edit-tag-suggestions');
+  if (container && suggestionsEl && !container.contains(e.target)) {
+    hideTagSuggestions();
+  }
+});
+
+// Refresh tag cache when modal is opened
+const originalOpenEditModal = openEditModal;
+openEditModal = async function(taskId) {
+  cachedAllTags = null; // Force refresh
+  await loadAllTags();
+  originalOpenEditModal(taskId);
+};
 
 async function deleteNote(index) {
   const taskId = document.getElementById('edit-task-id').value;

@@ -228,7 +228,7 @@ Burndown (14 days) — 24 total tasks
 | `s` / `stats` | Show statistics with bar chart |
 | `ag [days]` | Agenda: tasks grouped by due date (default 7 days) |
 | `cal [week] [date]` | Calendar view (month or week) |
-| `kb` | Kanban board view |
+| `kb [#tag]` | Kanban board view, optionally filtered by tag |
 | `pj [#tag]` | Project/tag view |
 | `wr [days]` | Weekly report |
 | `bd [days]` | Burndown chart |
@@ -241,7 +241,8 @@ Burndown (14 days) — 24 total tasks
 > cal week       # Calendar for current week
 > cal 06/2026    # Calendar for June 2026
 > cal week 15/06/2026  # Week containing that date
-> kb             # Kanban board
+> kb             # Kanban board (all tasks)
+> kb #frontend   # Kanban board filtered by #frontend tag
 > pj             # List all tags with counts
 > pj #backend   # Show all tasks tagged #backend
 > wr 30         # Monthly report
@@ -410,7 +411,7 @@ python3 task_manager.py --fix     # Report + repair
 
 ## Kanban Board
 
-The `kb` command renders a columnar kanban view adapted to your terminal width:
+The `kb` command renders a columnar kanban view adapted to your terminal width. You can optionally filter by tag to see only tasks with a specific tag.
 
 ```
 ┌──────────────┬──────────────┬──────────────┬──────────────┐
@@ -423,7 +424,17 @@ The `kb` command renders a columnar kanban view adapted to your terminal width:
 └──────────────┴──────────────┴──────────────┴──────────────┘
 ```
 
+**Usage:**
+
+```
+> kb                # Show all tasks
+> kb #frontend      # Show only tasks tagged with #frontend
+> kb #urgent        # Show only tasks tagged with #urgent
+```
+
 Columns are configurable via `kanban_columns` in `.ttm_config`.
+
+**Web Interface:** The web kanban view includes a dropdown selector to filter by tag, making it easy to switch between different project views.
 
 ---
 

@@ -216,15 +216,16 @@ def api_get_calendar(handler: "TTMRequestHandler", params: dict) -> None:
 
 
 def api_get_kanban(handler: "TTMRequestHandler", params: dict) -> None:
-    """GET /api/kanban — kanban board data."""
+    """GET /api/kanban?tag=<tag> — kanban board data with optional tag filter."""
     _state.refresh()
-    data = get_kanban_data(_state.tasks_by_date)
+    tag_filter = params.get("tag", [None])[0]
+    data = get_kanban_data(_state.tasks_by_date, tag_filter=tag_filter)
 
     columns = {}
     for col in data.columns:
         columns[col] = [_serialize_task(t) for t in data.column_tasks[col]]
 
-    _json_response(handler, {"columns": data.columns, "tasks": columns})
+    _json_response(handler, {"columns": data.columns, "tasks": columns, "tag": tag_filter})
 
 
 def api_get_stats(handler: "TTMRequestHandler", params: dict) -> None:

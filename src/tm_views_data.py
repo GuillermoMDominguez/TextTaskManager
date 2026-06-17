@@ -193,8 +193,14 @@ def get_agenda_data(tasks_by_date: dict, days_ahead: int = 7) -> AgendaData:
     )
 
 
-def get_kanban_data(tasks_by_date: dict, columns: Optional[List[str]] = None) -> KanbanData:
-    """Compute kanban board data: tasks grouped by state columns."""
+def get_kanban_data(tasks_by_date: dict, columns: Optional[List[str]] = None, tag_filter: Optional[str] = None) -> KanbanData:
+    """Compute kanban board data: tasks grouped by state columns.
+    
+    Args:
+        tasks_by_date: Dictionary of tasks by date
+        columns: Optional list of column names
+        tag_filter: Optional tag to filter tasks by (without # prefix)
+    """
     from .tm_settings import get_setting
 
     if columns is None:
@@ -204,6 +210,12 @@ def get_kanban_data(tasks_by_date: dict, columns: Optional[List[str]] = None) ->
 
     for tasks in tasks_by_date.values():
         for task in tasks:
+            # Apply tag filter if specified
+            if tag_filter:
+                task_tags = [t.lower() for t in task.get_tags()]
+                if tag_filter.lower() not in task_tags:
+                    continue
+            
             if task.state in column_tasks:
                 column_tasks[task.state].append(_task_to_view_item(task))
 

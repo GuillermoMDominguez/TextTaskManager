@@ -201,9 +201,9 @@ COMMAND_HELP = {
         "examples": ["se", "se team@example.com"],
     },
     "kb": {
-        "syntax": "kb",
-        "description": "Show kanban board view.",
-        "examples": ["kb"],
+        "syntax": "kb [#tag]",
+        "description": "Show kanban board view. Optionally filter by tag.",
+        "examples": ["kb", "kb #frontend", "kb urgent"],
     },
     "pj": {
         "syntax": "pj [#tag]",
