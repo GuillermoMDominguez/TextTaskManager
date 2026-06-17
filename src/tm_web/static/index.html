@@ -1912,6 +1912,13 @@ main {
         <label>Due Date</label>
         <input type="date" id="new-due">
       </div>
+      <div class="form-group">
+        <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated, click for suggestions)</span></label>
+        <div class="tag-input-container">
+          <input type="text" id="new-tags" placeholder="e.g. frontend, urgent" onfocus="showNewTagSuggestions()" autocomplete="off">
+          <div class="tag-suggestions" id="new-tag-suggestions"></div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <div></div>
@@ -2473,7 +2480,7 @@ async function loadKanban() {
           <div class="kanban-card" draggable="true" data-id="${t.id}"
                ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"
                onclick="openEditModal('${t.id}')">
-            <div class="card-title">${h(t.title)}</div>
+            <div class="card-title">${h(stripTags(t.title))}</div>
             <div class="card-meta">
               ${t.priority ? `<span class="priority-badge priority-${t.priority}" style="font-size:9px">${t.priority}</span>` : ''}
               ${t.due_date ? `<span class="due-badge ${isOverdue(t.due_date) ? 'overdue' : ''}" style="font-size:10px">${t.due_date}</span>` : ''}
@@ -4192,12 +4199,77 @@ function hideTagSuggestions() {
   suggestionsEl.classList.remove('open');
 }
 
+// ─── New Task Tag Suggestions ─────────────────────────
+async function showNewTagSuggestions() {
+  const suggestionsEl = document.getElementById('new-tag-suggestions');
+  const inputEl = document.getElementById('new-tags');
+  
+  // Load tags if not cached
+  if (!cachedAllTags) {
+    await loadAllTags();
+  }
+  
+  const tags = cachedAllTags || {};
+  const tagEntries = Object.entries(tags).sort((a, b) => b[1] - a[1]); // Sort by count desc
+  
+  if (tagEntries.length === 0) {
+    suggestionsEl.innerHTML = '<div class="tag-suggestions-header">No existing tags</div>';
+  } else {
+    const currentTags = inputEl.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    
+    suggestionsEl.innerHTML = `
+      <div class="tag-suggestions-header">Click to add existing tags</div>
+      ${tagEntries.map(([tag, count]) => {
+        const isAlreadyAdded = currentTags.includes(tag.toLowerCase());
+        return `
+          <div class="tag-suggestion-item ${isAlreadyAdded ? 'already-added' : ''}" 
+               onclick="addNewTagSuggestion('${tag.replace(/'/g, "\\'")}')">
+            <span class="tag-name">#${tag}</span>
+            <span class="tag-count">${count} task${count !== 1 ? 's' : ''}</span>
+          </div>
+        `;
+      }).join('')}
+    `;
+  }
+  
+  suggestionsEl.classList.add('open');
+}
+
+function addNewTagSuggestion(tag) {
+  const inputEl = document.getElementById('new-tags');
+  const currentTags = inputEl.value.split(',').map(t => t.trim()).filter(Boolean);
+  
+  // Check if tag already exists (case insensitive)
+  if (!currentTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
+    if (currentTags.length > 0) {
+      inputEl.value = currentTags.join(', ') + ', ' + tag;
+    } else {
+      inputEl.value = tag;
+    }
+  }
+  
+  // Update suggestions to reflect new state
+  showNewTagSuggestions();
+  inputEl.focus();
+}
+
+function hideNewTagSuggestions() {
+  const suggestionsEl = document.getElementById('new-tag-suggestions');
+  if (suggestionsEl) suggestionsEl.classList.remove('open');
+}
+
 // Close suggestions when clicking outside
 document.addEventListener('click', function(e) {
   const container = document.querySelector('.tag-input-container');
   const suggestionsEl = document.getElementById('edit-tag-suggestions');
   if (container && suggestionsEl && !container.contains(e.target)) {
     hideTagSuggestions();
+  }
+  // Also hide new task tag suggestions
+  const newTagContainer = document.querySelector('#modal-new .tag-input-container');
+  const newSuggestionsEl = document.getElementById('new-tag-suggestions');
+  if (newTagContainer && newSuggestionsEl && !newTagContainer.contains(e.target)) {
+    hideNewTagSuggestions();
   }
 });
 
@@ -4392,15 +4464,20 @@ async function deleteSubtask() {
 }
 
 // ─── New Task Modal ─────────────────────────────
-function openNewTaskModal() {
+async function openNewTaskModal() {
   document.getElementById('new-title').value = '';
   document.getElementById('new-due').value = '';
+  document.getElementById('new-tags').value = '';
 
   const stateEl = document.getElementById('new-state');
   stateEl.innerHTML = STATES.map(s => `<option value="${s}" ${s === 'BACKLOG' ? 'selected' : ''}>${s}</option>`).join('');
 
   const priEl = document.getElementById('new-priority');
   priEl.innerHTML = '<option value="">None</option>' + PRIORITIES.map(p => `<option value="${p}">${p}</option>`).join('');
+
+  // Refresh tag cache
+  cachedAllTags = null;
+  await loadAllTags();
 
   document.getElementById('modal-new').classList.add('open');
   setTimeout(() => document.getElementById('new-title').focus(), 100);
@@ -4413,6 +4490,7 @@ async function createTask() {
   const state = document.getElementById('new-state').value;
   const priority = document.getElementById('new-priority').value;
   const dueRaw = document.getElementById('new-due').value;
+  const tags = document.getElementById('new-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
   let due_date = '';
   if (dueRaw) {
@@ -4420,7 +4498,7 @@ async function createTask() {
     due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
 
-  await api('POST', '/api/tasks', { title, state, priority: priority || undefined, due_date: due_date || undefined });
+  await api('POST', '/api/tasks', { title, state, priority: priority || undefined, due_date: due_date || undefined, tags: tags.length ? tags : undefined });
   closeModal('modal-new');
   loadView(currentView);
 }

@@ -515,10 +515,17 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
     due_date = body.get("due_date")
     priority = body.get("priority")
     jira_key = body.get("jira_key")
+    tags = body.get("tags", [])
 
     if not title:
         _error_response(handler, "title is required")
         return
+
+    # Append tags to title (format: #tag1 #tag2)
+    if tags:
+        tag_str = " ".join(f"#{t.lstrip('#')}" for t in tags if t.strip())
+        if tag_str:
+            title = f"{title} {tag_str}"
 
     try:
         from datetime import datetime
