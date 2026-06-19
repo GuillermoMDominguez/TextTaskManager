@@ -4922,23 +4922,41 @@ function initUrlPanelResize() {
   if (!handle || !app) return;
   const storedWidth = localStorage.getItem('ttm-url-panel-width');
   if (storedWidth) app.style.setProperty('--url-panel-width', storedWidth);
-  handle.addEventListener('mousedown', e => {
+
+  let resizing = false;
+  const stopResize = event => {
+    if (!resizing) return;
+    resizing = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    try {
+      if (event && event.pointerId !== undefined) handle.releasePointerCapture(event.pointerId);
+    } catch (e) {}
+  };
+  const resizeTo = clientX => {
+    const maxWidth = Math.max(360, window.innerWidth - 260);
+    const width = Math.min(Math.max(window.innerWidth - clientX, 280), maxWidth);
+    const value = `${width}px`;
+    app.style.setProperty('--url-panel-width', value);
+    localStorage.setItem('ttm-url-panel-width', value);
+  };
+
+  handle.addEventListener('pointerdown', e => {
     e.preventDefault();
+    resizing = true;
     document.body.style.cursor = 'col-resize';
-    const onMove = moveEvent => {
-      const width = Math.min(Math.max(window.innerWidth - moveEvent.clientX, 280), Math.max(360, window.innerWidth - 260));
-      const value = `${width}px`;
-      app.style.setProperty('--url-panel-width', value);
-      localStorage.setItem('ttm-url-panel-width', value);
-    };
-    const onUp = () => {
-      document.body.style.cursor = '';
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    document.body.style.userSelect = 'none';
+    handle.setPointerCapture(e.pointerId);
+    resizeTo(e.clientX);
   });
+  handle.addEventListener('pointermove', e => {
+    if (!resizing) return;
+    e.preventDefault();
+    resizeTo(e.clientX);
+  });
+  handle.addEventListener('pointerup', stopResize);
+  handle.addEventListener('pointercancel', stopResize);
+  window.addEventListener('blur', stopResize);
 }
 function linkifyNote(str) {
   const urlRe = /(https?:\/\/[^\s<>'"]+)/g;
