@@ -80,7 +80,6 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html {
-  min-width: 600px;
   min-height: 400px;
 }
 
@@ -90,7 +89,6 @@ body {
   background: var(--bg);
   color: var(--text);
   line-height: 1.5;
-  min-width: 600px;
   min-height: 400px;
 }
 
@@ -100,6 +98,30 @@ body {
   grid-template-columns: 200px 1fr;
   grid-template-rows: auto 1fr;
   height: 100vh;
+  transition: grid-template-columns 0.2s;
+}
+.app.sidebar-collapsed {
+  grid-template-columns: 0 1fr;
+}
+.app.sidebar-collapsed .sidebar {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  border-right: none;
+}
+.btn-collapse {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  line-height: 1;
+}
+.btn-collapse:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 
 header {
@@ -251,7 +273,8 @@ main {
   border-radius: 2px;
   font-weight: 600;
   text-align: center;
-  min-width: 70px;
+  min-width: 60px;
+  box-sizing: border-box;
 }
 .task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-subtask .sub-due { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
@@ -1090,6 +1113,13 @@ main {
 .sort-header span.sorted::after { content: ' ▼'; font-size: 8px; }
 .sort-header span.sorted.asc::after { content: ' ▲'; }
 
+.task-table-wrap {
+  overflow-x: auto;
+}
+.task-table-inner {
+  min-width: 820px;
+}
+
 /* ─── Inline Note Actions ──────────────────── */
 .task-notes li {
   font-size: 11px;
@@ -1120,7 +1150,7 @@ main {
 /* ─── Subtask Clickable ────────────────────── */
 .task-subtask {
   display: grid;
-  grid-template-columns: 80px 1fr minmax(40px, auto) 60px 80px;
+  grid-template-columns: 60px 1fr auto 50px 60px;
   gap: 6px;
   align-items: center;
   padding: 4px 6px;
@@ -1410,7 +1440,10 @@ main {
 <body>
 <div class="app">
   <header>
-    <h1>TextTaskManager</h1>
+    <div style="display:flex;align-items:center;gap:4px">
+      <button class="btn-collapse" onclick="toggleSidebar()" title="Toggle sidebar" id="btn-collapse">☰</button>
+      <h1>TextTaskManager</h1>
+    </div>
     <div class="search-box">
       <span class="search-icon">/</span>
       <input type="text" id="search-input" placeholder="Search tasks... (press /)" autocomplete="off">
@@ -1481,15 +1514,19 @@ main {
         </div>
       </div>
       <div class="filter-bar" id="filter-bar"></div>
-      <div class="sort-header" id="sort-header">
-        <span data-sort="id">ID</span>
-        <span data-sort="state">State</span>
-        <span data-sort="title">Title</span>
-        <span data-sort="tags">Tags</span>
-        <span data-sort="priority">Priority</span>
-        <span data-sort="due_date">Due</span>
+      <div class="task-table-wrap">
+        <div class="task-table-inner">
+          <div class="sort-header" id="sort-header">
+            <span data-sort="id">ID</span>
+            <span data-sort="state">State</span>
+            <span data-sort="title">Title</span>
+            <span data-sort="tags">Tags</span>
+            <span data-sort="priority">Priority</span>
+            <span data-sort="due_date">Due</span>
+          </div>
+          <ul class="task-list" id="task-list"></ul>
+        </div>
       </div>
-      <ul class="task-list" id="task-list"></ul>
     </div>
 
     <!-- Kanban View -->
@@ -2493,11 +2530,11 @@ function renderTaskItem(t, showStateDropdown = true) {
               `).join('')}
             </ul>
           ` : ''}
+          ${t.linked_notes && t.linked_notes.length ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:2px">${t.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</div>` : ''}
         </div>
         <span class="task-tags-col">${renderTagsWithLimit(t.tags, 3, `task-tags-${t.id}`)}</span>
         <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
         <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
-        ${t.linked_notes && t.linked_notes.length ? `<span style="display:flex;gap:2px;flex-wrap:wrap;max-width:140px">${t.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</span>` : ''}
       </div>
     </li>`;
 }
@@ -4947,6 +4984,9 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const filterInput = document.getElementById('filter-text-input');
     if (filterInput) filterInput.focus();
+  } else if (e.key === '\\') {
+    e.preventDefault();
+    toggleSidebar();
   } else if (currentView === 'calendar') {
     // Calendar-specific shortcuts
     if (e.key === '[' || e.key === 'h') {
@@ -4971,6 +5011,24 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     if (e.target === overlay) overlay.classList.remove('open');
   });
 });
+
+// ─── Sidebar Toggle ──────────────────────────────
+function toggleSidebar() {
+  const app = document.querySelector('.app');
+  const collapsed = app.classList.toggle('sidebar-collapsed');
+  const btn = document.getElementById('btn-collapse');
+  btn.textContent = collapsed ? '☰' : '☰';
+  try { localStorage.setItem('sidebar-collapsed', collapsed ? '1' : ''); } catch (e) {}
+}
+// Restore sidebar state on load
+(function initSidebar() {
+  const app = document.querySelector('.app');
+  try {
+    if (localStorage.getItem('sidebar-collapsed') === '1') {
+      app.classList.add('sidebar-collapsed');
+    }
+  } catch (e) {}
+})();
 
 // ─── Notes ──────────────────────────────────────
 let _notesList = [];

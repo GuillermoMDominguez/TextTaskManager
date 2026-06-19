@@ -192,7 +192,7 @@ def handle_web(
 ) -> Optional[CommandOutcome]:
     """Handle 'web [port]' / 'web down' — launch or stop the background web UI server."""
     parts = command.split()
-    if not parts or parts[0] != "web":
+    if not parts or parts[0] not in ("web", "w"):
         return None
     if len(parts) > 2 or (len(parts) == 2 and parts[1] not in ("down", "stop") and not parts[1].isdigit()):
         _log("error", "Usage: web [port] | web down")

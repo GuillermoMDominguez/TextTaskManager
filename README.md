@@ -64,6 +64,8 @@ Journals are plain `.txt` files in the `journals/` directory. You can edit them 
 | Blocked by | `-- blockedby:Title` | `-- blockedby:Fix login bug` |
 | Blocks | `-- blocks:Title` | `-- blocks:Write unit tests` |
 | Tags | `#tagname` in text | `- Task #frontend #urgent` |
+| Linked Jira | `-- jira:KEY` | `-- jira:PROJ-123` |
+| Linked notes | `-- notes:path1.md,path2.md` | `-- notes:work/analysis.md` |
 
 ---
 
@@ -189,6 +191,36 @@ Built-in focus timer with automatic time logging:
 - Press Enter or Ctrl+C to stop early
 - Automatically logs elapsed time to the task
 
+### Notes
+
+Linked standalone Markdown notes stored in `journals/notes/`. Notes are independent `.md` files organized in subdirectories (e.g. `work/`, `personal/`).
+
+| Command | Description |
+|---------|-------------|
+| `nn [path/]Title` | Create a new note (opens `$EDITOR`) |
+| `notes [folder]` | List notes, optionally filtered by folder |
+| `vn <note_path>` | View note content |
+| `en <note_path>` | Edit a note (opens `$EDITOR`) |
+| `dn <note_path>` | Delete a note (asks confirmation, auto-unlinks from all tasks) |
+| `mn <from> <to>` | Move or rename a note |
+| `ln <task_id> <note_path_or_title>` | Link a note to a task (creates the note if it doesn't exist) |
+| `uln <task_id> <note_path>` | Unlink a note from a task |
+
+Examples:
+
+```
+> nn work/Sprint planning          # Create note in work/ folder
+> notes                            # List all notes (grouped by folder)
+> notes work                       # List only work/ notes
+> vn work/analysis.md              # View a note
+> en ideas.md                      # Edit a note in $EDITOR
+> ln 3 work/analysis.md            # Link note to task 3
+> uln 3 work/analysis.md           # Unlink
+> dn old-note.md                   # Delete (auto-unlinks from all tasks)
+```
+
+Notes are linked via `-- notes:path1.md,path2.md` metadata on the task line. Deleting a note automatically removes it from all task/subtask metadata in the journal.
+
 ### Burndown Chart
 
 ASCII burndown chart showing progress over time:
@@ -230,6 +262,7 @@ Burndown (14 days) — 24 total tasks
 | `cal [week] [date]` | Calendar view (month or week) |
 | `kb [#tag]` | Kanban board view, optionally filtered by tag |
 | `pj [#tag]` | Project/tag view |
+| `notes [folder]` | List notes, optionally filtered by folder |
 | `wr [days]` | Weekly report |
 | `bd [days]` | Burndown chart |
 
@@ -313,6 +346,8 @@ Burndown (14 days) — 24 total tasks
 |---------|-------------|
 | `ck` | Lint journal: validate format, states, dates, priorities |
 | `se [email]` | Email pending tasks |
+| `journal [name]` / `jn [name]` | List or switch journals |
+| `web [port]` / `web down` | Launch web UI in browser / stop it |
 | `r` | Reload journal from disk |
 | `show log` / `hide log` | Toggle system log bar |
 | `clear log` | Clear log messages |
@@ -630,7 +665,9 @@ Or from within the CLI:
 
 ```
 > web                    # Start web server on default port
+> w                      # Same — alias for web
 > web 8080               # Start on custom port
+> web down               # Stop the web server
 ```
 
 If the requested port is busy, TextTaskManager automatically uses the next available port and opens that URL.
@@ -648,6 +685,7 @@ The web interface provides:
 | **Stats** | Visual statistics with charts |
 | **Weekly Report** | Summary of completed work |
 | **Burndown** | Progress chart over time |
+| **Notes** | Browse, create, edit, and preview Markdown notes |
 | **Tags** | Tag cloud with task counts, click to filter |
 | **Time Tracking** | Log time spent on tasks |
 | **Pomodoro** | Built-in focus timer |
@@ -669,6 +707,7 @@ The web interface provides:
 | `s` | Stats view |
 | `w` | Weekly report |
 | `b` | Burndown chart |
+| `m` | Notes view |
 | `g` | Tags view |
 | `i` | Time tracking |
 | `p` | Pomodoro |
@@ -678,6 +717,7 @@ The web interface provides:
 | `c` | Config |
 | `l` | Log |
 | `r` | Refresh |
+| `\`| Toggle sidebar |
 | `/` | Focus search |
 | `Escape` | Close modal |
 
@@ -758,13 +798,16 @@ task_manager.py              ← Entry point, prompt loop, crash handling
     │       ├── tm_cmd_common.py    ← Shared: ViewState, CommandContext, utilities
     │       ├── tm_cmd_crud.py      ← new, cs, edit, delete, move, sub, das, dup
     │       ├── tm_cmd_views.py     ← pending, all, stats, agenda, kanban, find, sort, undo
-    │       ├── tm_cmd_features.py  ← template, recurrence, time, block, pomodoro, email
-    │       └── tm_cmd_system.py    ← config, sync, help, reload
+    │       ├── tm_cmd_features.py  ← template, recurrence, time, block, pomodoro, email, burndown
+    │       ├── tm_cmd_system.py    ← config, sync, jira, web, journal, log
+    │       └── tm_cmd_notes.py     ← nn, notes, vn, en, dn, mn, ln, uln
     │
     ├── src/tm_journal.py    ← File I/O: parse/write journal, task CRUD on disk
+    ├── src/tm_notes.py      ← Notes: create/list/read/write/delete/move, link/unlink to tasks
     ├── src/tm_logic.py      ← Pure logic: find_task_by_id, date parsing, normalization
     ├── src/tm_features.py   ← Extended: export/import, kanban, weekly report, pomodoro
     ├── src/tm_models.py     ← Data classes: Task, Subtask
+    ├── src/tm_views_data.py ← Structured view models (Calendar, Agenda, Kanban data)
     ├── src/tm_config.py     ← VALID_STATES, VALID_PRIORITIES, loaded from .ttm_config
     ├── src/tm_settings.py   ← Settings + secrets I/O (chmod 600, atomic writes)
     ├── src/tm_ui.py         ← Terminal rendering: colors, table layout, display_tasks
