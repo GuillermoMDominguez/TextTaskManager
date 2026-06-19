@@ -680,6 +680,7 @@ def api_delete_task(handler: "TTMRequestHandler", params: dict) -> None:
 def api_add_note(handler: "TTMRequestHandler", params: dict) -> None:
     """POST /api/tasks/<id>/notes — add a note to a task."""
     body = _read_body(handler)
+    _state.refresh()
     task_id = params.get("task_id", [None])[0]
     note = body.get("note", "").strip()
 
@@ -693,7 +694,9 @@ def api_add_note(handler: "TTMRequestHandler", params: dict) -> None:
         return
 
     try:
-        add_note_to_task_in_file(_state.journal_path, task, note)
+        if not add_note_to_task_in_file(_state.journal_path, task, note):
+            _error_response(handler, "Failed to add note", 500)
+            return
         _state.refresh()
         updated = find_task_by_id(_state.tasks_by_date, task_id)
         if updated:
@@ -734,6 +737,7 @@ def api_delete_note(handler: "TTMRequestHandler", params: dict) -> None:
 def api_edit_note(handler: "TTMRequestHandler", params: dict) -> None:
     """POST /api/tasks/<id>/notes/edit — edit a note on a task."""
     body = _read_body(handler)
+    _state.refresh()
     task_id = params.get("task_id", [None])[0]
     note_index = body.get("index")
     new_note = body.get("note", "").strip()
@@ -795,6 +799,7 @@ def api_add_subtask(handler: "TTMRequestHandler", params: dict) -> None:
 def api_edit_subtask(handler: "TTMRequestHandler", params: dict) -> None:
     """POST /api/subtasks/<id>/edit — edit a subtask (title, state, due_date, priority, notes)."""
     body = _read_body(handler)
+    _state.refresh()
     subtask_id = params.get("subtask_id", [None])[0]
 
     if not subtask_id:
@@ -870,7 +875,9 @@ def api_edit_subtask(handler: "TTMRequestHandler", params: dict) -> None:
 
         # Add a note
         if subtask and note_to_add:
-            add_note_to_subtask_in_file(_state.journal_path, subtask, note_to_add)
+            if not add_note_to_subtask_in_file(_state.journal_path, subtask, note_to_add):
+                _error_response(handler, "Failed to add subtask note", 500)
+                return
             _state.refresh()
 
         _json_response(handler, {"ok": True})
@@ -902,6 +909,7 @@ def api_delete_subtask(handler: "TTMRequestHandler", params: dict) -> None:
 def api_add_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
     """POST /api/subtasks/<id>/notes — add a note to a subtask."""
     body = _read_body(handler)
+    _state.refresh()
     subtask_id = params.get("subtask_id", [None])[0]
 
     if not subtask_id:
@@ -919,7 +927,9 @@ def api_add_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
         return
 
     try:
-        add_note_to_subtask_in_file(_state.journal_path, subtask, note)
+        if not add_note_to_subtask_in_file(_state.journal_path, subtask, note):
+            _error_response(handler, "Failed to add subtask note", 500)
+            return
         _state.refresh()
         _json_response(handler, {"ok": True})
     except Exception as e:

@@ -508,6 +508,8 @@ main {
   color: var(--text-dim);
 }
 .notes-list li .note-text { flex: 1; }
+.note-link { color: var(--accent); text-decoration: underline; }
+.note-link:hover { color: var(--cyan); }
 .notes-list li .note-edit,
 .notes-list li .note-del {
   cursor: pointer;
@@ -2176,8 +2178,6 @@ function cacheTasks(tasks) {
 // ─── Navigation ─────────────────────────────────
 document.querySelectorAll('.nav-item').forEach(el => {
   el.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    el.classList.add('active');
     const view = el.dataset.view;
     if (view === 'jira' && el.dataset.jiraFilter) {
       currentJiraFilter = el.dataset.jiraFilter;
@@ -2186,8 +2186,19 @@ document.querySelectorAll('.nav-item').forEach(el => {
   });
 });
 
+function setActiveNavItem(view) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  let selector = `.nav-item[data-view="${view}"]`;
+  if (view === 'jira') {
+    selector += `[data-jira-filter="${currentJiraFilter}"]`;
+  }
+  const el = document.querySelector(selector);
+  if (el) el.classList.add('active');
+}
+
 function switchView(view) {
   currentView = view;
+  setActiveNavItem(view);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(`view-${view}`).classList.add('active');
   loadView(view);
@@ -2385,7 +2396,7 @@ function renderTaskItem(t, showStateDropdown = true) {
                     <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
                     <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
                   </div>
-                  ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${h(n)}</span></div>`).join('')}</div>` : ''}
+                  ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${linkifyNote(n)}</span></div>`).join('')}</div>` : ''}
                 </div>
               `).join('')}
             </div>
@@ -2394,7 +2405,7 @@ function renderTaskItem(t, showStateDropdown = true) {
             <ul class="task-notes">
               ${t.notes.map((n, i) => `
                 <li>
-                  <span class="note-content">${h(n)}</span>
+                  <span class="note-content">${linkifyNote(n)}</span>
                   <span class="note-actions">
                     <span class="na-edit" onclick="event.stopPropagation();inlineEditNote('${t.id}',${i},'${h(n).replace(/'/g,"\\'")}')">edit</span>
                     <span class="na-del" onclick="event.stopPropagation();inlineDeleteNote('${t.id}',${i})">x</span>
@@ -4163,7 +4174,7 @@ function renderNotes(notes) {
   const list = document.getElementById('edit-notes-list');
   list.innerHTML = notes.map((note, i) => `
     <li>
-      <span class="note-text">${h(note)}</span>
+      <span class="note-text">${linkifyNote(note)}</span>
       <span class="note-edit" onclick="editNoteInModal(${i},'${h(note).replace(/'/g,"\\'")}')">edit</span>
       <span class="note-del" onclick="deleteNote(${i})">x</span>
     </li>
@@ -4193,8 +4204,11 @@ async function addNote() {
 
   const taskId = document.getElementById('edit-task-id').value;
   const data = await api('POST', `/api/tasks/${taskId}/notes`, { note });
+  if (data.error) { alert(data.error); return; }
   if (data.notes) renderNotes(data.notes);
   if (data.id) taskCache[data.id] = data; (data.subtasks || []).forEach(st => subtaskCache[st.id] = st);
+  const idx = allTasks.findIndex(t => t.id === data.id);
+  if (idx >= 0) allTasks[idx] = data;
   input.value = '';
 }
 
@@ -4470,7 +4484,7 @@ function renderSubtaskNotes(notes) {
   }
   el.innerHTML = notes.map((n, i) => `
     <div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px">
-      <span style="flex:1;color:var(--text)">${h(n)}</span>
+      <span style="flex:1;color:var(--text)">${linkifyNote(n)}</span>
       <span style="cursor:pointer;color:var(--accent);opacity:0.7" onclick="editSubtaskNote(${i})" title="Edit">edit</span>
       <span style="cursor:pointer;color:var(--red);opacity:0.7" onclick="deleteSubtaskNote(${i})" title="Delete">x</span>
     </div>
@@ -4483,12 +4497,17 @@ async function addSubtaskNote() {
   const note = input.value.trim();
   if (!note) return;
 
-  await api('POST', `/api/subtasks/${subtaskId}/notes`, { note });
+  const data = await api('POST', `/api/subtasks/${subtaskId}/notes`, { note });
+  if (data.error) { alert(data.error); return; }
   input.value = '';
   // Refresh subtask data
-  const freshTasks = await api('GET', '/api/tasks');
+  const freshTasks = await api('GET', `/api/tasks?view=${currentTaskView}`);
   if (freshTasks && freshTasks.tasks) {
     cacheTasks(freshTasks.tasks);
+  }
+  if (currentTaskView !== 'all') {
+    const allFreshTasks = await api('GET', '/api/tasks?view=all');
+    if (allFreshTasks && allFreshTasks.tasks) cacheTasks(allFreshTasks.tasks);
   }
   const fresh = subtaskCache[subtaskId];
   if (fresh) renderSubtaskNotes(fresh.notes || []);
@@ -4497,9 +4516,13 @@ async function addSubtaskNote() {
 async function deleteSubtaskNote(noteIndex) {
   const subtaskId = document.getElementById('subtask-edit-id').value;
   await api('POST', `/api/subtasks/${subtaskId}/notes/delete`, { note_index: noteIndex });
-  const freshTasks = await api('GET', '/api/tasks');
+  const freshTasks = await api('GET', `/api/tasks?view=${currentTaskView}`);
   if (freshTasks && freshTasks.tasks) {
     cacheTasks(freshTasks.tasks);
+  }
+  if (currentTaskView !== 'all') {
+    const allFreshTasks = await api('GET', '/api/tasks?view=all');
+    if (allFreshTasks && allFreshTasks.tasks) cacheTasks(allFreshTasks.tasks);
   }
   const fresh = subtaskCache[subtaskId];
   if (fresh) renderSubtaskNotes(fresh.notes || []);
@@ -4681,7 +4704,7 @@ function closeModal(id) {
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
-const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira:active', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
   // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)
@@ -4750,6 +4773,43 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 
 // ─── Utility ────────────────────────────────────
 function h(str) { return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function openNoteUrl(event, encodedUrl) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const url = decodeURIComponent(encodedUrl);
+  const panel = document.getElementById('url-panel');
+  const frame = document.getElementById('url-panel-frame');
+  const title = document.getElementById('url-panel-title');
+  const external = document.getElementById('url-panel-external');
+  panel.classList.add('open');
+  title.textContent = url;
+  external.href = url;
+  frame.src = url;
+}
+function closeUrlPanel() {
+  const panel = document.getElementById('url-panel');
+  const frame = document.getElementById('url-panel-frame');
+  panel.classList.remove('open', 'fullscreen');
+  frame.src = 'about:blank';
+}
+function toggleUrlPanelFullscreen() {
+  const panel = document.getElementById('url-panel');
+  const btn = document.getElementById('url-panel-full');
+  panel.classList.toggle('fullscreen');
+  btn.textContent = panel.classList.contains('fullscreen') ? 'Side panel' : 'Foreground';
+}
+function linkifyNote(str) {
+  const urlRe = /(https?:\/\/[^\s<>'"]+)/g;
+  const exactUrlRe = /^https?:\/\/[^\s<>'"]+$/;
+  return String(str || '').split(urlRe).map(part => {
+    if (!exactUrlRe.test(part)) return h(part);
+    const trailing = part.match(/[),.;:!?]+$/)?.[0] || '';
+    const url = trailing ? part.slice(0, -trailing.length) : part;
+    return `<a class="note-link" href="${h(url)}" onclick="openNoteUrl(event,'${encodeURIComponent(url)}')">${h(url)}</a>${h(trailing)}`;
+  }).join('').replace(/\n/g, '<br>');
+}
 function stripTags(str) { return String(str || '').replace(/#\w+/g, '').replace(/\s{2,}/g, ' ').trim(); }
 
 function isOverdue(dateStr) {

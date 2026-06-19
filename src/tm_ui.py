@@ -17,8 +17,22 @@ from .tm_settings import get_setting
 
 
 TAG_CLEAN_PATTERN = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
+URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
 STATE_COLUMN_WIDTH = max(len(state) for state in VALID_STATES)
 TITLE_COLUMN_WIDTH = 56
+
+
+def _linkify_terminal(text: str) -> str:
+    """Render URLs as terminal hyperlinks where supported."""
+    def repl(match: re.Match) -> str:
+        raw_url = match.group(0)
+        trailing = ""
+        while raw_url and raw_url[-1] in ").,;:!?":
+            trailing = raw_url[-1] + trailing
+            raw_url = raw_url[:-1]
+        return f"\033]8;;{raw_url}\033\\{raw_url}\033]8;;\033\\{trailing}"
+
+    return URL_PATTERN.sub(repl, text)
 
 
 def _term_width() -> int:
@@ -437,12 +451,12 @@ def display_tasks(
                     if line_idx == 0:
                         note_cell = _format_title_cell(note_line, _dynamic_title_width())
                         print(
-                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {note_cell}{Colors.RESET}"
+                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {_linkify_terminal(note_cell)}{Colors.RESET}"
                         )
                     else:
                         note_cell = _format_title_cell(note_line, _dynamic_title_width())
                         print(
-                            f"{continuation_prefix}{Colors.DIM}┊        {note_cell}{Colors.RESET}"
+                            f"{continuation_prefix}{Colors.DIM}┊        {_linkify_terminal(note_cell)}{Colors.RESET}"
                         )
 
             for subtask in task.subtasks:
@@ -468,10 +482,10 @@ def display_tasks(
                     for sn_line_idx, sn_line in enumerate(sn_comment.split("\n")):
                         if sn_line_idx == 0:
                             sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
-                            print(f"{sub_note_prefix}{Colors.DIM}┊ [{sn_id}] {sn_cell}{Colors.RESET}")
+                            print(f"{sub_note_prefix}{Colors.DIM}┊ [{sn_id}] {_linkify_terminal(sn_cell)}{Colors.RESET}")
                         else:
                             sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
-                            print(f"{sub_note_prefix}{Colors.DIM}┊        {sn_cell}{Colors.RESET}")
+                            print(f"{sub_note_prefix}{Colors.DIM}┊        {_linkify_terminal(sn_cell)}{Colors.RESET}")
 
     # Footer — single compact line
     summary_parts = []
