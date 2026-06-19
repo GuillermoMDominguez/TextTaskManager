@@ -425,61 +425,6 @@ main {
 }
 .modal-overlay.open { display: flex; }
 
-.url-panel {
-  position: fixed;
-  top: 64px;
-  right: 28px;
-  bottom: 36px;
-  width: min(900px, calc(100vw - 260px));
-  min-width: 360px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
-  z-index: 1300;
-  display: none;
-  grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr auto;
-  min-height: 0;
-}
-.url-panel.open { display: grid; }
-.url-panel.fullscreen {
-  inset: 0;
-  width: auto;
-  min-width: 0;
-  border-radius: 0;
-}
-.url-panel-header {
-  grid-column: 1;
-  grid-row: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-.url-panel-title {
-  flex: 1;
-  color: var(--text-dim);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.url-panel-frame { grid-column: 1; grid-row: 2; width: 100%; height: 100%; border: 0; background: #fff; }
-.url-panel-hint {
-  grid-column: 1;
-  grid-row: 3;
-  padding: 6px 10px;
-  color: var(--text-dim);
-  font-size: 10px;
-  border-top: 1px solid var(--border);
-}
-@media (max-width: 800px) {
-  .url-panel.open { inset: 0; width: auto; min-width: 0; border-radius: 0; }
-}
-
 .modal {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -1880,17 +1825,6 @@ main {
 </div>
 
 <div class="status-bar" id="status-bar"></div>
-
-<div class="url-panel" id="url-panel" aria-label="URL preview panel">
-  <div class="url-panel-header">
-    <span class="url-panel-title" id="url-panel-title"></span>
-    <a class="btn btn-sm" id="url-panel-external" href="#" target="_blank" rel="noopener">Open external</a>
-    <button class="btn btn-sm" id="url-panel-full" onclick="toggleUrlPanelFullscreen()">Fullscreen</button>
-    <button class="btn" onclick="closeUrlPanel()">Close</button>
-  </div>
-  <iframe class="url-panel-frame" id="url-panel-frame" title="URL preview" sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
-  <div class="url-panel-hint">Some sites, including Microsoft login, block embedded previews. Use Open external if the panel stays blank or says refused to connect.</div>
-</div>
 
 <!-- Edit Task Modal -->
 <div class="modal-overlay" id="modal-edit">
@@ -4844,30 +4778,18 @@ function openNoteUrl(event, encodedUrl) {
     event.stopPropagation();
   }
   const url = decodeURIComponent(encodedUrl);
-  const panel = document.getElementById('url-panel');
-  const frame = document.getElementById('url-panel-frame');
-  const title = document.getElementById('url-panel-title');
-  const external = document.getElementById('url-panel-external');
-  if (!panel || !frame || !title || !external) {
-    window.open(url, '_blank', 'noopener');
-    return;
+  const width = Math.min(1200, Math.max(720, Math.floor(window.screen.availWidth * 0.75)));
+  const height = Math.min(900, Math.max(560, Math.floor(window.screen.availHeight * 0.82)));
+  const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+  const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+  const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+  const opened = window.open(url, 'ttm-note-link', features);
+  if (opened) {
+    try { opened.opener = null; } catch (e) {}
+    opened.focus();
+  } else {
+    window.open(url, '_blank');
   }
-  panel.classList.add('open');
-  title.textContent = url;
-  external.href = url;
-  frame.src = url;
-}
-function closeUrlPanel() {
-  const panel = document.getElementById('url-panel');
-  const frame = document.getElementById('url-panel-frame');
-  panel.classList.remove('open', 'fullscreen');
-  frame.src = 'about:blank';
-}
-function toggleUrlPanelFullscreen() {
-  const panel = document.getElementById('url-panel');
-  const btn = document.getElementById('url-panel-full');
-  panel.classList.toggle('fullscreen');
-  btn.textContent = panel.classList.contains('fullscreen') ? 'Window' : 'Fullscreen';
 }
 function getUrlFileAlias(parsed) {
   const candidates = [parsed.searchParams.get('id'), parsed.searchParams.get('file'), parsed.searchParams.get('source')];
