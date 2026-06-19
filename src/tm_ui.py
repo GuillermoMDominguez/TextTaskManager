@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 from typing import Optional
+from urllib.parse import unquote, urlparse
 
 try:
     import readline
@@ -22,6 +23,21 @@ STATE_COLUMN_WIDTH = max(len(state) for state in VALID_STATES)
 TITLE_COLUMN_WIDTH = 56
 
 
+def _url_alias(url: str) -> str:
+    """Return a compact label for a URL, preferring file names."""
+    try:
+        parsed = urlparse(url)
+        segments = [unquote(segment) for segment in parsed.path.split("/") if segment]
+        last = segments[-1] if segments else ""
+        if last and re.search(r"\.[A-Za-z0-9]{1,8}$", last):
+            return last
+        if last:
+            return f"{parsed.netloc}/.../{last}"
+        return parsed.netloc or url
+    except Exception:
+        return url[:45] + "..." if len(url) > 48 else url
+
+
 def _linkify_terminal(text: str) -> str:
     """Render URLs as terminal hyperlinks where supported."""
     def repl(match: re.Match) -> str:
@@ -30,7 +46,8 @@ def _linkify_terminal(text: str) -> str:
         while raw_url and raw_url[-1] in ").,;:!?":
             trailing = raw_url[-1] + trailing
             raw_url = raw_url[:-1]
-        return f"\033]8;;{raw_url}\033\\{raw_url}\033]8;;\033\\{trailing}"
+        alias = _url_alias(raw_url)
+        return f"\033]8;;{raw_url}\033\\{alias}\033]8;;\033\\{trailing}"
 
     return URL_PATTERN.sub(repl, text)
 
@@ -65,6 +82,13 @@ def _format_title_cell(text: str, width: int) -> str:
     if len(text) > width:
         return text[: max(0, width - 1)] + "~"
     return text
+
+
+def _format_note_cell(text: str, width: int) -> str:
+    """Format note text without breaking clickable URL aliases."""
+    if URL_PATTERN.search(text):
+        return _linkify_terminal(text)
+    return _format_title_cell(text, width)
 
 
 def _format_tags_suffix(text: str) -> str:
@@ -449,14 +473,14 @@ def display_tasks(
                 note_id = build_note_id(task.task_id or "?", note_idx)
                 for line_idx, note_line in enumerate(comment.split("\n")):
                     if line_idx == 0:
-                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
+                        note_cell = _format_note_cell(note_line, _dynamic_title_width())
                         print(
-                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {_linkify_terminal(note_cell)}{Colors.RESET}"
+                            f"{continuation_prefix}{Colors.DIM}┊ [{note_id}] {note_cell}{Colors.RESET}"
                         )
                     else:
-                        note_cell = _format_title_cell(note_line, _dynamic_title_width())
+                        note_cell = _format_note_cell(note_line, _dynamic_title_width())
                         print(
-                            f"{continuation_prefix}{Colors.DIM}┊        {_linkify_terminal(note_cell)}{Colors.RESET}"
+                            f"{continuation_prefix}{Colors.DIM}┊        {note_cell}{Colors.RESET}"
                         )
 
             for subtask in task.subtasks:
@@ -481,11 +505,11 @@ def display_tasks(
                     sn_id = build_note_id(subtask.task_id or "?", sn_idx)
                     for sn_line_idx, sn_line in enumerate(sn_comment.split("\n")):
                         if sn_line_idx == 0:
-                            sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
-                            print(f"{sub_note_prefix}{Colors.DIM}┊ [{sn_id}] {_linkify_terminal(sn_cell)}{Colors.RESET}")
+                            sn_cell = _format_note_cell(sn_line, _dynamic_title_width())
+                            print(f"{sub_note_prefix}{Colors.DIM}┊ [{sn_id}] {sn_cell}{Colors.RESET}")
                         else:
-                            sn_cell = _format_title_cell(sn_line, _dynamic_title_width())
-                            print(f"{sub_note_prefix}{Colors.DIM}┊        {_linkify_terminal(sn_cell)}{Colors.RESET}")
+                            sn_cell = _format_note_cell(sn_line, _dynamic_title_width())
+                            print(f"{sub_note_prefix}{Colors.DIM}┊        {sn_cell}{Colors.RESET}")
 
     # Footer — single compact line
     summary_parts = []

@@ -425,6 +425,49 @@ main {
 }
 .modal-overlay.open { display: flex; }
 
+.url-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 42vw);
+  min-width: 360px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgba(0,0,0,0.35);
+  z-index: 1300;
+  display: none;
+  flex-direction: column;
+}
+.url-panel.open { display: flex; }
+.url-panel.fullscreen { left: 0; width: auto; min-width: 0; }
+.url-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.url-panel-title {
+  flex: 1;
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.url-panel-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+.url-panel-hint {
+  padding: 6px 10px;
+  color: var(--text-dim);
+  font-size: 10px;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 800px) {
+  .url-panel { left: 0; width: auto; min-width: 0; }
+}
+
 .modal {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -1826,6 +1869,17 @@ main {
 </div>
 
 <div class="status-bar" id="status-bar"></div>
+
+<div class="url-panel" id="url-panel" aria-label="URL preview panel">
+  <div class="url-panel-header">
+    <span class="url-panel-title" id="url-panel-title"></span>
+    <a class="btn btn-sm" id="url-panel-external" href="#" target="_blank" rel="noopener">Open external</a>
+    <button class="btn btn-sm" id="url-panel-full" onclick="toggleUrlPanelFullscreen()">Foreground</button>
+    <button class="btn" onclick="closeUrlPanel()">Close</button>
+  </div>
+  <iframe class="url-panel-frame" id="url-panel-frame" title="URL preview" sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
+  <div class="url-panel-hint">Some sites block embedded previews. Use Open external if the panel stays blank.</div>
+</div>
 
 <!-- Edit Task Modal -->
 <div class="modal-overlay" id="modal-edit">
@@ -4783,6 +4837,10 @@ function openNoteUrl(event, encodedUrl) {
   const frame = document.getElementById('url-panel-frame');
   const title = document.getElementById('url-panel-title');
   const external = document.getElementById('url-panel-external');
+  if (!panel || !frame || !title || !external) {
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
   panel.classList.add('open');
   title.textContent = url;
   external.href = url;
@@ -4800,6 +4858,18 @@ function toggleUrlPanelFullscreen() {
   panel.classList.toggle('fullscreen');
   btn.textContent = panel.classList.contains('fullscreen') ? 'Side panel' : 'Foreground';
 }
+function getUrlAlias(url) {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split('/').filter(Boolean).map(s => decodeURIComponent(s));
+    const last = segments[segments.length - 1] || '';
+    if (last && /\.[A-Za-z0-9]{1,8}$/.test(last)) return last;
+    if (last) return `${parsed.hostname}/.../${last}`;
+    return parsed.hostname;
+  } catch (e) {
+    return url.length > 48 ? url.slice(0, 45) + '...' : url;
+  }
+}
 function linkifyNote(str) {
   const urlRe = /(https?:\/\/[^\s<>'"]+)/g;
   const exactUrlRe = /^https?:\/\/[^\s<>'"]+$/;
@@ -4807,7 +4877,8 @@ function linkifyNote(str) {
     if (!exactUrlRe.test(part)) return h(part);
     const trailing = part.match(/[),.;:!?]+$/)?.[0] || '';
     const url = trailing ? part.slice(0, -trailing.length) : part;
-    return `<a class="note-link" href="${h(url)}" onclick="openNoteUrl(event,'${encodeURIComponent(url)}')">${h(url)}</a>${h(trailing)}`;
+    const alias = getUrlAlias(url);
+    return `<a class="note-link" href="${h(url)}" title="${h(url)}" onclick="openNoteUrl(event,'${encodeURIComponent(url)}')">${h(alias)}</a>${h(trailing)}`;
   }).join('').replace(/\n/g, '<br>');
 }
 function stripTags(str) { return String(str || '').replace(/#\w+/g, '').replace(/\s{2,}/g, ' ').trim(); }
