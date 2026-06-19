@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 from typing import Optional
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 try:
     import readline
@@ -27,10 +27,20 @@ def _url_alias(url: str) -> str:
     """Return a compact label for a URL, preferring file names."""
     try:
         parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        candidates = []
+        for key in ("id", "file", "source"):
+            candidates.extend(query.get(key, []))
+        candidates.append(parsed.path)
+
+        for candidate in candidates:
+            segments = [unquote(segment) for segment in candidate.split("/") if segment]
+            last = segments[-1] if segments else ""
+            if last and re.search(r"\.[A-Za-z0-9]{1,8}$", last):
+                return last
+
         segments = [unquote(segment) for segment in parsed.path.split("/") if segment]
         last = segments[-1] if segments else ""
-        if last and re.search(r"\.[A-Za-z0-9]{1,8}$", last):
-            return last
         if last:
             return f"{parsed.netloc}/.../{last}"
         return parsed.netloc or url

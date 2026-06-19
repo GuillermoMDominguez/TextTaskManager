@@ -97,9 +97,14 @@ body {
 /* ─── Layout ───────────────────────────────── */
 .app {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 200px minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   height: 100vh;
+  --url-panel-width: 520px;
+}
+
+.app.url-panel-open {
+  grid-template-columns: 200px minmax(0, 1fr) var(--url-panel-width);
 }
 
 header {
@@ -426,22 +431,34 @@ main {
 .modal-overlay.open { display: flex; }
 
 .url-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(520px, 42vw);
-  min-width: 360px;
+  grid-column: 3;
+  grid-row: 2;
+  position: relative;
+  min-width: 280px;
   background: var(--bg-surface);
   border-left: 1px solid var(--border);
-  box-shadow: -12px 0 32px rgba(0,0,0,0.35);
-  z-index: 1300;
   display: none;
-  flex-direction: column;
+  grid-template-columns: 6px 1fr;
+  grid-template-rows: auto 1fr auto;
+  min-height: 0;
 }
-.url-panel.open { display: flex; }
-.url-panel.fullscreen { left: 0; width: auto; min-width: 0; }
+.url-panel.open { display: grid; z-index: 1100; }
+.url-panel.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  min-width: 0;
+}
+.url-panel-resizer {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  cursor: col-resize;
+  background: transparent;
+}
+.url-panel-resizer:hover { background: var(--accent); }
 .url-panel-header {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -457,15 +474,18 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.url-panel-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+.url-panel-frame { grid-column: 2; grid-row: 2; width: 100%; height: 100%; border: 0; background: #fff; }
 .url-panel-hint {
+  grid-column: 2;
+  grid-row: 3;
   padding: 6px 10px;
   color: var(--text-dim);
   font-size: 10px;
   border-top: 1px solid var(--border);
 }
 @media (max-width: 800px) {
-  .url-panel { left: 0; width: auto; min-width: 0; }
+  .app.url-panel-open { grid-template-columns: 200px minmax(0, 1fr); }
+  .url-panel.open { position: fixed; inset: 0; z-index: 1300; min-width: 0; }
 }
 
 .modal {
@@ -1422,6 +1442,10 @@ main {
   color: var(--text-dim);
   z-index: 50;
 }
+.app.url-panel-open + .status-bar { right: var(--url-panel-width); }
+@media (max-width: 800px) {
+  .app.url-panel-open + .status-bar { right: 0; }
+}
 
 /* ─── Keyboard Shortcut Hint ───────────────── */
 .kbd-hint {
@@ -1866,11 +1890,9 @@ main {
       <div id="jira-content"></div>
     </div>
   </main>
-</div>
 
-<div class="status-bar" id="status-bar"></div>
-
-<div class="url-panel" id="url-panel" aria-label="URL preview panel">
+  <div class="url-panel" id="url-panel" aria-label="URL preview panel">
+  <div class="url-panel-resizer" id="url-panel-resizer" title="Drag to resize"></div>
   <div class="url-panel-header">
     <span class="url-panel-title" id="url-panel-title"></span>
     <a class="btn btn-sm" id="url-panel-external" href="#" target="_blank" rel="noopener">Open external</a>
@@ -1878,8 +1900,11 @@ main {
     <button class="btn" onclick="closeUrlPanel()">Close</button>
   </div>
   <iframe class="url-panel-frame" id="url-panel-frame" title="URL preview" sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
-  <div class="url-panel-hint">Some sites block embedded previews. Use Open external if the panel stays blank.</div>
+  <div class="url-panel-hint">Some sites, including Microsoft login, block embedded previews. Use Open external if the panel stays blank or says refused to connect.</div>
+  </div>
 </div>
+
+<div class="status-bar" id="status-bar"></div>
 
 <!-- Edit Task Modal -->
 <div class="modal-overlay" id="modal-edit">
@@ -4841,6 +4866,12 @@ function openNoteUrl(event, encodedUrl) {
     window.open(url, '_blank', 'noopener');
     return;
   }
+  const app = document.querySelector('.app');
+  if (app) {
+    const storedWidth = localStorage.getItem('ttm-url-panel-width');
+    app.style.setProperty('--url-panel-width', storedWidth || '520px');
+    app.classList.add('url-panel-open');
+  }
   panel.classList.add('open');
   title.textContent = url;
   external.href = url;
@@ -4849,6 +4880,8 @@ function openNoteUrl(event, encodedUrl) {
 function closeUrlPanel() {
   const panel = document.getElementById('url-panel');
   const frame = document.getElementById('url-panel-frame');
+  const app = document.querySelector('.app');
+  if (app) app.classList.remove('url-panel-open');
   panel.classList.remove('open', 'fullscreen');
   frame.src = 'about:blank';
 }
@@ -4858,9 +4891,22 @@ function toggleUrlPanelFullscreen() {
   panel.classList.toggle('fullscreen');
   btn.textContent = panel.classList.contains('fullscreen') ? 'Side panel' : 'Foreground';
 }
+function getUrlFileAlias(parsed) {
+  const candidates = [parsed.searchParams.get('id'), parsed.searchParams.get('file'), parsed.searchParams.get('source')];
+  candidates.push(parsed.pathname);
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const segments = candidate.split('/').filter(Boolean).map(s => decodeURIComponent(s));
+    const last = segments[segments.length - 1] || '';
+    if (last && /\.[A-Za-z0-9]{1,8}$/.test(last)) return last;
+  }
+  return '';
+}
 function getUrlAlias(url) {
   try {
     const parsed = new URL(url);
+    const fileAlias = getUrlFileAlias(parsed);
+    if (fileAlias) return fileAlias;
     const segments = parsed.pathname.split('/').filter(Boolean).map(s => decodeURIComponent(s));
     const last = segments[segments.length - 1] || '';
     if (last && /\.[A-Za-z0-9]{1,8}$/.test(last)) return last;
@@ -4869,6 +4915,30 @@ function getUrlAlias(url) {
   } catch (e) {
     return url.length > 48 ? url.slice(0, 45) + '...' : url;
   }
+}
+function initUrlPanelResize() {
+  const handle = document.getElementById('url-panel-resizer');
+  const app = document.querySelector('.app');
+  if (!handle || !app) return;
+  const storedWidth = localStorage.getItem('ttm-url-panel-width');
+  if (storedWidth) app.style.setProperty('--url-panel-width', storedWidth);
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+    const onMove = moveEvent => {
+      const width = Math.min(Math.max(window.innerWidth - moveEvent.clientX, 280), Math.max(360, window.innerWidth - 260));
+      const value = `${width}px`;
+      app.style.setProperty('--url-panel-width', value);
+      localStorage.setItem('ttm-url-panel-width', value);
+    };
+    const onUp = () => {
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
 }
 function linkifyNote(str) {
   const urlRe = /(https?:\/\/[^\s<>'"]+)/g;
@@ -4897,6 +4967,7 @@ function taskListHtml(tasks, showStateDropdown = true) {
 }
 
 // ─── Init ───────────────────────────────────────
+initUrlPanelResize();
 loadTasks('pending');
 </script>
 </body>
