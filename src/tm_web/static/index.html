@@ -198,6 +198,8 @@ main {
 .btn:hover { background: var(--bg-hover); border-color: var(--accent); }
 .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 .btn-primary:hover { opacity: 0.9; }
+.btn-danger { color: var(--red); border-color: var(--red); }
+.btn-danger:hover { background: var(--red); color: #fff; }
 .btn-danger { border-color: var(--red); color: var(--red); }
 .btn-danger:hover { background: var(--red); color: var(--bg); }
 .btn-sm { padding: 3px 8px; font-size: 11px; }
@@ -1452,6 +1454,10 @@ main {
       <a class="nav-item" data-view="blockers"><span class="kbd-hint">x</span> Blockers</a>
     </div>
     <div class="nav-group">
+      <div class="nav-group-title">Notes</div>
+      <a class="nav-item" data-view="notes"><span class="kbd-hint">m</span> Notes</a>
+    </div>
+    <div class="nav-group">
       <div class="nav-group-title">Jira</div>
       <a class="nav-item" data-view="jira" data-jira-filter="active"><span class="kbd-hint">j</span> Tasks</a>
       <a class="nav-item" data-view="jira" data-jira-filter="notify"><span class="kbd-hint">o</span> Notifications</a>
@@ -1604,6 +1610,54 @@ main {
     <div id="view-blockers" class="view">
       <h2 class="view-title">Blockers</h2>
       <div id="blockers-content"></div>
+    </div>
+
+    <!-- Notes View -->
+    <div id="view-notes" class="view">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 class="view-title" style="margin:0">Notes</h2>
+        <button class="btn btn-primary" onclick="showNewNoteModal()">+ New Note</button>
+      </div>
+      <div id="notes-content"></div>
+    </div>
+
+    <!-- Notes Create/Edit Modal -->
+    <div id="notes-modal" class="modal-overlay" onclick="if(event.target===this)closeNotesModal()">
+      <div class="modal" style="width:640px;max-width:90vw">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 id="notes-modal-title" style="margin:0">New Note</h3>
+          <button class="btn" onclick="closeNotesModal()" style="font-size:18px;padding:2px 10px">&times;</button>
+        </div>
+        <div style="margin-bottom:8px">
+          <input id="notes-modal-path" type="text" placeholder="path/note-title (e.g. work/analysis)" style="width:100%;padding:8px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;box-sizing:border-box">
+        </div>
+        <textarea id="notes-modal-content" placeholder="Write your note in Markdown..." style="width:100%;min-height:300px;padding:8px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:monospace;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn" onclick="closeNotesModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="saveNote()">Save Note</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notes Edit Modal -->
+    <div id="notes-view-modal" class="modal-overlay" onclick="if(event.target===this)closeNotesViewModal()">
+      <div class="modal" style="width:720px;max-width:90vw;padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h3 id="notes-view-title" style="margin:0;font-size:14px">Note</h3>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn" onclick="closeNotesViewModal()" style="font-size:18px;padding:2px 10px">&times;</button>
+          </div>
+        </div>
+        <textarea id="notes-edit-textarea" style="width:100%;min-height:350px;padding:8px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:monospace;resize:vertical;box-sizing:border-box"></textarea>
+        <div style="display:flex;gap:8px;justify-content:space-between;margin-top:8px">
+          <button class="btn btn-danger" onclick="deleteCurrentNote()">Delete</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn" onclick="previewNote()">Preview</button>
+            <button class="btn" onclick="closeNotesViewModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveEditedNote()">Save</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Sync View -->
@@ -1839,17 +1893,19 @@ main {
         <label>Title</label>
         <input type="text" id="edit-title">
       </div>
-      <div class="form-group">
-        <label>State</label>
-        <select id="edit-state"></select>
-      </div>
-      <div class="form-group">
-        <label>Priority</label>
-        <select id="edit-priority"></select>
-      </div>
-      <div class="form-group">
-        <label>Due Date</label>
-        <input type="date" id="edit-due">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="form-group">
+          <label>State</label>
+          <select id="edit-state"></select>
+        </div>
+        <div class="form-group">
+          <label>Priority</label>
+          <select id="edit-priority"></select>
+        </div>
+        <div class="form-group">
+          <label>Due Date</label>
+          <input type="date" id="edit-due">
+        </div>
       </div>
       <div class="form-group">
         <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated, click for suggestions)</span></label>
@@ -1864,6 +1920,17 @@ main {
         <div style="display:flex;gap:8px;margin-top:8px">
           <textarea id="edit-new-note" placeholder="Add a note..." rows="2" style="flex:1;resize:vertical"></textarea>
           <button class="btn btn-sm" onclick="addNote()">Add</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Linked Notes <span style="font-size:10px;color:var(--text-dim)">(.md files)</span></label>
+        <div id="edit-linked-notes" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px"></div>
+        <div style="display:flex;gap:4px;position:relative">
+          <div style="flex:1;position:relative">
+            <input type="text" id="edit-link-note-input" placeholder="note name (e.g. work/analysis)" style="width:100%;font-size:11px" autocomplete="off" onfocus="filterNotesDropdown(this.value)" oninput="filterNotesDropdown(this.value)" onblur="hideNotesDropdown()" onkeydown="if(event.key==='Enter'){const dd=document.getElementById('notes-dropdown');const sel=dd.querySelector(':hover')||dd.firstChild;if(sel)sel.click();}else if(event.key==='Escape'){document.getElementById('notes-dropdown').style.display='none';}">
+            <div id="notes-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius);z-index:100"></div>
+          </div>
+          <button class="btn btn-sm" onclick="linkNoteInEdit()">Link</button>
         </div>
       </div>
       <div class="form-group" id="edit-subtasks-group">
@@ -1982,6 +2049,17 @@ main {
         <div style="display:flex;gap:6px">
           <textarea id="subtask-new-note" placeholder="Add a note..." rows="2" style="flex:1;resize:vertical"></textarea>
           <button class="btn btn-sm" onclick="addSubtaskNote()">Add</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Linked Notes <span style="font-size:10px;color:var(--text-dim)">(.md files)</span></label>
+        <div id="subtask-linked-notes" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px"></div>
+        <div style="display:flex;gap:4px;position:relative">
+          <div style="flex:1;position:relative">
+            <input type="text" id="subtask-link-note-input" placeholder="note name (e.g. work/analysis)" style="width:100%;font-size:11px" autocomplete="off" onfocus="filterNotesDropdownST(this.value)" oninput="filterNotesDropdownST(this.value)" onblur="hideNotesDropdownST()" onkeydown="if(event.key==='Enter'){const dd=document.getElementById('notes-dropdown-st');const sel=dd.querySelector(':hover')||dd.firstChild;if(sel)sel.click();}else if(event.key==='Escape'){document.getElementById('notes-dropdown-st').style.display='none';}">
+            <div id="notes-dropdown-st" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius);z-index:100"></div>
+          </div>
+          <button class="btn btn-sm" onclick="linkSubtaskNote()">Link</button>
         </div>
       </div>
     </div>
@@ -2217,6 +2295,7 @@ function loadView(view) {
     pomodoro: loadPomodoro,
     blockers: loadBlockers,
     jira: loadJira,
+    notes: loadNotes,
     sync: loadSync,
     config: loadConfig,
     log: loadLog,
@@ -2396,6 +2475,7 @@ function renderTaskItem(t, showStateDropdown = true) {
                     <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
                   </div>
                   ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${linkifyNote(n)}</span></div>`).join('')}</div>` : ''}
+                  ${st.linked_notes && st.linked_notes.length ? `<div style="display:flex;gap:2px;flex-wrap:wrap;padding:2px 0 0 20px">${st.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</div>` : ''}
                 </div>
               `).join('')}
             </div>
@@ -2417,6 +2497,7 @@ function renderTaskItem(t, showStateDropdown = true) {
         <span class="task-tags-col">${renderTagsWithLimit(t.tags, 3, `task-tags-${t.id}`)}</span>
         <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
         <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
+        ${t.linked_notes && t.linked_notes.length ? `<span style="display:flex;gap:2px;flex-wrap:wrap;max-width:140px">${t.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</span>` : ''}
       </div>
     </li>`;
 }
@@ -4163,6 +4244,9 @@ function openEditModal(taskId) {
   // Notes
   renderNotes(task.notes || []);
 
+  // Linked notes
+  renderEditLinkedNotes(task.linked_notes || []);
+
   // Subtasks
   renderSubtasksInModal(task.subtasks || []);
 
@@ -4420,6 +4504,67 @@ async function deleteSubtaskFromModal(subtaskId) {
   }
 }
 
+// ─── Linked Notes in Edit Modal ──────────────────
+let _notesDropdownItems = [];
+
+async function loadNotesDropdown() {
+  const data = await api('GET', '/api/notes');
+  _notesDropdownItems = (data.notes || []).map(n => n.path);
+}
+
+function renderEditLinkedNotes(linkedNotes) {
+  window._editLinkedNotes = [...(linkedNotes || [])];
+  const container = document.getElementById('edit-linked-notes');
+  const list = window._editLinkedNotes;
+  if (!list.length) {
+    container.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">No linked notes</span>';
+  } else {
+    container.innerHTML = list.map(n => `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:3px">${h(n)} <span onclick="unlinkNoteInEdit('${h(n)}')" style="cursor:pointer;font-size:14px;line-height:1;color:var(--error)">&times;</span></span>`).join('');
+  }
+  loadNotesDropdown();
+}
+
+function filterNotesDropdown(query) {
+  const q = query.toLowerCase();
+  const filtered = _notesDropdownItems.filter(p => p.toLowerCase().includes(q));
+  const dd = document.getElementById('notes-dropdown');
+  if (!filtered.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = filtered.map(p =>
+    `<div onclick="selectNoteDropdown('${h(p)}')" style="padding:4px 8px;cursor:pointer;font-size:11px;border-bottom:1px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">${h(p)}</div>`
+  ).join('');
+  dd.style.display = 'block';
+}
+
+function selectNoteDropdown(path) {
+  const input = document.getElementById('edit-link-note-input');
+  input.value = path;
+  document.getElementById('notes-dropdown').style.display = 'none';
+  linkNoteInEdit();
+}
+
+function hideNotesDropdown() {
+  setTimeout(() => { document.getElementById('notes-dropdown').style.display = 'none'; }, 150);
+}
+
+function linkNoteInEdit() {
+  const input = document.getElementById('edit-link-note-input');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!window._editLinkedNotes) window._editLinkedNotes = [];
+  if (!window._editLinkedNotes.includes(name)) {
+    window._editLinkedNotes.push(name);
+  }
+  input.value = '';
+  renderEditLinkedNotes(window._editLinkedNotes);
+  document.getElementById('notes-dropdown').style.display = 'none';
+}
+
+function unlinkNoteInEdit(name) {
+  if (!window._editLinkedNotes) return;
+  window._editLinkedNotes = window._editLinkedNotes.filter(n => n !== name);
+  renderEditLinkedNotes(window._editLinkedNotes);
+}
+
 async function saveTask() {
   const taskId = document.getElementById('edit-task-id').value;
   const title = document.getElementById('edit-title').value.trim();
@@ -4434,7 +4579,9 @@ async function saveTask() {
     due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
 
-  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, due_date, tags });
+  const linkedNotes = (window._editLinkedNotes || []).filter(Boolean);
+  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, due_date, tags, linked_notes: linkedNotes });
+  window._editLinkedNotes = null;
   closeModal('modal-edit');
   loadView(currentView);
 }
@@ -4471,6 +4618,7 @@ function openSubtaskModal(subtaskId) {
 
   renderSubtaskNotes(st.notes || []);
   document.getElementById('subtask-new-note').value = '';
+  renderSubtaskLinkedNotes(st.linked_notes || []);
 
   document.getElementById('modal-subtask').classList.add('open');
 }
@@ -4551,6 +4699,58 @@ async function editSubtaskNote(noteIndex) {
   };
 }
 
+// ─── Subtask Linked Notes ────────────────────
+function renderSubtaskLinkedNotes(linkedNotes) {
+  window._stLinkedNotes = [...(linkedNotes || [])];
+  const container = document.getElementById('subtask-linked-notes');
+  const list = window._stLinkedNotes;
+  if (!list.length) {
+    container.innerHTML = '<span style="font-size:11px;color:var(--text-dim)">No linked notes</span>';
+  } else {
+    container.innerHTML = list.map(n => `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:3px">${h(n)} <span onclick="unlinkSubtaskNote('${h(n)}')" style="cursor:pointer;font-size:14px;line-height:1;color:var(--error)">&times;</span></span>`).join('');
+  }
+}
+
+function filterNotesDropdownST(query) {
+  const q = query.toLowerCase();
+  const filtered = _notesDropdownItems.filter(p => p.toLowerCase().includes(q));
+  const dd = document.getElementById('notes-dropdown-st');
+  if (!filtered.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = filtered.map(p =>
+    `<div onclick="selectNoteDropdownST('${h(p)}')" style="padding:4px 8px;cursor:pointer;font-size:11px;border-bottom:1px solid var(--border);transition:background 0.1s" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">${h(p)}</div>`
+  ).join('');
+  dd.style.display = 'block';
+}
+
+function hideNotesDropdownST() {
+  setTimeout(() => { document.getElementById('notes-dropdown-st').style.display = 'none'; }, 150);
+}
+
+function selectNoteDropdownST(path) {
+  document.getElementById('subtask-link-note-input').value = path;
+  document.getElementById('notes-dropdown-st').style.display = 'none';
+  linkSubtaskNote();
+}
+
+function linkSubtaskNote() {
+  const input = document.getElementById('subtask-link-note-input');
+  const name = input.value.trim();
+  if (!name) return;
+  if (!window._stLinkedNotes) window._stLinkedNotes = [];
+  if (!window._stLinkedNotes.includes(name)) {
+    window._stLinkedNotes.push(name);
+  }
+  input.value = '';
+  renderSubtaskLinkedNotes(window._stLinkedNotes);
+  document.getElementById('notes-dropdown-st').style.display = 'none';
+}
+
+function unlinkSubtaskNote(name) {
+  if (!window._stLinkedNotes) return;
+  window._stLinkedNotes = window._stLinkedNotes.filter(n => n !== name);
+  renderSubtaskLinkedNotes(window._stLinkedNotes);
+}
+
 async function saveSubtask() {
   const subtaskId = document.getElementById('subtask-edit-id').value;
   const title = document.getElementById('subtask-edit-title').value.trim();
@@ -4566,7 +4766,9 @@ async function saveSubtask() {
   }
 
   if (!title) return;
-  await api('POST', `/api/subtasks/${subtaskId}/edit`, { title, state, due_date, priority, tags });
+  const linkedNotes = (window._stLinkedNotes || []).filter(Boolean);
+  await api('POST', `/api/subtasks/${subtaskId}/edit`, { title, state, due_date, priority, tags, linked_notes: linkedNotes });
+  window._stLinkedNotes = null;
   closeModal('modal-subtask');
   loadView(currentView);
 }
@@ -4703,7 +4905,7 @@ function closeModal(id) {
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
-const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', j: 'jira:active', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', m: 'notes', j: 'jira:active', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
   // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)
@@ -4769,6 +4971,204 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     if (e.target === overlay) overlay.classList.remove('open');
   });
 });
+
+// ─── Notes ──────────────────────────────────────
+let _notesList = [];
+let _currentNotePath = null;
+
+async function loadNotes() {
+  const data = await api('GET', '/api/notes');
+  _notesList = data.notes || [];
+  renderNotesList();
+}
+
+function renderNotesList() {
+  const container = document.getElementById('notes-content');
+  if (!_notesList.length) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim)">No notes yet. Click "+ New Note" to create one.</div>';
+    return;
+  }
+  // Group by folder
+  const tree = {};
+  for (const n of _notesList) {
+    const parts = n.path.split('/');
+    const fileName = parts.pop();
+    const folder = parts.join('/') || '/';
+    if (!tree[folder]) tree[folder] = [];
+    tree[folder].push(n);
+  }
+  const sortedFolders = Object.keys(tree).sort((a, b) => a === '/' ? -1 : b === '/' ? 1 : a.localeCompare(b));
+  let html = '';
+  for (const folder of sortedFolders) {
+    const notes = tree[folder];
+    if (folder === '/') {
+      html += notes.map(n => renderNoteItem(n)).join('');
+    } else {
+      html += `<div style="margin-bottom:8px">
+        <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.3px;padding:4px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">${h(folder)}</div>
+        ${notes.map(n => renderNoteItem(n)).join('')}
+      </div>`;
+    }
+  }
+  container.innerHTML = html;
+}
+
+function renderNoteItem(n) {
+  const preview = (n.preview || '').substring(0, 60);
+  const date = n.mtime ? new Date(n.mtime).toLocaleDateString() : '';
+  return `<div class="note-item" onclick="openNoteView('${h(n.path)}')" style="padding:6px 8px;cursor:pointer;border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;gap:8px">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:500;color:var(--text)">${h(n.name)}</div>
+      <div style="font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(preview)}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <span onclick="event.stopPropagation();previewNoteFile('${h(n.path)}')" style="font-size:10px;color:var(--accent);cursor:pointer;opacity:0.6;padding:2px 4px;border-radius:3px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">preview</span>
+      <span style="font-size:10px;color:var(--text-dim);white-space:nowrap">${date}</span>
+    </div>
+  </div>`;
+}
+
+function showNewNoteModal() {
+  _currentNotePath = null;
+  document.getElementById('notes-modal-title').textContent = 'New Note';
+  document.getElementById('notes-modal-path').value = '';
+  document.getElementById('notes-modal-content').value = '';
+  document.getElementById('notes-modal').classList.add('open');
+  document.getElementById('notes-modal-path').focus();
+}
+
+function closeNotesModal() {
+  document.getElementById('notes-modal').classList.remove('open');
+}
+
+async function saveNote() {
+  const name = document.getElementById('notes-modal-path').value.trim();
+  const content = document.getElementById('notes-modal-content').value;
+  if (!name) { alert('Note path is required.'); return; }
+  await api('POST', '/api/notes', { name, content });
+  closeNotesModal();
+  loadNotes();
+}
+
+function openNoteView(path) {
+  _currentNotePath = path;
+  document.getElementById('notes-view-title').textContent = path;
+  document.getElementById('notes-edit-textarea').value = '';
+  document.getElementById('notes-view-modal').classList.add('open');
+  loadNoteContent(path);
+}
+
+function closeNotesViewModal() {
+  document.getElementById('notes-view-modal').classList.remove('open');
+  _currentNotePath = null;
+}
+
+async function loadNoteContent(path) {
+  try {
+    const data = await api('GET', `/api/notes/read?name=${encodeURIComponent(path)}`);
+    if (data && data.content) {
+      document.getElementById('notes-edit-textarea').value = data.content;
+    }
+    document.getElementById('notes-edit-textarea').focus();
+  } catch (e) {
+    document.getElementById('notes-edit-textarea').value = '';
+  }
+}
+
+async function previewNoteFile(path) {
+  const data = await api('GET', `/api/notes/read?name=${encodeURIComponent(path)}`);
+  const content = (data && data.content) || '';
+  const html = renderMarkdown(content);
+  const title = path || 'Preview';
+  const page = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${h(title)}</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;line-height:1.6;color:#1e293b;background:#fff}pre{background:#f1f5f9;padding:12px;border-radius:6px;overflow-x:auto}code{background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:90%}a{color:#2563eb}h1,h2,h3{line-height:1.3}ul{padding-left:20px}</style></head><body>${html}</body></html>`;
+  const blob = new Blob([page], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const width = Math.min(1200, Math.max(720, Math.floor(window.screen.availWidth * 0.75)));
+  const height = Math.min(900, Math.max(560, Math.floor(window.screen.availHeight * 0.82)));
+  const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+  const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+  const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+  const win = window.open(url, 'ttm-note-preview', features);
+  if (win) { try { win.opener = null; } catch (e) {} win.focus(); }
+  else { window.open(url, '_blank'); }
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+function previewNote() {
+  const content = document.getElementById('notes-edit-textarea').value || '';
+  const html = renderMarkdown(content);
+  const title = _currentNotePath || 'Preview';
+  const page = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${h(title)}</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:20px auto;padding:0 16px;line-height:1.6;color:#1e293b;background:#fff}pre{background:#f1f5f9;padding:12px;border-radius:6px;overflow-x:auto}code{background:#f1f5f9;padding:1px 4px;border-radius:3px;font-size:90%}a{color:#2563eb}h1,h2,h3{line-height:1.3}ul{padding-left:20px}</style></head><body>${html}</body></html>`;
+  const blob = new Blob([page], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const width = Math.min(1200, Math.max(720, Math.floor(window.screen.availWidth * 0.75)));
+  const height = Math.min(900, Math.max(560, Math.floor(window.screen.availHeight * 0.82)));
+  const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+  const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+  const features = `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
+  const win = window.open(url, 'ttm-note-preview', features);
+  if (win) {
+    try { win.opener = null; } catch (e) {}
+    win.focus();
+  } else {
+    window.open(url, '_blank');
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+async function deleteCurrentNote() {
+  if (!_currentNotePath) return;
+  if (!confirm(`Delete note "${_currentNotePath}"?`)) return;
+  await api('POST', '/api/notes/delete', { name: _currentNotePath });
+  closeNotesViewModal();
+  if (currentView === 'notes') loadNotes();
+}
+
+async function saveEditedNote() {
+  if (!_currentNotePath) return;
+  const content = document.getElementById('notes-edit-textarea').value;
+  await api('POST', '/api/notes', { name: _currentNotePath, content });
+  closeNotesViewModal();
+  if (currentView === 'notes') loadNotes();
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = h(text);
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:8px;border-radius:var(--radius);overflow-x:auto;font-size:12px"><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Headers (space after # is optional)
+  html = html.replace(/^### ?(.+)$/gm, '<h3 style="margin:12px 0 4px;font-size:14px">$1</h3>');
+  html = html.replace(/^## ?(.+)$/gm, '<h2 style="margin:16px 0 6px;font-size:16px">$1</h2>');
+  html = html.replace(/^# ?(.+)$/gm, '<h1 style="margin:20px 0 8px;font-size:18px">$1</h1>');
+  // Unordered lists
+  html = html.replace(/^- (.+)$/gm, '<li style="margin:2px 0">$1</li>');
+  html = html.replace(/(<li.*<\/li>\n?)+/g, '<ul style="padding-left:20px;margin:4px 0">$&</ul>');
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin:2px 0">$1</li>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent, #4fc3f7)">$1</a>');
+  // Paragraphs (double newlines)
+  html = html.replace(/\n\n/g, '</p><p style="margin:8px 0">');
+  html = '<p style="margin:8px 0">' + html + '</p>';
+  // Remove truly empty paragraphs (whitespace only)
+  html = html.replace(/<p[^>]*>\s*<\/p>/g, '');
+  return html;
+}
+
+// ─── Linked Notes in Tasks ───────────────────────
+function renderLinkedNotes(linkedNotes) {
+  if (!linkedNotes || !linkedNotes.length) return '';
+  return `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+    ${linkedNotes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7)">${h(n)}</span>`).join('')}
+  </div>`;
+}
 
 // ─── Utility ────────────────────────────────────
 function h(str) { return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

@@ -56,6 +56,17 @@ from src.tm_views_data import (
     get_calendar_data,
     _task_to_view_item,
 )
+from src.tm_notes import (
+    list_notes,
+    read_note,
+    write_note,
+    delete_note,
+    move_note,
+    link_note_to_task,
+    unlink_note_from_task,
+    resolve_note_path,
+    resolve_or_create_note_path,
+)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
@@ -141,11 +152,13 @@ def _serialize_task(item) -> dict:
                 "priority": st.priority,
                 "tags": st.tags or [],
                 "notes": st.notes or [],
+                "linked_notes": st.linked_notes or [],
             }
             for st in item.subtasks
         ],
         "time_spent": item.time_spent,
         "jira_key": item.jira_key,
+        "linked_notes": item.linked_notes,
     }
 
 
@@ -608,10 +621,11 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
                     _json_response(handler, {"ok": True})
                     return
 
-        # Edit metadata (priority, due_date, jira_key)
+        # Edit metadata (priority, due_date, jira_key, linked_notes)
         new_priority = body.get("priority")
         new_due = body.get("due_date")
         new_jira_key = body.get("jira_key")
+        new_linked_notes = body.get("linked_notes")
 
         due_obj = task.due_date
         if new_due is not None:
@@ -638,12 +652,21 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
         if new_jira_key is not None:
             jira_key_val = new_jira_key.strip().upper() if new_jira_key.strip() else ""
 
-        if due_obj != task.due_date or priority_val != task.priority or jira_key_val is not None:
+        # linked_notes: None=keep, [] or ""=remove, [list]=set
+        notes_val = None  # means keep existing
+        if new_linked_notes is not None:
+            if isinstance(new_linked_notes, list):
+                notes_val = ",".join(new_linked_notes) if new_linked_notes else ""
+            else:
+                notes_val = str(new_linked_notes)
+
+        if due_obj != task.due_date or priority_val != task.priority or jira_key_val is not None or notes_val is not None:
             update_task_metadata_in_file(
                 _state.journal_path, task,
                 due_date=due_obj,
                 priority=priority_val,
                 jira_key=jira_key_val,
+                notes=notes_val,
             )
 
         _state.refresh()
@@ -869,6 +892,22 @@ def api_edit_subtask(handler: "TTMRequestHandler", params: dict) -> None:
                 _state.journal_path, subtask,
                 due_date=new_due, priority=new_priority,
                 clear_due=clear_due, clear_priority=clear_priority,
+            )
+            _state.refresh()
+            subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
+
+        # Update linked notes
+        new_linked_notes = body.get("linked_notes")
+        if subtask and new_linked_notes is not None:
+            notes_val = ""
+            if isinstance(new_linked_notes, list):
+                notes_val = ",".join(new_linked_notes) if new_linked_notes else ""
+            elif isinstance(new_linked_notes, str):
+                notes_val = new_linked_notes
+            update_subtask_metadata_in_file(
+                _state.journal_path, subtask,
+                due_date=None, priority=None,
+                notes=notes_val,
             )
             _state.refresh()
             subtask = find_task_by_id(_state.tasks_by_date, subtask_id)
@@ -1563,6 +1602,127 @@ def api_delete_blocker(handler: "TTMRequestHandler", params: dict) -> None:
         _error_response(handler, str(e), 500)
 
 
+# ─── Notes API handlers ──────────────────────────────────────────────────────────
+
+def api_get_notes(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/notes — list notes, optionally filtered by folder."""
+    folder = params.get("folder", [None])[0]
+    notes = list_notes(_state.journal_path, folder)
+    _json_response(handler, {"notes": notes})
+
+
+def api_get_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/notes/<name> — get note content."""
+    note_name = params.get("name", [None])[0]
+    if not note_name:
+        _error_response(handler, "name is required")
+        return
+    content = read_note(_state.journal_path, note_name)
+    if content is None:
+        _error_response(handler, f"Note '{note_name}' not found", 404)
+        return
+    _json_response(handler, {"path": note_name, "content": content})
+
+
+def api_create_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/notes — create a new note."""
+    body = _read_body(handler)
+    name = body.get("name", "").strip()
+    content = body.get("content", "")
+
+    if not name:
+        _error_response(handler, "name is required")
+        return
+
+    resolved = resolve_or_create_note_path(_state.journal_path, name)
+    if not name.endswith(".md"):
+        name = name + ".md"
+    if write_note(_state.journal_path, name, content):
+        _json_response(handler, {"path": name, "ok": True})
+    else:
+        _error_response(handler, "Could not write note", 500)
+
+
+def api_delete_note_route(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/notes/delete — delete a note."""
+    body = _read_body(handler)
+    name = (params.get("name", [None])[0] or body.get("name", "")).strip()
+    if not name:
+        _error_response(handler, "name is required")
+        return
+    if delete_note(_state.journal_path, name):
+        _json_response(handler, {"ok": True})
+    else:
+        _error_response(handler, f"Note '{name}' not found", 404)
+
+
+def api_move_note_route(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/notes/move — move/rename a note."""
+    body = _read_body(handler)
+    from_name = body.get("from", "").strip()
+    to_name = body.get("to", "").strip()
+    if not from_name or not to_name:
+        _error_response(handler, "from and to are required")
+        return
+    if move_note(_state.journal_path, from_name, to_name):
+        _json_response(handler, {"ok": True})
+    else:
+        _error_response(handler, f"Could not move '{from_name}'", 500)
+
+
+def api_link_task_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/notes/link — link a note to a task."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0] or body.get("task_id")
+    note_name = body.get("note", "").strip()
+
+    if not task_id or not note_name:
+        _error_response(handler, "task_id and note are required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    # Ensure note exists
+    resolved = resolve_note_path(_state.journal_path, note_name)
+    if resolved is None:
+        create = body.get("create", False)
+        if not create:
+            _error_response(handler, f"Note '{note_name}' not found. Set create=true to create it.", 404)
+            return
+        write_note(_state.journal_path, note_name, body.get("content", ""))
+
+    if link_note_to_task(_state.journal_path, task, note_name):
+        _state.refresh()
+        _json_response(handler, {"ok": True})
+    else:
+        _error_response(handler, "Could not link note", 500)
+
+
+def api_unlink_task_note(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/tasks/<id>/notes/unlink — unlink a note from a task."""
+    body = _read_body(handler)
+    task_id = params.get("task_id", [None])[0] or body.get("task_id")
+    note_name = body.get("note", "").strip()
+
+    if not task_id or not note_name:
+        _error_response(handler, "task_id and note are required")
+        return
+
+    task = find_task_by_id(_state.tasks_by_date, task_id)
+    if not task:
+        _error_response(handler, f"Task {task_id} not found", 404)
+        return
+
+    if unlink_note_from_task(_state.journal_path, task, note_name):
+        _state.refresh()
+        _json_response(handler, {"ok": True})
+    else:
+        _error_response(handler, "Could not unlink note", 500)
+
+
 # ─── Route Table ──────────────────────────────────────────────────────────────
 
 API_ROUTES = {
@@ -1586,6 +1746,8 @@ API_ROUTES = {
     ("GET", "/api/status"): api_get_status,
     ("GET", "/api/journals"): api_get_journals,
     ("GET", "/api/sync/status"): api_get_sync_status,
+    ("GET", "/api/notes"): api_get_notes,
+    ("GET", "/api/notes/read"): api_get_note,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,
     ("POST", "/api/tasks/state"): api_change_state,
@@ -1608,6 +1770,12 @@ API_ROUTES = {
     ("POST", "/api/blockers/delete"): api_delete_blocker,
     ("POST", "/api/sync/push"): api_post_sync_push,
     ("POST", "/api/sync/settings"): api_post_sync_settings,
+    # Notes
+    ("POST", "/api/notes"): api_create_note,
+    ("POST", "/api/notes/delete"): api_delete_note_route,
+    ("POST", "/api/notes/move"): api_move_note_route,
+    ("POST", "/api/tasks/notes/link"): api_link_task_note,
+    ("POST", "/api/tasks/notes/unlink"): api_unlink_task_note,
 }
 
 

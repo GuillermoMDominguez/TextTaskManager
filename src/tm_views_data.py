@@ -27,6 +27,7 @@ class TaskViewItem:
     notes: List[str] = field(default_factory=list)
     time_spent: Optional[str] = None
     jira_key: Optional[str] = None
+    linked_notes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -39,6 +40,7 @@ class SubtaskViewItem:
     due_date: Optional[datetime] = None
     tags: List[str] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    linked_notes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -147,12 +149,14 @@ def _task_to_view_item(task: Task) -> TaskViewItem:
                 due_date=st.due_date,
                 tags=st.get_tags(),
                 notes=st.comments or [],
+                linked_notes=getattr(st, "linked_notes", []),
             )
             for st in task.subtasks
         ],
         notes=task.comments,
         time_spent=getattr(task, "time_spent", None),
         jira_key=getattr(task, "jira_key", None),
+        linked_notes=getattr(task, "linked_notes", []),
     )
 
 

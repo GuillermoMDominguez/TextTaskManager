@@ -95,6 +95,16 @@ from .tm_cmd_system import (
     handle_web,
     handle_journal,
 )
+from .tm_cmd_notes import (
+    handle_new_note,
+    handle_list_notes,
+    handle_view_note,
+    handle_edit_note,
+    handle_delete_note,
+    handle_move_note,
+    handle_link_note,
+    handle_unlink_note,
+)
 
 
 # ─── Command Help (used by help system & autocomplete) ──────────────────────
@@ -270,6 +280,46 @@ COMMAND_HELP = {
         "description": "List available journals or switch to another one.",
         "examples": ["journal", "jn", "journal Javier", "jn Work"],
     },
+    "nn": {
+        "syntax": "nn [path/]Title",
+        "description": "Create a new .md note (opens editor).",
+        "examples": ["nn", "nn work/Sprint planning", "nn Quick idea"],
+    },
+    "notes": {
+        "syntax": "notes [folder]",
+        "description": "List notes, optionally filtered by folder.",
+        "examples": ["notes", "notes work", "notes personal"],
+    },
+    "vn": {
+        "syntax": "vn <note_path>",
+        "description": "View note content.",
+        "examples": ["vn quick-idea.md", "vn work/sprint-planning.md"],
+    },
+    "en": {
+        "syntax": "en <note_path>",
+        "description": "Edit a note (opens editor).",
+        "examples": ["en quick-idea.md"],
+    },
+    "dn": {
+        "syntax": "dn <note_path>",
+        "description": "Delete a note (asks confirmation).",
+        "examples": ["dn old-note.md"],
+    },
+    "mn": {
+        "syntax": "mn <from_path> <to_path>",
+        "description": "Move or rename a note.",
+        "examples": ["mn quick-idea.md work/final-idea.md"],
+    },
+    "ln": {
+        "syntax": "ln <task_id> <note_path_or_title>",
+        "description": "Link a note to a task. Creates the note if it doesn't exist.",
+        "examples": ["ln 3 work/analysis.md", "ln 5 My new note"],
+    },
+    "uln": {
+        "syntax": "uln <task_id> <note_path>",
+        "description": "Unlink a note from a task.",
+        "examples": ["uln 3 work/analysis.md"],
+    },
 }
 
 
@@ -301,6 +351,19 @@ ALIAS_TO_HELP_KEY = {
     "pomodoro": "pom",
     "burndown": "bd",
     "jn": "journal",
+    "nn": "nn",
+    "new note": "nn",
+    "vn": "vn",
+    "view note": "vn",
+    "en": "en",
+    "edit note": "en",
+    "dn": "dn",
+    "del note": "dn",
+    "mn": "mn",
+    "ln": "ln",
+    "link note": "ln",
+    "uln": "uln",
+    "unlink note": "uln",
 }
 
 
@@ -582,6 +645,39 @@ def execute_command(
 
     # ── Email ────────────────────────────────────────────────────────
     result = handle_email(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    # ── Notes ─────────────────────────────────────────────────────
+    result = handle_new_note(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_list_notes(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_view_note(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_edit_note(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_delete_note(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_move_note(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_link_note(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_unlink_note(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 

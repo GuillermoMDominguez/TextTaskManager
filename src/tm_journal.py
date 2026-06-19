@@ -137,11 +137,18 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
         task.jira_key = jira_match.group(1).strip().upper()
         return True
 
+    notes_match = re.match(r"^notes\s*[:=]\s*(.+)$", chunk, re.IGNORECASE)
+    if notes_match:
+        raw = notes_match.group(1).strip()
+        if raw:
+            task.linked_notes = [n.strip() for n in raw.split(",") if n.strip()]
+        return True
+
     return False
 
 
 def _apply_subtask_metadata(subtask, chunk: str) -> bool:
-    """Apply metadata key:value to a subtask (supports due date)."""
+    """Apply metadata key:value to a subtask (supports due, priority, notes)."""
     due_match = re.match(r"^(?:due|d)\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", chunk, re.IGNORECASE)
     if due_match:
         due_date = _parse_due_value(due_match.group(1))
@@ -149,6 +156,18 @@ def _apply_subtask_metadata(subtask, chunk: str) -> bool:
             subtask.due_date = due_date
             return True
         return False
+    prio_match = re.match(r"^(?:priority|prio)\s*[:=]\s*(.+)$", chunk, re.IGNORECASE)
+    if prio_match:
+        subtask.priority = prio_match.group(1).strip().upper()
+        return True
+    notes_match = re.match(r"^notes\s*[:=]\s*(.+)$", chunk, re.IGNORECASE)
+    if notes_match:
+        raw = notes_match.group(1).strip()
+        if raw:
+            subtask.linked_notes = [n.strip() for n in raw.split(",") if n.strip()]
+        else:
+            subtask.linked_notes = []
+        return True
     return False
 
 
@@ -160,6 +179,7 @@ def _render_task_line(
     indent: str = "",
     recurrence: Optional[str] = None,
     jira_key: Optional[str] = None,
+    linked_notes: Optional[list] = None,
 ) -> str:
     parts = [f"{indent}- {title} -- {state}"]
     if due_date is not None:
@@ -170,6 +190,8 @@ def _render_task_line(
         parts.append(f"recur:{recurrence}")
     if jira_key:
         parts.append(f"jira:{jira_key}")
+    if linked_notes:
+        parts.append(f"notes:{','.join(linked_notes)}")
     return " -- ".join(parts) + "\n"
 
 
@@ -286,6 +308,14 @@ def parse_subtask_line(line: str) -> Optional[Subtask]:
             prio_val = _parse_priority_value(prio_match.group(1))
             if prio_val is not None:
                 subtask.priority = prio_val
+            continue
+
+        # Check for linked notes in subtask metadata
+        notes_match = re.match(r"^notes\s*[:=]\s*(.+)$", part, re.IGNORECASE)
+        if notes_match:
+            raw = notes_match.group(1).strip()
+            if raw:
+                subtask.linked_notes = [n.strip() for n in raw.split(",") if n.strip()]
             continue
 
         for alias, canonical in STATE_ALIASES.items():
@@ -537,6 +567,7 @@ def _render_task_block(task: Task, state_override: Optional[str] = None) -> List
             priority=task.priority,
             recurrence=task.recurrence,
             jira_key=task.jira_key,
+            linked_notes=task.linked_notes,
         )
     ]
     for comment in task.comments:
@@ -644,7 +675,7 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
                                 is_meta = True
                                 break
                     if not is_meta:
-                        if re.match(r"^(?:due|priority|recur|spent|time|blockedby|blocks|jira)\s*[:=]", meta, re.IGNORECASE):
+                        if re.match(r"^(?:due|priority|recur|spent|time|blockedby|blocks|jira|notes)\s*[:=]", meta, re.IGNORECASE):
                             is_meta = True
                     if is_meta:
                         lines_to_remove.append(j)
@@ -676,7 +707,7 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
 
         new_line = _render_task_line(
             title_with_tags, new_state, task.due_date, task.priority, indent, task.recurrence,
-            jira_key=task.jira_key,
+            jira_key=task.jira_key, linked_notes=task.linked_notes,
         )
 
         # Add spent if task had time tracked
@@ -888,7 +919,7 @@ def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "-")
-        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence, jira_key=task.jira_key)
+        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence, jira_key=task.jira_key, linked_notes=task.linked_notes)
         # Preserve time tracking
         if task.time_spent:
             from .tm_features import format_time_spent
@@ -940,6 +971,7 @@ def update_task_metadata_in_file(
     priority: Optional[str],
     recurrence: Optional[str] = None,
     jira_key: Optional[str] = None,
+    notes: Optional[str] = None,
 ) -> bool:
     """Update due date, priority, and/or recurrence metadata for a parent task.
 
@@ -947,6 +979,8 @@ def update_task_metadata_in_file(
     recurrence="weekly" etc means set that value.
     jira_key=None means keep existing, jira_key="" means remove,
     jira_key="KEY-123" means set that value.
+    notes=None means keep existing, notes="" means remove,
+    notes="path1.md,path2.md" means set that value.
     """
     if task.source_line is None:
         return False
@@ -967,6 +1001,14 @@ def update_task_metadata_in_file(
     else:
         effective_jira_key = jira_key  # set new value
 
+    # Determine effective notes
+    if notes is None:
+        effective_notes = task.linked_notes  # keep existing
+    elif notes == "":
+        effective_notes = []  # remove all
+    else:
+        effective_notes = [n.strip() for n in notes.split(",") if n.strip()]
+
     try:
         lines = _read_lines(filepath)
         line_index = task.source_line - 1
@@ -974,7 +1016,7 @@ def update_task_metadata_in_file(
             return False
 
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=effective_jira_key)
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=effective_jira_key, linked_notes=effective_notes or None)
         _write_lines(filepath, lines)
         return True
     except Exception:
@@ -1038,6 +1080,7 @@ def _render_subtask_line(
     due_date: Optional[datetime] = None,
     priority: Optional[str] = None,
     indent: str = "    ",
+    notes: Optional[str] = None,
 ) -> str:
     """Render a subtask line: + title -- STATE -- due:... -- priority:..."""
     parts = [f"{indent}+ {title} -- {state}"]
@@ -1045,6 +1088,8 @@ def _render_subtask_line(
         parts.append(f"due:{due_date.strftime('%d/%m/%Y')}")
     if priority:
         parts.append(f"priority:{priority}")
+    if notes:
+        parts.append(f"notes:{notes}")
     return " -- ".join(parts) + "\n"
 
 
@@ -1055,6 +1100,7 @@ def update_subtask_metadata_in_file(
     priority: Optional[str] = None,
     clear_due: bool = False,
     clear_priority: bool = False,
+    notes: Optional[str] = None,
 ) -> bool:
     """Update due date and/or priority on a subtask line."""
     if subtask.source_line is None:
@@ -1062,6 +1108,9 @@ def update_subtask_metadata_in_file(
 
     effective_due = None if clear_due else (due_date if due_date is not None else subtask.due_date)
     effective_priority = None if clear_priority else (priority if priority is not None else subtask.priority)
+    effective_notes = None if notes is None else notes
+    if effective_notes is None and subtask.linked_notes:
+        effective_notes = ",".join(subtask.linked_notes)
 
     try:
         lines = _read_lines(filepath)
@@ -1069,7 +1118,7 @@ def update_subtask_metadata_in_file(
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "+")
-        lines[line_index] = _render_subtask_line(subtask.title, subtask.state, effective_due, effective_priority, indent)
+        lines[line_index] = _render_subtask_line(subtask.title, subtask.state, effective_due, effective_priority, indent, effective_notes)
         _write_lines(filepath, lines)
         return True
     except Exception:

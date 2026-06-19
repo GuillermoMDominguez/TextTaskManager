@@ -30,6 +30,7 @@ class Subtask:
     title: str
     state: str = DEFAULT_STATE
     comments: List[str] = field(default_factory=list)
+    linked_notes: List[str] = field(default_factory=list)
     task_id: Optional[str] = None
     source_line: Optional[int] = None
     due_date: Optional[datetime] = None
@@ -68,6 +69,7 @@ class Task:
     blocked_by: List[str] = field(default_factory=list)  # task titles
     blocks: List[str] = field(default_factory=list)  # task titles
     jira_key: Optional[str] = None  # linked Jira issue key (e.g. "PROJ-123")
+    linked_notes: List[str] = field(default_factory=list)
     task_id: Optional[str] = None
     source_line: Optional[int] = None
 
