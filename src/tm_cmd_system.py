@@ -46,8 +46,8 @@ def handle_config_sync(
     from .tm_settings import load_settings, save_settings
     from .tm_journal import register_post_write_hook
 
-    script_dir = Path(context.journal_path).parent.parent
-    journals_dir = Path(context.journal_path).parent
+    script_dir = context.script_dir
+    journals_dir = script_dir / "journals"
 
     sync_config = run_config_wizard(script_dir, journals_dir)
     if sync_config:
@@ -91,7 +91,7 @@ def handle_config_jira(
         return None
 
     from .tm_jira import run_config_wizard, init_jira
-    script_dir = Path(context.journal_path).parent.parent
+    script_dir = context.script_dir
     run_config_wizard(script_dir)
     return CommandOutcome(tasks_by_date, view_state, skip_redraw=True)
 
@@ -111,7 +111,7 @@ def handle_jira(
         return None
 
     from .tm_jira import execute as jira_execute, is_configured as jira_is_configured, init_jira
-    script_dir = Path(context.journal_path).parent.parent
+    script_dir = context.script_dir
     if not jira_is_configured():
         init_jira(script_dir)
     jira_execute(sub, tasks_by_date, context)
@@ -215,7 +215,7 @@ def handle_web(
         _log("info", f"Web UI already running at {get_url()}")
     else:
         port = int(parts[1]) if len(parts) == 2 else 8080
-        started = start_server_background(context.journal_path, port=port)
+        started = start_server_background(context.journal_path, context.script_dir, port=port)
         if started:
             _log("info", f"Web UI started at {get_url()} — use 'web down' to stop.")
         else:

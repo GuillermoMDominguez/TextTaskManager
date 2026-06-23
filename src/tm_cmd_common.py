@@ -49,15 +49,50 @@ class ViewState:
     sort_direction: str = "asc"
 
 
-@dataclass
 class CommandContext:
-    """Dependencies needed by command handlers."""
+    """Dependencies needed by command handlers.
 
-    journal_path: str
-    email_config: EmailConfig
-    refresh_tasks: Callable[[], dict]
-    undo_stack: list[str]
-    max_undo: int = 20
+    Stores the journal path as a journal name (relative to journals/),
+    resolving it to an absolute path only when accessed via the
+    ``journal_path`` property.  This keeps the representation portable
+    when the project is moved.
+    """
+
+    def __init__(
+        self,
+        script_dir: Path = None,
+        journal_name: str = "",
+        journal_path: str = None,
+        email_config: EmailConfig = None,
+        refresh_tasks: Callable[[], dict] = None,
+        undo_stack: list[str] = None,
+        max_undo: int = 20,
+    ) -> None:
+        self._journal_abs_path: Optional[str] = None
+        if journal_path is not None:
+            # Legacy callers (tests) pass an absolute / relative path directly.
+            p = Path(journal_path)
+            self._journal_abs_path = str(p.resolve())
+            self.script_dir = p.resolve().parent.parent
+            self.journal_name = p.name
+        else:
+            self.script_dir = script_dir
+            self.journal_name = journal_name
+        self.email_config = email_config
+        self.refresh_tasks = refresh_tasks
+        self.undo_stack = undo_stack if undo_stack is not None else []
+        self.max_undo = max_undo
+
+    @property
+    def journal_path(self) -> str:
+        if self._journal_abs_path is not None:
+            return self._journal_abs_path
+        return str(self.script_dir / "journals" / self.journal_name)
+
+    @journal_path.setter
+    def journal_path(self, value: str) -> None:
+        self.journal_name = Path(value).name
+        self._journal_abs_path = None
 
 
 @dataclass

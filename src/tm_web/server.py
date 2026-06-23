@@ -74,11 +74,20 @@ _STATIC_DIR = Path(__file__).parent / "static"
 class WebState:
     """Shared state for the web server."""
 
-    def __init__(self, journal_path: str):
-        self.journal_path = journal_path
+    def __init__(self, journal_path: str, script_dir: Path):
+        self._script_dir = script_dir
+        self._journal_name = Path(journal_path).name
         self.lock = threading.Lock()
         self._tasks_by_date: dict = {}
         self.refresh()
+
+    @property
+    def journal_path(self) -> str:
+        return str(self._script_dir / "journals" / self._journal_name)
+
+    @journal_path.setter
+    def journal_path(self, value: str) -> None:
+        self._journal_name = Path(value).name
 
     def refresh(self) -> dict:
         """Re-parse journal and assign IDs."""
@@ -1973,7 +1982,7 @@ def _wait_for_server(port: int, timeout: float = 2.0) -> None:
             time.sleep(0.05)
 
 
-def start_server_background(journal_path: str, port: int = 8080, open_browser: bool = True) -> bool:
+def start_server_background(journal_path: str, script_dir: Path, port: int = 8080, open_browser: bool = True) -> bool:
     """Start the web UI server in a background daemon thread.
 
     The server runs until stop_server() is called or the process exits.
@@ -1991,7 +2000,7 @@ def start_server_background(journal_path: str, port: int = 8080, open_browser: b
         return False
 
     _server_instance, _server_port = bound
-    _state = WebState(journal_path)
+    _state = WebState(journal_path, script_dir)
     _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
     _server_thread.start()
 
@@ -2013,7 +2022,7 @@ def stop_server() -> None:
     _server_thread = None
 
 
-def start_server(journal_path: str, port: int = 8080, open_browser: bool = True) -> None:
+def start_server(journal_path: str, script_dir: Path, port: int = 8080, open_browser: bool = True) -> None:
     """Start the web UI server (blocking, for standalone mode).
 
     Args:
@@ -2027,7 +2036,7 @@ def start_server(journal_path: str, port: int = 8080, open_browser: bool = True)
         raise OSError(f"No available port found from {port} to {port + 49}")
 
     server, _server_port = bound
-    _state = WebState(journal_path)
+    _state = WebState(journal_path, script_dir)
     url = get_url()
 
     print(f"\n  Web UI running at: \033[1m\033[96m{url}\033[0m")
@@ -2056,4 +2065,5 @@ if __name__ == "__main__":
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser")
 
     args = parser.parse_args()
-    start_server(args.journal, args.port, not args.no_browser)
+    script_dir = Path(args.journal).resolve().parent.parent
+    start_server(args.journal, script_dir, args.port, not args.no_browser)

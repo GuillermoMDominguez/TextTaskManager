@@ -355,7 +355,8 @@ def main() -> None:
             sys.exit(1)
 
     journal_path = str(selected_journal)
-    save_cached_journal(cache_path, selected_journal.name)
+    journal_name = selected_journal.name
+    save_cached_journal(cache_path, journal_name)
 
     # ─── Integrity check on load ──────────────────────────────────────
     from src.tm_integrity import check_and_fix_journal
@@ -381,7 +382,7 @@ def main() -> None:
         # Stop any existing server instance in this process
         if is_running():
             stop_server()
-        started = start_server_background(journal_path)
+        started = start_server_background(journal_path, script_dir)
         if started:
             atexit.register(stop_server)
             print(f"{Colors.DIM}Web UI started at {get_url()}{Colors.RESET}")
@@ -436,7 +437,8 @@ def main() -> None:
     )
     _render_view(tasks_by_date, view_state)
     command_context = CommandContext(
-        journal_path=journal_path,
+        script_dir=script_dir,
+        journal_name=journal_name,
         email_config=email_config,
         refresh_tasks=refresh_tasks,
         undo_stack=[],
