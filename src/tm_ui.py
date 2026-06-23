@@ -19,7 +19,7 @@ from .tm_settings import get_setting
 
 TAG_CLEAN_PATTERN = re.compile(r"(?<!\w)#[A-Za-z0-9_-]+")
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"]+")
-STATE_COLUMN_WIDTH = max(len(state) for state in VALID_STATES)
+STATE_COLUMN_WIDTH = max(len(state) for state in VALID_STATES) + 4
 TITLE_COLUMN_WIDTH = 56
 
 
