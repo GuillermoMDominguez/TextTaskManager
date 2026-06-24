@@ -878,6 +878,21 @@ main {
   margin-top: 4px;
 }
 .jira-notification .jn-meta .author { color: var(--yellow); }
+.jn-mark-btn {
+  float: right;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 5px;
+  line-height: 1.6;
+}
+.jn-mark-btn:hover {
+  color: var(--green);
+  border-color: var(--green);
+}
 
 /* ─── Tags ─────────────────────────────────── */
 .tags-cloud {
@@ -3875,7 +3890,12 @@ function renderJiraNotifications(notifications) {
     return;
   }
 
-  el.innerHTML = notifications.map(n => `
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:11px;color:var(--text-dim)">
+      <span>${notifications.length} unread</span>
+      <button class="btn btn-sm" onclick="markAllJiraRead()" style="font-size:11px">Mark All Read</button>
+    </div>
+    ${notifications.map(n => `
     <div class="jira-notification">
       <div class="jn-header">
         <span class="jn-key" style="cursor:pointer" onclick="openInJira('${n.key}')">${n.key}</span>
@@ -3883,9 +3903,24 @@ function renderJiraNotifications(notifications) {
         <span class="jn-reason">${n.reason}</span>
       </div>
       <div class="jn-body">${h(n.body)}</div>
-      <div class="jn-meta"><span class="author">${h(n.author)}</span> &mdash; ${n.date}</div>
+      <div class="jn-meta">
+        <span class="author">${h(n.author)}</span> &mdash; ${n.date}
+        <button class="jn-mark-btn" onclick="markJiraRead('${n.id}')" title="Mark as read">✓</button>
+      </div>
     </div>
-  `).join('');
+  `).join('')}`;
+}
+
+async function markAllJiraRead() {
+  const data = await api('POST', '/api/jira/mark-all');
+  if (data.ok) { loadJira(); }
+  else { alert('Failed to mark all as read: ' + (data.error || 'unknown error')); }
+}
+
+async function markJiraRead(id) {
+  const data = await api('POST', '/api/jira/mark', { ids: [id] });
+  if (data.ok) { loadJira(); }
+  else { alert('Failed to mark as read: ' + (data.error || 'unknown error')); }
 }
 
 // ─── State Dropdown ─────────────────────────────

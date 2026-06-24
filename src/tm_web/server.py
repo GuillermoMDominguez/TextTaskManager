@@ -495,6 +495,56 @@ def api_post_jira_transition(handler: "TTMRequestHandler", params: dict) -> None
         _error_response(handler, f"Failed to transition {issue_key}", 500)
 
 
+def api_post_jira_mark_all(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/jira/mark-all — mark all Jira notifications as read."""
+    try:
+        from src import tm_jira
+        from src.tm_jira import is_configured, init_jira, _mark_all_read
+    except ImportError:
+        _json_response(handler, {"error": "Jira module not available"}, 500)
+        return
+
+    if not is_configured():
+        journal_dir = Path(_state.journal_path).resolve().parent
+        if not init_jira(journal_dir):
+            init_jira(journal_dir.parent)
+
+    if not is_configured():
+        _json_response(handler, {"error": "Jira not configured"}, 400)
+        return
+
+    _mark_all_read()
+    _json_response(handler, {"ok": True})
+
+
+def api_post_jira_mark(handler: "TTMRequestHandler", params: dict) -> None:
+    """POST /api/jira/mark — mark specific Jira notifications as read by ID."""
+    try:
+        from src import tm_jira
+        from src.tm_jira import is_configured, init_jira, _mark_read_by_ids
+    except ImportError:
+        _json_response(handler, {"error": "Jira module not available"}, 500)
+        return
+
+    if not is_configured():
+        journal_dir = Path(_state.journal_path).resolve().parent
+        if not init_jira(journal_dir):
+            init_jira(journal_dir.parent)
+
+    if not is_configured():
+        _json_response(handler, {"error": "Jira not configured"}, 400)
+        return
+
+    body = _read_body(handler)
+    ids = body.get("ids", [])
+    if not isinstance(ids, list) or not ids:
+        _error_response(handler, "ids must be a non-empty list")
+        return
+
+    _mark_read_by_ids(ids)
+    _json_response(handler, {"ok": True, "marked": len(ids)})
+
+
 # ─── Write API Handlers ───────────────────────────────────────────────────────
 
 def api_change_state(handler: "TTMRequestHandler", params: dict) -> None:
@@ -1772,6 +1822,8 @@ API_ROUTES = {
     ("POST", "/api/subtasks/notes/delete"): api_delete_subtask_note,
     ("POST", "/api/subtasks/notes/edit"): api_edit_subtask_note,
     ("POST", "/api/jira/transition"): api_post_jira_transition,
+    ("POST", "/api/jira/mark-all"): api_post_jira_mark_all,
+    ("POST", "/api/jira/mark"): api_post_jira_mark,
     ("POST", "/api/config"): api_save_config,
     ("POST", "/api/journals/switch"): api_switch_journal,
     ("POST", "/api/tasks/time"): api_log_time,
