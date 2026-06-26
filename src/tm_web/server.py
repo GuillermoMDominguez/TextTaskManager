@@ -58,6 +58,7 @@ from src.tm_views_data import (
 )
 from src.tm_notes import (
     list_notes,
+    list_note_folders,
     read_note,
     write_note,
     delete_note,
@@ -1670,6 +1671,12 @@ def api_get_notes(handler: "TTMRequestHandler", params: dict) -> None:
     _json_response(handler, {"notes": notes})
 
 
+def api_get_note_folders(handler: "TTMRequestHandler", params: dict) -> None:
+    """GET /api/notes/folders — list available note folders."""
+    folders = list_note_folders(_state.journal_path)
+    _json_response(handler, {"folders": folders})
+
+
 def api_get_note(handler: "TTMRequestHandler", params: dict) -> None:
     """GET /api/notes/<name> — get note content."""
     note_name = params.get("name", [None])[0]
@@ -1806,6 +1813,7 @@ API_ROUTES = {
     ("GET", "/api/journals"): api_get_journals,
     ("GET", "/api/sync/status"): api_get_sync_status,
     ("GET", "/api/notes"): api_get_notes,
+    ("GET", "/api/notes/folders"): api_get_note_folders,
     ("GET", "/api/notes/read"): api_get_note,
     # Write endpoints
     ("POST", "/api/tasks"): api_create_task,

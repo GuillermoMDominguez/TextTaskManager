@@ -66,6 +66,19 @@ def resolve_or_create_note_path(journal_path: str, note_path_str: str) -> Path:
     return candidate
 
 
+def list_note_folders(journal_path: str) -> List[str]:
+    nd = _notes_dir(journal_path)
+    if not nd.exists():
+        return []
+    folders: set = set()
+    for f in sorted(nd.rglob("*.md")):
+        if f.is_file():
+            rel_dir = f.relative_to(nd).parent
+            if str(rel_dir) != ".":
+                folders.add(str(rel_dir))
+    return sorted(folders)
+
+
 def list_notes(journal_path: str, folder: Optional[str] = None) -> List[dict]:
     nd = _notes_dir(journal_path)
     if not nd.exists():

@@ -523,28 +523,202 @@ main {
 }
 
 /* ─── Notes ────────────────────────────────── */
-.notes-list { list-style: none; margin-top: 6px; }
-.notes-list li {
+.note-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  border-left: 4px solid var(--accent);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+}
+.note-item:hover {
+  border-color: var(--accent);
+  border-left-width: 5px;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+  transform: translateX(3px);
+}
+[data-theme="light"] .note-item:hover {
+  box-shadow: 0 3px 12px rgba(0,0,0,0.1);
+}
+.note-item .note-icon {
+  flex-shrink: 0;
+  font-size: 15px;
+  color: var(--accent);
+  opacity: 0.8;
+  width: 20px;
+  text-align: center;
+}
+.note-item .note-body {
+  flex: 1;
+  min-width: 0;
+}
+.note-item .note-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+.note-item .note-preview-text {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+.note-item .note-meta {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
-  font-size: 12px;
+  flex-shrink: 0;
+}
+.note-item .note-date {
+  font-size: 10px;
   color: var(--text-dim);
-}
-.notes-list li .note-text { flex: 1; }
-.note-link { color: var(--accent); text-decoration: underline; }
-.note-link:hover { color: var(--cyan); }
-.notes-list li .note-edit,
-.notes-list li .note-del {
-  cursor: pointer;
-  font-size: 11px;
+  white-space: nowrap;
   opacity: 0.6;
+  min-width: 32px;
+  text-align: right;
 }
-.notes-list li .note-edit { color: var(--accent); }
-.notes-list li .note-edit:hover { opacity: 1; }
-.notes-list li .note-del { color: var(--red); }
-.notes-list li .note-del:hover { opacity: 1; }
+.note-item .note-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+.note-toolbar .tb-btn {
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.note-toolbar .tb-btn-preview {
+  color: var(--accent);
+}
+.note-toolbar .tb-btn-preview:hover {
+  background: rgba(122, 162, 247, 0.1);
+  border-color: var(--accent);
+}
+.note-toolbar .tb-btn-move {
+  color: var(--yellow);
+}
+.note-toolbar .tb-btn-move:hover {
+  background: rgba(224, 175, 104, 0.1);
+  border-color: var(--yellow);
+}
+.note-toolbar .tb-btn-del {
+  color: var(--red);
+}
+.note-toolbar .tb-btn-del:hover {
+  background: rgba(247, 118, 142, 0.1);
+  border-color: var(--red);
+}
+
+.note-folder-section { margin-bottom: 16px; }
+.note-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 10px 6px 8px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid var(--border);
+  background: linear-gradient(to right, var(--bg-hover), transparent);
+  border-radius: 4px 4px 0 0;
+}
+.note-folder-header .folder-icon { font-size: 14px; opacity: 0.7; }
+.note-folder-section.drag-over-target {
+  background: rgba(122, 162, 247, 0.06);
+  border-radius: 6px;
+  padding-bottom: 4px;
+}
+.note-item.dragging {
+  opacity: 0.4;
+  border-style: dashed;
+}
+#notes-content.drag-over-root {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+  min-height: 60px;
+}
+
+/* ─── Note Preview Tooltip ─────────────────── */
+#note-tooltip {
+  display: none;
+  position: fixed;
+  z-index: 2000;
+  max-width: 440px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  pointer-events: auto;
+  scrollbar-width: thin;
+}
+[data-theme="light"] #note-tooltip {
+  box-shadow: 0 12px 32px rgba(0,0,0,0.15);
+}
+#note-tooltip .tip-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+  word-break: break-all;
+}
+#note-tooltip .tip-content p { margin: 6px 0; }
+#note-tooltip .tip-content h1,
+#note-tooltip .tip-content h2,
+#note-tooltip .tip-content h3 { margin: 10px 0 4px; font-size: 13px; color: var(--text); }
+#note-tooltip .tip-content code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--orange);
+}
+#note-tooltip .tip-content pre {
+  background: var(--bg);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 11px;
+  margin: 6px 0;
+  border: 1px solid var(--border);
+}
+#note-tooltip .tip-content ul { padding-left: 18px; margin: 4px 0; }
+#note-tooltip .tip-content li { margin: 2px 0; }
+#note-tooltip .tip-loading {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 11px;
+}
 
 /* ─── Agenda ───────────────────────────────── */
 .agenda-section { margin-bottom: 20px; }
@@ -1668,10 +1842,14 @@ main {
     <div id="view-notes" class="view">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 class="view-title" style="margin:0">Notes</h2>
-        <button class="btn btn-primary" onclick="showNewNoteModal()">+ New Note</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:10px;color:var(--text-dim)" id="notes-count"></span>
+          <button class="btn btn-primary" onclick="showNewNoteModal()">+ New Note</button>
+        </div>
       </div>
       <div id="notes-content"></div>
     </div>
+    <div id="note-tooltip" onmouseenter="noteTooltipCancel()" onmouseleave="noteTooltipImmediateHide()"></div>
 
     <!-- Notes Create/Edit Modal -->
     <div id="notes-modal" class="modal-overlay" onclick="if(event.target===this)closeNotesModal()">
@@ -1708,6 +1886,28 @@ main {
             <button class="btn" onclick="closeNotesViewModal()">Cancel</button>
             <button class="btn btn-primary" onclick="saveEditedNote()">Save</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Move Note Modal -->
+    <div id="move-note-modal" class="modal-overlay" onclick="if(event.target===this)closeMoveNoteModal()">
+      <div class="modal" style="width:460px;max-width:90vw;padding:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h3 style="margin:0;font-size:14px">Move Note</h3>
+          <button class="btn" onclick="closeMoveNoteModal()" style="font-size:18px;padding:2px 10px">&times;</button>
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">Moving: <strong id="move-note-name" style="color:var(--text)"></strong></div>
+        </div>
+        <div style="margin-bottom:10px">
+          <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:4px">Target Folder</label>
+          <select id="move-note-folder-select" style="width:100%;padding:8px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;margin-bottom:8px" onchange="document.getElementById('move-note-custom-folder').value=this.value"></select>
+          <input id="move-note-custom-folder" type="text" placeholder="Or type a custom folder path..." style="width:100%;padding:8px 10px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:inherit;box-sizing:border-box" oninput="document.getElementById('move-note-folder-select').value=''">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          <button class="btn" onclick="closeMoveNoteModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="confirmMoveNote()">Move</button>
         </div>
       </div>
     </div>
@@ -5077,15 +5277,17 @@ async function loadNotes() {
 
 function renderNotesList() {
   const container = document.getElementById('notes-content');
+  const countEl = document.getElementById('notes-count');
   if (!_notesList.length) {
     container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim)">No notes yet. Click "+ New Note" to create one.</div>';
+    if (countEl) countEl.textContent = '';
     return;
   }
-  // Group by folder
+  if (countEl) countEl.textContent = `${_notesList.length} note${_notesList.length !== 1 ? 's' : ''}`;
   const tree = {};
   for (const n of _notesList) {
     const parts = n.path.split('/');
-    const fileName = parts.pop();
+    parts.pop();
     const folder = parts.join('/') || '/';
     if (!tree[folder]) tree[folder] = [];
     tree[folder].push(n);
@@ -5097,28 +5299,221 @@ function renderNotesList() {
     if (folder === '/') {
       html += notes.map(n => renderNoteItem(n)).join('');
     } else {
-      html += `<div style="margin-bottom:8px">
-        <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.3px;padding:4px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">${h(folder)}</div>
+      html += `<div class="note-folder-section"
+        ondragover="noteSectionDragOver(event)"
+        ondragleave="noteSectionDragLeave(event)"
+        ondrop="noteSectionDrop(event, '${h(folder)}')">
+        <div class="note-folder-header"><span class="folder-icon">📁</span>${h(folder)}</div>
         ${notes.map(n => renderNoteItem(n)).join('')}
       </div>`;
     }
   }
   container.innerHTML = html;
+  container.ondragover = (e) => { e.preventDefault(); container.classList.add('drag-over-root'); };
+  container.ondragleave = (e) => { if (!container.contains(e.relatedTarget)) container.classList.remove('drag-over-root'); };
+  container.ondrop = (e) => { e.preventDefault(); container.classList.remove('drag-over-root'); noteSectionDrop(e, ''); };
 }
 
 function renderNoteItem(n) {
-  const preview = (n.preview || '').substring(0, 60);
+  const preview = (n.preview || '').substring(0, 80);
   const date = n.mtime ? new Date(n.mtime).toLocaleDateString() : '';
-  return `<div class="note-item" onclick="openNoteView('${h(n.path)}')" style="padding:6px 8px;cursor:pointer;border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center;gap:8px">
-    <div style="flex:1;min-width:0">
-      <div style="font-size:13px;font-weight:500;color:var(--text)">${h(n.name)}</div>
-      <div style="font-size:11px;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h(preview)}</div>
+  const escapedPath = h(n.path);
+  const escapedName = h(n.name);
+  const escapedPreview = h(preview);
+  return `<div class="note-item"
+    draggable="true"
+    ondragstart="noteDragStart(event, '${escapedPath}')"
+    onclick="openNoteView('${escapedPath}')">
+    <span class="note-icon">📄</span>
+    <div class="note-body">
+      <div class="note-title"
+        data-note-path="${escapedPath}"
+        onmouseenter="noteTooltipShow(event, '${escapedPath}')"
+        onmouseleave="noteTooltipHide()">${escapedName}</div>
+      <div class="note-preview-text">${escapedPreview || 'Empty note'}</div>
     </div>
-    <div style="display:flex;align-items:center;gap:4px">
-      <span onclick="event.stopPropagation();previewNoteFile('${h(n.path)}')" style="font-size:10px;color:var(--accent);cursor:pointer;opacity:0.6;padding:2px 4px;border-radius:3px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">preview</span>
-      <span style="font-size:10px;color:var(--text-dim);white-space:nowrap">${date}</span>
+    <div class="note-meta">
+      <span class="note-date">${date}</span>
+      <div class="note-toolbar">
+        <span class="tb-btn tb-btn-preview" onclick="event.stopPropagation();previewNoteFile('${escapedPath}')">Preview</span>
+        <span class="tb-btn tb-btn-move" onclick="event.stopPropagation();showMoveNoteModal('${escapedPath}')">Move</span>
+        <span class="tb-btn tb-btn-del" onclick="event.stopPropagation();deleteNoteFromList('${escapedPath}')">Delete</span>
+      </div>
     </div>
   </div>`;
+}
+
+let _tooltipTimer = null;
+let _tooltipPath = null;
+
+function noteTooltipShow(event, path) {
+  _tooltipPath = path;
+  clearTimeout(_tooltipTimer);
+  _tooltipTimer = setTimeout(async () => {
+    if (_tooltipPath !== path) return;
+    const tip = document.getElementById('note-tooltip');
+    if (!tip) return;
+    const rect = event.target.getBoundingClientRect();
+    let top = rect.bottom + 6;
+    let left = rect.left;
+    tip.style.display = 'block';
+    tip.innerHTML = '<div class="tip-loading">Loading preview...</div>';
+    requestAnimationFrame(() => {
+      const tw = tip.offsetWidth;
+      const th = tip.offsetHeight;
+      if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+      if (top + th > window.innerHeight - 8) top = rect.top - th - 6;
+      if (left < 4) left = 4;
+      if (top < 4) top = 4;
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
+    });
+    try {
+      const data = await api('GET', `/api/notes/read?name=${encodeURIComponent(path)}`);
+      if (_tooltipPath !== path) return;
+      const content = (data && data.content) || '';
+      const previewContent = content.substring(0, 500);
+      const rendered = renderMarkdownPreview(previewContent);
+      tip.innerHTML = `<div class="tip-title">${h(path)}</div><div class="tip-content">${rendered || '<em>Empty note</em>'}</div>`;
+    } catch (e) {
+      tip.innerHTML = '<div class="tip-loading">Could not load preview</div>';
+    }
+  }, 400);
+}
+
+function noteTooltipHide() {
+  clearTimeout(_tooltipTimer);
+  _tooltipTimer = setTimeout(() => {
+    _tooltipPath = null;
+    const tip = document.getElementById('note-tooltip');
+    if (tip) tip.style.display = 'none';
+  }, 250);
+}
+
+function noteTooltipCancel() {
+  clearTimeout(_tooltipTimer);
+}
+
+function noteTooltipImmediateHide() {
+  clearTimeout(_tooltipTimer);
+  _tooltipPath = null;
+  const tip = document.getElementById('note-tooltip');
+  if (tip) tip.style.display = 'none';
+}
+
+// ─── Drag & Drop Notes ────────────────────────────
+
+let _dragNotePath = null;
+
+function noteDragStart(event, path) {
+  _dragNotePath = path;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', path);
+  event.target.classList.add('dragging');
+}
+
+function noteSectionDragOver(event) {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  event.currentTarget.classList.add('drag-over-target');
+}
+
+function noteSectionDragLeave(event) {
+  event.currentTarget.classList.remove('drag-over-target');
+}
+
+async function noteSectionDrop(event, targetFolder) {
+  event.preventDefault();
+  event.stopPropagation();
+  document.querySelectorAll('.drag-over-target').forEach(el => el.classList.remove('drag-over-target'));
+  document.querySelectorAll('.drag-over-root').forEach(el => el.classList.remove('drag-over-root'));
+  document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+
+  const fromPath = _dragNotePath || event.dataTransfer.getData('text/plain');
+  _dragNotePath = null;
+  if (!fromPath) return;
+
+  const fileName = fromPath.split('/').pop();
+  const toPath = targetFolder ? targetFolder + '/' + fileName : fileName;
+  if (toPath === fromPath) return;
+
+  await api('POST', '/api/notes/move', { from: fromPath, to: toPath });
+  loadNotes();
+}
+
+function renderMarkdownPreview(text) {
+  if (!text) return '';
+  let html = h(text);
+  html = html.replace(/```(\w*)\n[\s\S]*?```/g, '<code>[...]</code>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/^### ?(.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## ?(.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# ?(.+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  html = html.replace(/<p[^>]*>\s*<\/p>/g, '');
+  return html;
+}
+
+async function deleteNoteFromList(path) {
+  if (!confirm(`Delete note "${path}"? This cannot be undone.`)) return;
+  await api('POST', '/api/notes/delete', { name: path });
+  loadNotes();
+}
+
+let _moveNotePath = null;
+
+async function showMoveNoteModal(path) {
+  _moveNotePath = path;
+  document.getElementById('move-note-name').textContent = path;
+  const select = document.getElementById('move-note-folder-select');
+  const custom = document.getElementById('move-note-custom-folder');
+  select.innerHTML = '<option value="">— Root folder —</option>';
+  custom.value = '';
+  try {
+    const data = await api('GET', '/api/notes/folders');
+    const folders = data.folders || [];
+    for (const f of folders) {
+      const opt = document.createElement('option');
+      opt.value = f;
+      opt.textContent = f;
+      select.appendChild(opt);
+    }
+  } catch (e) {}
+  const parts = path.split('/');
+  if (parts.length > 1) {
+    const currentFolder = parts.slice(0, -1).join('/');
+    select.value = currentFolder;
+    custom.value = currentFolder;
+  }
+  document.getElementById('move-note-modal').classList.add('open');
+}
+
+function closeMoveNoteModal() {
+  document.getElementById('move-note-modal').classList.remove('open');
+  _moveNotePath = null;
+}
+
+async function confirmMoveNote() {
+  if (!_moveNotePath) return;
+  const custom = document.getElementById('move-note-custom-folder').value.trim();
+  const folder = custom || '';
+  const fileName = _moveNotePath.split('/').pop();
+  const toPath = folder ? folder + '/' + fileName : fileName;
+  if (toPath === _moveNotePath) {
+    closeMoveNoteModal();
+    return;
+  }
+  if (!confirm(`Move "${_moveNotePath}" to "${toPath}"?`)) return;
+  await api('POST', '/api/notes/move', { from: _moveNotePath, to: toPath });
+  closeMoveNoteModal();
+  loadNotes();
 }
 
 function showNewNoteModal() {
