@@ -71,10 +71,13 @@ def init_sync(journals_dir: Path, settings: dict, project_dir: Path) -> bool:
     return True
 
 
-def sync_pull(interactive: bool = True) -> bool:
+def sync_pull(interactive: bool = True, conflict_strategy: Optional[str] = None) -> bool:
     """Pull remote changes. Returns True if successful.
 
-    If interactive=True, prompts user on conflict.
+    Args:
+        interactive: If True, prompt user on conflict (used by CLI).
+        conflict_strategy: One of "keep_local", "use_remote", "merge", "skip".
+            If set, overrides interactive mode for automated conflict resolution.
     """
     if not _is_active():
         return False
@@ -99,38 +102,80 @@ def sync_pull(interactive: bool = True) -> bool:
         _run_git(["add", "-A"])
         status = _run_git(["status", "--porcelain"])
         if status and status.strip():
-            # Ensure git identity exists for commit (use fallback if not configured)
             _ensure_git_identity()
             _run_git(["commit", "-m", "local: preserve existing journals"])
-        # Now try to rebase onto remote (merges both histories)
         pull_result = _run_git(["pull", "--rebase", remote_url, branch])
         if pull_result is None:
-            # Rebase failed — try merge instead
             _run_git(["rebase", "--abort"])
             merge_result = _run_git(["pull", "--no-rebase", remote_url, branch, "--allow-unrelated-histories"])
             if merge_result is None:
                 return False
         return True
 
-    # Check if there are remote changes
     diff_result = _run_git(["diff", f"origin/{branch}", "--stat"])
     if diff_result is not None and diff_result.strip() == "":
         return True  # Nothing to pull
 
-    # Check for local uncommitted changes
     status = _run_git(["status", "--porcelain"])
     has_local_changes = status is not None and status.strip() != ""
 
-    if has_local_changes and interactive:
-        return _resolve_pull_conflict(branch)
+    if has_local_changes:
+        if conflict_strategy:
+            return _apply_conflict_strategy(conflict_strategy, branch)
+        if interactive:
+            return _resolve_pull_conflict(branch)
 
-    # Simple fast-forward pull
     pull_result = _run_git(["pull", "--rebase", remote_url, branch])
     if pull_result is None:
         _print_sync("Pull failed — working with local version")
         return False
 
     return True
+
+
+def _apply_conflict_strategy(strategy: str, branch: str) -> bool:
+    """Apply an automated conflict resolution strategy without user interaction."""
+    remote_url = _resolve_remote_url()
+
+    if strategy == "keep_local":
+        _run_git(["add", "-A"])
+        _run_git(["commit", "-m", "local changes before pull"])
+        result = _run_git(["pull", "--rebase", remote_url, branch])
+        if result is None:
+            _run_git(["rebase", "--abort"])
+            _print_sync("Rebase conflict — keeping local version")
+            return False
+        _print_sync("Pulled and rebased local changes on top")
+        return True
+
+    elif strategy == "use_remote":
+        _run_git(["checkout", "--", "."])
+        result = _run_git(["pull", remote_url, branch])
+        if result is None:
+            _print_sync("Pull failed after discarding local changes")
+            return False
+        _print_sync("Updated to remote version")
+        return True
+
+    elif strategy == "merge":
+        _run_git(["add", "-A"])
+        _run_git(["commit", "-m", "local changes before merge"])
+        result = _run_git(["pull", "--rebase", remote_url, branch])
+        if result is None:
+            _run_git(["rebase", "--abort"])
+            result = _run_git(["pull", "--no-rebase", remote_url, branch, "--allow-unrelated-histories"])
+            if result is None:
+                _print_sync("Merge failed — keeping local version")
+                return False
+        _print_sync("Merged remote changes")
+        return True
+
+    elif strategy == "skip":
+        _print_sync("Skipped pull — working offline")
+        return True
+
+    _print_sync(f"Unknown conflict strategy: {strategy}")
+    return False
 
 
 def sync_push_async() -> None:
@@ -147,8 +192,13 @@ def sync_push_async() -> None:
         _push_timer.start()
 
 
-def sync_push_blocking() -> bool:
-    """Force an immediate full sync (pull + push). Returns True if successful."""
+def sync_push_blocking(conflict_strategy: Optional[str] = None) -> bool:
+    """Force an immediate full sync (pull + push). Returns True if successful.
+
+    Args:
+        conflict_strategy: One of "keep_local", "use_remote", "merge", "skip".
+            Controls how pull conflicts are resolved automatically.
+    """
     if not _is_active():
         _print_sync("Sync not configured")
         return False
@@ -159,9 +209,7 @@ def sync_push_blocking() -> bool:
             _push_timer.cancel()
             _push_timer = None
 
-    # Pull first to get remote changes
-    sync_pull(interactive=True)
-    # Then push local changes
+    sync_pull(interactive=False, conflict_strategy=conflict_strategy)
     return _do_push(verbose=True)
 
 

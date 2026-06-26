@@ -11,6 +11,7 @@
   --bg-surface: #24283b;
   --bg-hover: #2f3549;
   --bg-card: #1f2335;
+  --bg-tertiary: #1a1b26;
   --border: #3b4261;
   --text: #c0caf5;
   --text-dim: #565f89;
@@ -29,6 +30,7 @@
   --bg-surface: #ffffff;
   --bg-hover: #eef1f6;
   --bg-card: #f1f3f8;
+  --bg-tertiary: #f1f3f8;
   --border: #d8dde6;
   --text: #1e293b;
   --text-dim: #64748b;
@@ -220,8 +222,6 @@ main {
 .btn:hover { background: var(--bg-hover); border-color: var(--accent); }
 .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 .btn-primary:hover { opacity: 0.9; }
-.btn-danger { color: var(--red); border-color: var(--red); }
-.btn-danger:hover { background: var(--red); color: #fff; }
 .btn-danger { border-color: var(--red); color: var(--red); }
 .btn-danger:hover { background: var(--red); color: var(--bg); }
 .btn-sm { padding: 3px 8px; font-size: 11px; }
@@ -230,15 +230,15 @@ main {
 .task-list { list-style: none; }
 
 .task-item {
-  border: 1px solid var(--border);
-  border-radius: 6px;
   cursor: pointer;
-  transition: background 0.1s, border-color 0.15s;
   padding: 10px 12px;
   margin-bottom: 6px;
   background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: background 0.1s, border-color 0.15s, box-shadow 0.15s;
 }
-.task-item:hover { background: var(--bg-hover); border-color: var(--accent); }
+.task-item:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 
 .task-row {
   display: grid;
@@ -416,13 +416,13 @@ main {
 }
 
 .kanban-card {
-  background: var(--bg-card);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px;
   margin-bottom: 8px;
   cursor: grab;
-  transition: transform 0.1s, box-shadow 0.1s;
+  transition: transform 0.1s, border-color 0.15s, box-shadow 0.15s;
 }
 .kanban-card:active { cursor: grabbing; }
 .kanban-card.dragging { opacity: 0.5; transform: rotate(2deg); }
@@ -524,27 +524,26 @@ main {
 
 /* ─── Notes ────────────────────────────────── */
 .note-item {
-  position: relative;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.15s, box-shadow 0.15s;
+}
+.note-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.15);
+}
+[data-theme="light"] .note-item:hover {
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.note-item-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
-  margin-bottom: 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  border-left: 4px solid var(--accent);
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
-}
-.note-item:hover {
-  border-color: var(--accent);
-  border-left-width: 5px;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.3);
-  transform: translateX(3px);
-}
-[data-theme="light"] .note-item:hover {
-  box-shadow: 0 3px 12px rgba(0,0,0,0.1);
 }
 .note-item .note-icon {
   flex-shrink: 0;
@@ -897,7 +896,9 @@ main {
   border-radius: var(--radius);
   padding: 16px;
   text-align: center;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.stat-card:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .stat-card .stat-value { font-size: 24px; font-weight: 700; color: var(--accent); }
 .stat-card .stat-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
 
@@ -929,7 +930,9 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 20px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.chart-container:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .chart-canvas { width: 100%; height: 300px; }
 
 /* ─── Weekly Report ────────────────────────── */
@@ -948,7 +951,9 @@ main {
   background: var(--bg-surface);
   border-radius: var(--radius);
   border: 1px solid var(--border);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.report-summary:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .report-summary .item { text-align: center; }
 .report-summary .item .value { font-size: 18px; font-weight: 700; }
 .report-summary .item .label { font-size: 10px; color: var(--text-dim); }
@@ -960,7 +965,9 @@ main {
   border-radius: var(--radius);
   padding: 12px;
   margin-bottom: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.blocker-item:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .blocker-item.blocked { border-left: 3px solid var(--red); }
 .blocker-header { font-weight: 500; margin-bottom: 4px; }
 .blocker-deps { font-size: 11px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -994,16 +1001,12 @@ main {
   padding: 12px 16px;
   margin-bottom: 16px;
   font-size: 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.time-total:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .time-total strong { color: var(--accent); }
 
 /* Buttons */
-.btn-sm {
-  background: var(--accent); color: var(--bg); border: none;
-  padding: 5px 12px; border-radius: 4px; font-size: 11px;
-  font-weight: 600; cursor: pointer;
-}
-.btn-sm:hover { opacity: 0.85; }
 .btn-xs {
   background: transparent; color: var(--accent); border: 1px solid var(--accent);
   padding: 2px 6px; border-radius: 3px; font-size: 10px;
@@ -1019,7 +1022,9 @@ main {
   border-radius: var(--radius);
   padding: 12px;
   margin-bottom: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.jira-notification:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .jira-notification .jn-header {
   display: flex;
   align-items: center;
@@ -1473,9 +1478,11 @@ main {
 .sync-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 16px 20px;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.sync-card:hover { border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 .sync-card h3 {
   font-size: 12px;
   color: var(--text-dim);
@@ -4240,9 +4247,17 @@ async function loadSync() {
           <label>Branch</label>
           <input type="text" id="sync-branch" value="${h(data.branch || 'main')}" placeholder="main">
         </div>
-        <div class="sync-actions">
-          <button class="btn btn-primary" onclick="syncNow()">Sync Now</button>
-          <button class="btn" onclick="saveSyncSettings()">Save Settings</button>
+        <div class="sync-actions" style="flex-wrap:wrap">
+          <div style="display:flex;gap:4px;align-items:center">
+            <span style="font-size:11px;color:var(--text-dim);margin-right:4px">Pull:</span>
+            <button class="btn btn-sm" onclick="syncPull('keep_local')" title="Commit local changes, then rebase on remote">Keep Local</button>
+            <button class="btn btn-sm" onclick="syncPull('use_remote')" title="Discard local changes, use remote version">Use Remote</button>
+            <button class="btn btn-sm" onclick="syncPull('merge')" title="Merge remote changes with local">Merge</button>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="syncNow()" title="Push local changes to remote">Push</button>
+            <button class="btn btn-sm" onclick="saveSyncSettings()">Save</button>
+          </div>
         </div>
       </div>
       
@@ -4254,24 +4269,42 @@ async function loadSync() {
   `;
 }
 
+async function syncPull(strategy) {
+  const btn = event.target;
+  const original = btn.textContent;
+  btn.textContent = '...';
+  btn.disabled = true;
+  try {
+    const result = await api('POST', '/api/sync/pull', { strategy });
+    if (result && result.success) {
+      await loadSync();
+    } else {
+      alert('Pull failed: ' + (result?.error || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Pull failed: ' + e.message);
+  }
+  btn.textContent = original;
+  btn.disabled = false;
+}
+
 async function syncNow() {
   const btn = event.target;
   const originalText = btn.textContent;
-  btn.textContent = 'Syncing...';
+  btn.textContent = 'Pushing...';
   btn.disabled = true;
   
   try {
     const result = await api('POST', '/api/sync/push');
     if (result && result.success) {
-      // Reload sync view to show updated status
       await loadSync();
     } else {
-      alert('Sync failed: ' + (result?.error || 'Unknown error'));
+      alert('Push failed: ' + (result?.error || 'Unknown error'));
       btn.textContent = originalText;
       btn.disabled = false;
     }
   } catch (e) {
-    alert('Sync failed: ' + e.message);
+    alert('Push failed: ' + e.message);
     btn.textContent = originalText;
     btn.disabled = false;
   }
@@ -5324,20 +5357,22 @@ function renderNoteItem(n) {
     draggable="true"
     ondragstart="noteDragStart(event, '${escapedPath}')"
     onclick="openNoteView('${escapedPath}')">
-    <span class="note-icon">📄</span>
-    <div class="note-body">
-      <div class="note-title"
-        data-note-path="${escapedPath}"
-        onmouseenter="noteTooltipShow(event, '${escapedPath}')"
-        onmouseleave="noteTooltipHide()">${escapedName}</div>
-      <div class="note-preview-text">${escapedPreview || 'Empty note'}</div>
-    </div>
-    <div class="note-meta">
-      <span class="note-date">${date}</span>
-      <div class="note-toolbar">
-        <span class="tb-btn tb-btn-preview" onclick="event.stopPropagation();previewNoteFile('${escapedPath}')">Preview</span>
-        <span class="tb-btn tb-btn-move" onclick="event.stopPropagation();showMoveNoteModal('${escapedPath}')">Move</span>
-        <span class="tb-btn tb-btn-del" onclick="event.stopPropagation();deleteNoteFromList('${escapedPath}')">Delete</span>
+    <div class="note-item-row">
+      <span class="note-icon">📄</span>
+      <div class="note-body">
+        <div class="note-title"
+          data-note-path="${escapedPath}"
+          onmouseenter="noteTooltipShow(event, '${escapedPath}')"
+          onmouseleave="noteTooltipHide()">${escapedName}</div>
+        <div class="note-preview-text">${escapedPreview || 'Empty note'}</div>
+      </div>
+      <div class="note-meta">
+        <span class="note-date">${date}</span>
+        <div class="note-toolbar">
+          <span class="tb-btn tb-btn-preview" onclick="event.stopPropagation();previewNoteFile('${escapedPath}')">Preview</span>
+          <span class="tb-btn tb-btn-move" onclick="event.stopPropagation();showMoveNoteModal('${escapedPath}')">Move</span>
+          <span class="tb-btn tb-btn-del" onclick="event.stopPropagation();deleteNoteFromList('${escapedPath}')">Delete</span>
+        </div>
       </div>
     </div>
   </div>`;

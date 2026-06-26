@@ -1294,16 +1294,48 @@ def api_get_sync_status(handler, params):
         })
 
 
+def _sync_conflict_strategy(params: dict) -> Optional[str]:
+    """Extract conflict strategy from query params or body."""
+    strategy = params.get("strategy", [None])[0]
+    if strategy not in ("keep_local", "use_remote", "merge", "skip", None):
+        return None
+    return strategy
+
+
+def api_post_sync_pull(handler, params):
+    """POST /api/sync/pull — pull remote changes with conflict strategy."""
+    try:
+        from src.tm_sync import sync_pull, is_configured
+
+        if not is_configured():
+            _json_response(handler, {"success": False, "error": "Sync not configured"})
+            return
+
+        body = _read_body(handler)
+        strategy = body.get("strategy") or _sync_conflict_strategy(params)
+
+        success = sync_pull(interactive=False, conflict_strategy=strategy)
+        if success:
+            _json_response(handler, {"success": True})
+        else:
+            _json_response(handler, {"success": False, "error": "Pull failed"})
+    except Exception as e:
+        _json_response(handler, {"success": False, "error": str(e)})
+
+
 def api_post_sync_push(handler, params):
-    """POST /api/sync/push — force sync (pull + push)."""
+    """POST /api/sync/push — sync (pull + push) with optional conflict strategy."""
     try:
         from src.tm_sync import sync_push_blocking, is_configured
         
         if not is_configured():
             _json_response(handler, {"success": False, "error": "Sync not configured"})
             return
+
+        body = _read_body(handler)
+        strategy = body.get("strategy") or _sync_conflict_strategy(params)
         
-        success = sync_push_blocking()
+        success = sync_push_blocking(conflict_strategy=strategy)
         if success:
             _json_response(handler, {"success": True})
         else:
@@ -1837,6 +1869,7 @@ API_ROUTES = {
     ("POST", "/api/tasks/time"): api_log_time,
     ("POST", "/api/blockers/add"): api_add_blocker,
     ("POST", "/api/blockers/delete"): api_delete_blocker,
+    ("POST", "/api/sync/pull"): api_post_sync_pull,
     ("POST", "/api/sync/push"): api_post_sync_push,
     ("POST", "/api/sync/settings"): api_post_sync_settings,
     # Notes
