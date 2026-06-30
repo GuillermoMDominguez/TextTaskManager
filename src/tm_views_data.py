@@ -21,6 +21,7 @@ class TaskViewItem:
     title: str
     state: str
     priority: Optional[str] = None
+    date: Optional[datetime] = None
     due_date: Optional[datetime] = None
     tags: List[str] = field(default_factory=list)
     subtasks: List["SubtaskViewItem"] = field(default_factory=list)
@@ -29,6 +30,8 @@ class TaskViewItem:
     time_spent: Optional[str] = None
     jira_key: Optional[str] = None
     linked_notes: List[str] = field(default_factory=list)
+    blocked_by: List[str] = field(default_factory=list)
+    blocks: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -139,6 +142,7 @@ def _task_to_view_item(task: Task) -> TaskViewItem:
         title=task.title,
         state=task.state,
         priority=task.priority,
+        date=task.date,
         due_date=task.due_date,
         tags=task.get_tags(),
         subtasks=[
@@ -159,6 +163,8 @@ def _task_to_view_item(task: Task) -> TaskViewItem:
         time_spent=getattr(task, "time_spent", None),
         jira_key=getattr(task, "jira_key", None),
         linked_notes=getattr(task, "linked_notes", []),
+        blocked_by=task.blocked_by[:],
+        blocks=task.blocks[:],
     )
 
 
@@ -512,4 +518,64 @@ def get_calendar_data(
         start_date=start_date.strftime("%d/%m/%Y"),
         end_date=end_date.strftime("%d/%m/%Y"),
         days=days,
+    )
+
+
+# ─── Gantt Data ──────────────────────────────────────────────────
+
+
+@dataclass
+class GanttItem:
+    """A task bar on the Gantt chart."""
+    task_id: str
+    title: str
+    state: str
+    priority: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    blocked_by: List[str] = field(default_factory=list)
+    blocks: List[str] = field(default_factory=list)
+
+
+@dataclass
+class GanttData:
+    tasks: List[GanttItem]
+    range_start: str
+    range_end: str
+
+
+def get_gantt_data(tasks_by_date: dict) -> GanttData:
+    """Build Gantt chart data from tasks, using journal date as start and due_date as end."""
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    items = []
+    all_dates = []
+
+    for tasks in tasks_by_date.values():
+        for task in tasks:
+            start = task.date if task.date else (task.due_date - timedelta(days=7) if task.due_date else today)
+            end = task.due_date if task.due_date else (start + timedelta(days=7))
+            items.append(GanttItem(
+                task_id=task.task_id or "?",
+                title=task.title,
+                state=task.state,
+                priority=task.priority,
+                start_date=start,
+                end_date=end,
+                blocked_by=task.blocked_by[:],
+                blocks=task.blocks[:],
+            ))
+            all_dates.extend([start, end])
+
+    if not items:
+        return GanttData(tasks=[], range_start=today.strftime("%d/%m/%Y"), range_end=today.strftime("%d/%m/%Y"))
+
+    range_start = min(all_dates)
+    range_end = max(all_dates)
+    if range_start == range_end:
+        range_end = range_start + timedelta(days=7)
+
+    return GanttData(
+        tasks=items,
+        range_start=range_start.strftime("%d/%m/%Y"),
+        range_end=range_end.strftime("%d/%m/%Y"),
     )

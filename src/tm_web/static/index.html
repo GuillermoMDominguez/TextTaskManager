@@ -1670,6 +1670,7 @@ main {
       <a class="nav-item" data-view="stats"><span class="kbd-hint">s</span> Stats</a>
       <a class="nav-item" data-view="weekly"><span class="kbd-hint">w</span> Weekly Report</a>
       <a class="nav-item" data-view="burndown"><span class="kbd-hint">b</span> Burndown</a>
+      <a class="nav-item" data-view="gantt"><span class="kbd-hint">e</span> Gantt</a>
     </div>
     <div class="nav-group">
       <div class="nav-group-title">Details</div>
@@ -1766,6 +1767,13 @@ main {
     <div id="view-burndown" class="view">
       <h2 class="view-title">Burndown Chart</h2>
       <div id="burndown-content"></div>
+    </div>
+
+    <!-- Gantt View -->
+    <div id="view-gantt" class="view">
+      <h2 class="view-title">Gantt Chart</h2>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">Timeline based on journal date → due date. Hover bars for details.</div>
+      <div id="gantt-content"></div>
     </div>
 
     <!-- Tags View -->
@@ -2010,6 +2018,13 @@ main {
               <option value="dark">Dark</option>
               <option value="light">Light</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="cfg-notif-enabled" onchange="toggleNotifSetting()">
+              Desktop Notifications
+            </label>
+            <span style="font-size:10px;color:var(--text-dim);display:block;margin-top:2px">Alerts for overdue tasks, due-soon tasks, and Jira notifications</span>
           </div>
         </div>
         <div class="config-section">

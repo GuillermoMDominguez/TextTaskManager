@@ -9,6 +9,7 @@ from src.tm_views_data import (
     get_blockers_data,
     get_burndown_data,
     get_calendar_data,
+    get_gantt_data,
     get_kanban_data,
     get_pending_tasks,
     get_stats_data,
@@ -220,4 +221,35 @@ def api_search_tasks(handler, params) -> None:
                 or any(query in n.lower() for n in item.notes)):
             results.append(serialize_task(item))
 
-    json_response(handler, {"tasks": results, "query": query})
+    # Also search notes
+    from src.tm_notes import search_notes
+    notes = search_notes(_state.journal_path, query)
+
+    json_response(handler, {"tasks": results, "notes": notes, "query": query})
+
+
+def api_get_gantt(handler, params) -> None:
+    """GET /api/gantt — Gantt chart data."""
+    _state.refresh()
+    data = get_gantt_data(_state.tasks_by_date)
+
+    def fmt(dt):
+        return dt.strftime("%d/%m/%Y") if dt else None
+
+    json_response(handler, {
+        "tasks": [
+            {
+                "id": t.task_id,
+                "title": t.title,
+                "state": t.state,
+                "priority": t.priority,
+                "start_date": fmt(t.start_date),
+                "end_date": fmt(t.end_date),
+                "blocked_by": t.blocked_by[:],
+                "blocks": t.blocks[:],
+            }
+            for t in data.tasks
+        ],
+        "range_start": data.range_start,
+        "range_end": data.range_end,
+    })

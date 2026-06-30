@@ -37,6 +37,7 @@ def serialize_task(item) -> dict:
         "title": item.title,
         "state": item.state,
         "priority": item.priority,
+        "date": item.date.strftime("%d/%m/%Y") if item.date else None,
         "due_date": item.due_date.strftime("%d/%m/%Y") if item.due_date else None,
         "tags": item.tags,
         "notes": item.notes,
@@ -57,4 +58,6 @@ def serialize_task(item) -> dict:
         "time_spent": item.time_spent,
         "jira_key": item.jira_key,
         "linked_notes": item.linked_notes,
+        "blocked_by": item.blocked_by[:],
+        "blocks": item.blocks[:],
     }

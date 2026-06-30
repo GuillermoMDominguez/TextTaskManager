@@ -349,3 +349,46 @@ def get_linked_notes_content(journal_path: str, task: Task) -> List[dict]:
             content = None
         result.append({"path": note_ref, "exists": True, "content": content})
     return result
+
+
+def search_notes(journal_path: str, query: str) -> List[dict]:
+    """Search notes by filename or content. Returns matches with context snippet."""
+    nd = _notes_dir(journal_path)
+    if not nd.exists():
+        return []
+    q = query.strip().lower()
+    if not q:
+        return []
+    results = []
+    for f in sorted(nd.rglob("*.md")):
+        if not f.is_file():
+            continue
+        rel = str(f.relative_to(nd))
+        name_lower = rel.lower()
+        score = 0
+        snippet = ""
+        if q in name_lower:
+            score += 2
+        try:
+            content = f.read_text("utf-8", errors="replace")
+            if q in content.lower():
+                score += 1
+                idx = content.lower().find(q)
+                start = max(0, idx - 40)
+                end = min(len(content), idx + len(q) + 40)
+                snippet = content[start:end].replace("\n", " ")
+                if start > 0:
+                    snippet = "…" + snippet
+                if end < len(content):
+                    snippet = snippet + "…"
+        except OSError:
+            continue
+        if score > 0:
+            results.append({
+                "path": rel,
+                "name": f.stem,
+                "score": score,
+                "snippet": snippet,
+            })
+    results.sort(key=lambda r: -r["score"])
+    return results[:20]

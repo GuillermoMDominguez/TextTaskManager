@@ -108,6 +108,7 @@ function loadView(view) {
     stats: loadStats,
     weekly: loadWeekly,
     burndown: loadBurndown,
+    gantt: loadGantt,
     tags: loadTags,
     time: loadTime,
     pomodoro: loadPomodoro,
@@ -934,6 +935,135 @@ async function loadBurndown() {
         }).join('')}
       </svg>
     </div>
+  `;
+}
+
+// ─── Gantt Chart ──────────────────────────────────
+async function loadGantt() {
+  const data = await api('GET', '/api/gantt');
+  const el = document.getElementById('gantt-content');
+  const tasks = data.tasks || [];
+  if (!tasks.length) {
+    el.innerHTML = '<div class="empty">No tasks with dates to display</div>';
+    return;
+  }
+
+  const DAY_W = 28;
+  const ROW_H = 32;
+  const LABEL_W = 220;
+  const HEADER_H = 28;
+  const PAD = 12;
+  const ARROW_W = 60;
+
+  function parseDmy(s) {
+    if (!s) return null;
+    const p = s.split('/');
+    return new Date(+p[2], +p[1] - 1, +p[0]);
+  }
+
+  function toDays(d) {
+    return Math.floor(d.getTime() / 86400000);
+  }
+
+  const start = parseDmy(data.range_start);
+  const end = parseDmy(data.range_end);
+  if (!start || !end) { el.innerHTML = '<div class="empty">Invalid date range</div>'; return; }
+
+  const totalDays = Math.max(toDays(end) - toDays(start) + 1, 1);
+  const svgW = LABEL_W + totalDays * DAY_W + PAD * 2 + ARROW_W;
+  const svgH = HEADER_H + tasks.length * ROW_H + PAD * 2;
+
+  const stateColors = {
+    'DONE': '#9ece6a', 'CANCELLED': '#f7768e',
+    'IN PROGRESS': '#7aa2f7', 'WAITING': '#e0af68',
+    'BACKLOG': '#565f89',
+  };
+  function barColor(s) { return stateColors[s] || '#7aa2f7'; }
+
+  // Build task lookup by title
+  const taskMap = {};
+  tasks.forEach(t => { taskMap[t.title.toLowerCase()] = t; });
+
+  // Pre-compute bar positions
+  const bars = tasks.map((t, i) => {
+    const tStart = parseDmy(t.start_date) || start;
+    const tEnd = parseDmy(t.end_date) || end;
+    const x1 = Math.max(0, toDays(tStart) - toDays(start));
+    const x2 = Math.max(x1 + 1, toDays(tEnd) - toDays(start));
+    const y = HEADER_H + PAD + i * ROW_H;
+    return { ...t, x1, x2, y };
+  });
+
+  // Build SVG
+  let svg = `<svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%;height:auto;min-height:${svgH}px;font-family:system-ui,sans-serif;overflow:visible">`;
+
+  // Grid lines
+  for (let d = 0; d < totalDays; d++) {
+    const x = LABEL_W + PAD + d * DAY_W;
+    const isWeekend = (start.getDay() + d) % 7 === 0 || (start.getDay() + d) % 7 === 6;
+    svg += `<line x1="${x}" y1="0" x2="${x}" y2="${svgH}" stroke="${isWeekend ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)'}" stroke-width="1"/>`;
+    // Day header
+    const date = new Date(start);
+    date.setDate(date.getDate() + d);
+    svg += `<text x="${x + DAY_W/2}" y="${HEADER_H - 8}" text-anchor="middle" font-size="9" fill="var(--text-dim)">${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}</text>`;
+  }
+
+  // Row backgrounds
+  bars.forEach((b, i) => {
+    const y = b.y;
+    if (i % 2 === 0) {
+      svg += `<rect x="0" y="${y}" width="${svgW}" height="${ROW_H}" fill="rgba(255,255,255,0.02)"/>`;
+    }
+  });
+
+  // Dependency arrows (draw first so they're behind bars)
+  bars.forEach(b => {
+    b.blocked_by.forEach(blockerTitle => {
+      const blocker = taskMap[blockerTitle.toLowerCase().trim()];
+      if (!blocker) return;
+      const bi = tasks.findIndex(t => t.id === blocker.id);
+      if (bi < 0) return;
+      const bBar = bars[bi];
+      const x1 = LABEL_W + PAD + bBar.x2 * DAY_W;
+      const y1 = bBar.y + ROW_H / 2;
+      const x2 = LABEL_W + PAD + b.x1 * DAY_W;
+      const y2 = b.y + ROW_H / 2;
+      if (x2 - x1 < 10) return;
+      const cx = (x1 + x2) / 2;
+      svg += `<path d="M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5"/>`;
+      svg += `<polygon points="${x2},${y2} ${x2-6},${y2-4} ${x2-6},${y2+4}" fill="var(--red)" opacity="0.5"/>`;
+    });
+  });
+
+  // Task bars
+  bars.forEach(b => {
+    const x = LABEL_W + PAD + b.x1 * DAY_W;
+    const w = Math.max(4, (b.x2 - b.x1) * DAY_W);
+    const y = b.y + 6;
+    const h = ROW_H - 12;
+    const color = barColor(b.state);
+    svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${color}" opacity="0.85">`;
+    svg += `<title>${h(b.title)}\n${b.state}${b.priority ? ' | ' + b.priority : ''}\n${b.start_date || '?'} → ${b.end_date || '?'}${b.blocked_by.length ? '\nBlocked by: ' + b.blocked_by.join(', ') : ''}${b.blocks.length ? '\nBlocks: ' + b.blocks.join(', ') : ''}</title>`;
+    svg += `</rect>`;
+    // Task label
+    svg += `<text x="${LABEL_W - 8}" y="${b.y + ROW_H/2 + 1}" text-anchor="end" font-size="11" fill="var(--text)" dominant-baseline="middle">${h(b.title)}</text>`;
+  });
+
+  svg += '</svg>';
+
+  el.innerHTML = `
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-surface);padding:4px">
+      ${svg}
+    </div>
+    <div style="margin-top:8px;display:flex;gap:12px;font-size:10px;color:var(--text-dim);flex-wrap:wrap">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#9ece6a;vertical-align:middle;margin-right:3px"></span> Done</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#7aa2f7;vertical-align:middle;margin-right:3px"></span> In Progress</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#e0af68;vertical-align:middle;margin-right:3px"></span> Waiting</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#565f89;vertical-align:middle;margin-right:3px"></span> Backlog</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f7768e;vertical-align:middle;margin-right:3px"></span> Cancelled</span>
+      <span style="margin-left:8px;opacity:0.6">${'—'.repeat(3)} red dashed = dependency</span>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--text-dim)">${tasks.length} task(s) · ${data.range_start} → ${data.range_end}</div>
   `;
 }
 
@@ -1949,6 +2079,10 @@ async function loadConfig() {
     applyTheme(s.web_theme);
   }
 
+  // Desktop notifications checkbox
+  const notifCb = document.getElementById('cfg-notif-enabled');
+  if (notifCb) notifCb.checked = localStorage.getItem('ttm-notif-enabled') === 'true';
+
   document.getElementById('config-status').textContent = '';
 }
 
@@ -2734,15 +2868,31 @@ searchInput.addEventListener('input', () => {
   }
   searchTimeout = setTimeout(async () => {
     const data = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
+    let html = '';
     if (data.tasks && data.tasks.length > 0) {
       cacheTasks(data.tasks);
-      searchResults.innerHTML = data.tasks.slice(0, 12).map(t => `
+      html += '<div style="font-size:9px;color:var(--text-dim);padding:4px 10px;text-transform:uppercase;letter-spacing:0.5px">Tasks</div>';
+      html += data.tasks.slice(0, 12).map(t => `
         <div class="search-result-item" onclick="searchResultClick('${t.id}')">
           <span class="sr-id">#${t.id}</span>
           <span class="sr-state state-badge state-${t.state.replace(/ /g,'_')}" style="font-size:9px;padding:1px 4px">${t.state}</span>
           ${h(stripTags(t.title))}
         </div>
       `).join('');
+    }
+    if (data.notes && data.notes.length > 0) {
+      if (html) html += '<div style="border-top:1px solid var(--border);margin:2px 0"></div>';
+      html += '<div style="font-size:9px;color:var(--text-dim);padding:4px 10px;text-transform:uppercase;letter-spacing:0.5px">Notes</div>';
+      html += data.notes.slice(0, 8).map(n => `
+        <div class="search-result-item" onclick="searchNoteClick('${h(n.path)}')">
+          <span style="color:var(--accent);margin-right:6px">📄</span>
+          ${h(n.path)}
+          ${n.snippet ? '<br><span style="font-size:10px;color:var(--text-dim)">' + h(n.snippet) + '</span>' : ''}
+        </div>
+      `).join('');
+    }
+    if (html) {
+      searchResults.innerHTML = html;
       searchResults.classList.add('open');
     } else {
       searchResults.innerHTML = '<div class="search-result-item" style="color:var(--text-dim)">No results</div>';
@@ -2761,6 +2911,13 @@ function searchResultClick(taskId) {
   openEditModal(taskId);
 }
 
+function searchNoteClick(path) {
+  searchResults.classList.remove('open');
+  searchInput.value = '';
+  switchView('notes');
+  openNoteView(path);
+}
+
 // ─── Modal helpers ──────────────────────────────
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
@@ -2775,7 +2932,7 @@ function closeModal(id) {
 }
 
 // ─── Keyboard Shortcuts ─────────────────────────
-const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', m: 'notes', j: 'jira:active', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
+const NAV_KEYS = { t: 'tasks', k: 'kanban', a: 'agenda', d: 'calendar', s: 'stats', w: 'weekly', b: 'burndown', e: 'gantt', g: 'tags', i: 'time', p: 'pomodoro', x: 'blockers', m: 'notes', j: 'jira:active', o: 'jira:notify', u: 'sync', c: 'config', l: 'log' };
 
 document.addEventListener('keydown', e => {
   // Never intercept browser shortcuts (Ctrl/Cmd/Alt + key)
@@ -3330,5 +3487,73 @@ function taskListHtml(tasks, showStateDropdown = true) {
   return `<ul class="task-list">${tasks.map(t => renderTaskItem(t, showStateDropdown)).join('')}</ul>`;
 }
 
+// ─── Desktop Notifications ──────────────────────────────────────
+let _notifEnabled = false;
+let _notifSeen = new Set();
+let _lastJiraCount = 0;
+let _notifInterval = null;
+
+function initNotifications() {
+  _notifEnabled = localStorage.getItem('ttm-notif-enabled') === 'true';
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+  setTimeout(checkNotifications, 5000);
+  _notifInterval = setInterval(checkNotifications, 30000);
+}
+
+function toggleNotifSetting() {
+  const cb = document.getElementById('cfg-notif-enabled');
+  _notifEnabled = cb.checked;
+  localStorage.setItem('ttm-notif-enabled', _notifEnabled);
+  if (_notifEnabled && 'Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function showDesktopNotif(title, body) {
+  if (!_notifEnabled) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try { new Notification(title, { body }); } catch(e) {}
+}
+
+async function checkNotifications() {
+  try {
+    const [agenda, jira] = await Promise.all([
+      api('GET', '/api/agenda?days=1'),
+      api('GET', '/api/jira?filter=notify'),
+    ]);
+
+    let badge = 0;
+
+    for (const t of (agenda.overdue || [])) {
+      const key = 'ov-' + t.id;
+      if (!_notifSeen.has(key)) {
+        _notifSeen.add(key);
+        showDesktopNotif('Task Overdue', (t.title || '') + ' (due ' + (t.due_date || '?') + ')');
+      }
+      badge++;
+    }
+
+    for (const t of (agenda.due_today || [])) {
+      const key = 'due-' + t.id;
+      if (!_notifSeen.has(key)) {
+        _notifSeen.add(key);
+        showDesktopNotif('Task Due Today', t.title || '');
+      }
+    }
+
+    const notifs = jira.notifications || [];
+    if (notifs.length > _lastJiraCount && _lastJiraCount > 0) {
+      showDesktopNotif('Jira', (notifs.length - _lastJiraCount) + ' new notification(s)');
+    }
+    _lastJiraCount = notifs.length;
+    badge += notifs.length;
+
+    document.title = badge > 0 ? '(' + badge + ') TextTaskManager' : 'TextTaskManager';
+  } catch(e) { /* ignore polling errors */ }
+}
+
 // ─── Init ───────────────────────────────────────
 loadTasks('pending');
+initNotifications();
