@@ -381,46 +381,52 @@ function renderTaskItem(t, showStateDropdown = true) {
   return `
     <li class="task-item" data-id="${t.id}">
       <div class="task-row" onclick="openEditModal('${t.id}')">
-        <input type="checkbox" class="task-checkbox" ${checked} onclick="event.stopPropagation();toggleSelect('${t.id}')">
-        <span class="task-id">#${t.id}</span>
-        <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
-        <div class="task-title-col">
-          <span class="task-title">${h(stripTags(t.title))}</span>
-          ${hasSubtasks ? `
-            <div class="task-subtasks">
-              ${t.subtasks.map((st, idx) => `
-                <div class="subtask-block">
-                  <div class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
-                    <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
-                    <span class="sub-title">${h(stripTags(st.title))}</span>
-                    <span class="sub-tags">${renderTagsWithLimit(st.tags, 3, `st-tags-${t.id}-${idx}`)}</span>
-                    <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
-                    <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
+        <span class="task-id-col">
+          <input type="checkbox" class="task-checkbox" ${checked} onclick="event.stopPropagation();toggleSelect('${t.id}')">
+          <span class="task-id">#${t.id}</span>
+        </span>
+        <span class="state-col">
+          <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
+        </span>
+        <span class="title-col">
+          <div class="task-title-col">
+            <span class="task-title">${h(stripTags(t.title))}</span>
+            ${hasSubtasks ? `
+              <div class="task-subtasks">
+                ${t.subtasks.map((st, idx) => `
+                  <div class="subtask-block">
+                    <div class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
+                      <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
+                      <span class="sub-title">${h(stripTags(st.title))}</span>
+                      <span class="sub-tags">${renderTagsWithLimit(st.tags, 3, `st-tags-${t.id}-${idx}`)}</span>
+                      <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
+                      <span class="sub-due ${st.due_date && isOverdue(st.due_date) ? 'overdue' : ''}">${st.due_date || ''}</span>
+                    </div>
+                    ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${linkifyNote(n)}</span></div>`).join('')}</div>` : ''}
+                    ${st.linked_notes && st.linked_notes.length ? `<div style="display:flex;gap:2px;flex-wrap:wrap;padding:2px 0 0 20px">${st.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</div>` : ''}
                   </div>
-                  ${st.notes && st.notes.length ? `<div class="subtask-notes">${st.notes.map(n => `<div class="subtask-note"><span class="sn-text">${linkifyNote(n)}</span></div>`).join('')}</div>` : ''}
-                  ${st.linked_notes && st.linked_notes.length ? `<div style="display:flex;gap:2px;flex-wrap:wrap;padding:2px 0 0 20px">${st.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</div>` : ''}
-                </div>
-              `).join('')}
-            </div>
-          ` : ''}
-          ${hasNotes ? `
-            <ul class="task-notes">
-              ${t.notes.map((n, i) => `
-                <li>
-                  <span class="note-content">${linkifyNote(n)}</span>
-                  <span class="note-actions">
-                    <span class="na-edit" onclick="event.stopPropagation();inlineEditNote('${t.id}',${i},'${h(n).replace(/'/g,"\\'")}')">edit</span>
-                    <span class="na-del" onclick="event.stopPropagation();inlineDeleteNote('${t.id}',${i})">x</span>
-                  </span>
-                </li>
-              `).join('')}
-            </ul>
-          ` : ''}
-          ${t.linked_notes && t.linked_notes.length ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:2px">${t.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</div>` : ''}
-        </div>
-        <span class="task-tags-col">${renderTagsWithLimit(t.tags, 3, `task-tags-${t.id}`)}</span>
-        <span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span>
-        <span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span>
+                `).join('')}
+              </div>
+            ` : ''}
+            ${hasNotes ? `
+              <ul class="task-notes">
+                ${t.notes.map((n, i) => `
+                  <li>
+                    <span class="note-content">${linkifyNote(n)}</span>
+                    <span class="note-actions">
+                      <span class="na-edit" onclick="event.stopPropagation();inlineEditNote('${t.id}',${i},'${h(n).replace(/'/g,"\\'")}')">edit</span>
+                      <span class="na-del" onclick="event.stopPropagation();inlineDeleteNote('${t.id}',${i})">x</span>
+                    </span>
+                  </li>
+                `).join('')}
+              </ul>
+            ` : ''}
+            ${t.linked_notes && t.linked_notes.length ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:2px">${t.linked_notes.map(n => `<span class="linked-note-badge" onclick="event.stopPropagation();openNoteView('${h(n)}')" style="display:inline-block;padding:0 4px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;cursor:pointer;color:var(--accent, #4fc3f7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px" title="${h(n)}">${h(n.split('/').pop().replace('.md',''))}</span>`).join('')}</div>` : ''}
+          </div>
+        </span>
+        <span class="tags-col"><span class="task-tags-col">${renderTagsWithLimit(t.tags, 3, `task-tags-${t.id}`)}</span></span>
+        <span class="priority-col"><span class="priority-badge ${t.priority ? 'priority-' + t.priority : ''}">${t.priority || ''}</span></span>
+        <span class="due-col"><span class="due-badge ${t.due_date && isOverdue(t.due_date) ? 'overdue' : ''}">${t.due_date || ''}</span></span>
       </div>
     </li>`;
 }

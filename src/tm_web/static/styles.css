@@ -233,11 +233,16 @@ main {
 .task-item:hover { background: var(--bg-hover); border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.15); }
 
 .task-row {
-  display: grid;
-  grid-template-columns: 40px minmax(80px, 130px) 1fr minmax(60px, auto) auto auto;
-  align-items: start;
-  gap: 6px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
+.task-row > .task-id-col { flex: 0 0 40px; min-width: 0; }
+.task-row > .state-col { flex: 0 0 auto; min-width: 0; }
+.task-row > .title-col { flex: 1 1 0; min-width: 0; }
+.task-row > .tags-col { flex: 0 1 auto; min-width: 0; }
+.task-row > .priority-col { flex: 0 0 auto; min-width: 0; }
+.task-row > .due-col { flex: 0 0 auto; min-width: 0; }
 
 .task-id { color: var(--text-dim); font-size: 11px; padding-top: 3px; }
 .task-title-col { min-width: 0; }
