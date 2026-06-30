@@ -234,7 +234,7 @@ main {
 
 .task-row {
   display: grid;
-  grid-template-columns: 40px 110px 1fr minmax(60px, auto) 70px 90px;
+  grid-template-columns: 40px auto 1fr minmax(60px, auto) auto auto;
   align-items: start;
   gap: 8px;
 }
@@ -265,7 +265,7 @@ main {
   border-radius: 2px;
   font-weight: 600;
   text-align: center;
-  min-width: 85px;
+  white-space: nowrap;
   box-sizing: border-box;
 }
 .task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -292,7 +292,7 @@ main {
   text-transform: uppercase;
   cursor: pointer;
   position: relative;
-  min-width: 110px;
+  white-space: nowrap;
   text-align: center;
   margin-top: 1px;
 }
