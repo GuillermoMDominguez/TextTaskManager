@@ -2152,7 +2152,7 @@ main {
         <label>Title</label>
         <input type="text" id="edit-title">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
         <div class="form-group">
           <label>State</label>
           <select id="edit-state"></select>
@@ -2164,6 +2164,17 @@ main {
         <div class="form-group">
           <label>Due Date</label>
           <input type="date" id="edit-due">
+        </div>
+        <div class="form-group">
+          <label>Recurrence</label>
+          <select id="edit-recurrence">
+            <option value="">None</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Biweekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
         </div>
       </div>
       <div class="form-group">
@@ -2234,6 +2245,17 @@ main {
       <div class="form-group">
         <label>Due Date</label>
         <input type="date" id="new-due">
+      </div>
+      <div class="form-group">
+        <label>Recurrence</label>
+        <select id="new-recurrence">
+          <option value="">None</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="biweekly">Biweekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated, click for suggestions)</span></label>
@@ -3252,7 +3274,7 @@ function openNewTaskModalWithDate(dateStr) {
   // Open the new task modal and pre-fill the due date
   openNewTaskModal();
   if (dateStr) {
-    document.getElementById('new-due-date').value = dateStr;
+    document.getElementById('new-due').value = dateStr;
   }
 }
 
@@ -4546,6 +4568,9 @@ function openEditModal(taskId) {
     dueEl.value = '';
   }
 
+  const recEl = document.getElementById('edit-recurrence');
+  recEl.value = task.recurrence || '';
+
   // Notes
   renderNotes(task.notes || []);
 
@@ -4875,6 +4900,7 @@ async function saveTask() {
   const title = document.getElementById('edit-title').value.trim();
   const state = document.getElementById('edit-state').value;
   const priority = document.getElementById('edit-priority').value;
+  const recurrence = document.getElementById('edit-recurrence').value;
   const dueRaw = document.getElementById('edit-due').value;
   const tags = document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
@@ -4885,7 +4911,7 @@ async function saveTask() {
   }
 
   const linkedNotes = (window._editLinkedNotes || []).filter(Boolean);
-  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, due_date, tags, linked_notes: linkedNotes });
+  await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, recurrence: recurrence || undefined, due_date, tags, linked_notes: linkedNotes });
   window._editLinkedNotes = null;
   closeModal('modal-edit');
   loadView(currentView);
@@ -5090,6 +5116,7 @@ async function deleteSubtask() {
 async function openNewTaskModal() {
   document.getElementById('new-title').value = '';
   document.getElementById('new-due').value = '';
+  document.getElementById('new-recurrence').value = '';
   document.getElementById('new-tags').value = '';
 
   const stateEl = document.getElementById('new-state');
@@ -5112,6 +5139,7 @@ async function createTask() {
 
   const state = document.getElementById('new-state').value;
   const priority = document.getElementById('new-priority').value;
+  const recurrence = document.getElementById('new-recurrence').value;
   const dueRaw = document.getElementById('new-due').value;
   const tags = document.getElementById('new-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
@@ -5121,7 +5149,7 @@ async function createTask() {
     due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
 
-  await api('POST', '/api/tasks', { title, state, priority: priority || undefined, due_date: due_date || undefined, tags: tags.length ? tags : undefined });
+  await api('POST', '/api/tasks', { title, state, priority: priority || undefined, recurrence: recurrence || undefined, due_date: due_date || undefined, tags: tags.length ? tags : undefined });
   closeModal('modal-new');
   loadView(currentView);
 }

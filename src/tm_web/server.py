@@ -166,6 +166,7 @@ def _serialize_task(item) -> dict:
             }
             for st in item.subtasks
         ],
+        "recurrence": item.recurrence,
         "time_spent": item.time_spent,
         "jira_key": item.jira_key,
         "linked_notes": item.linked_notes,
@@ -588,6 +589,7 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
     due_date = body.get("due_date")
     priority = body.get("priority")
     jira_key = body.get("jira_key")
+    recurrence = body.get("recurrence")
     tags = body.get("tags", [])
 
     if not title:
@@ -616,12 +618,17 @@ def api_create_task(handler: "TTMRequestHandler", params: dict) -> None:
                     except ValueError:
                         pass
 
+        from src.tm_logic import normalize_recurrence_input
+
+        rec = normalize_recurrence_input(recurrence) if recurrence else None
+
         add_task_to_file(
             _state.journal_path,
             title=title,
             state=state,
             due_date=date_obj,
             priority=priority,
+            recurrence=rec,
             jira_key=jira_key.strip().upper() if jira_key else None,
         )
         _state.refresh()
@@ -681,9 +688,10 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
                     _json_response(handler, {"ok": True})
                     return
 
-        # Edit metadata (priority, due_date, jira_key, linked_notes)
+        # Edit metadata (priority, due_date, recurrence, jira_key, linked_notes)
         new_priority = body.get("priority")
         new_due = body.get("due_date")
+        new_recurrence = body.get("recurrence")
         new_jira_key = body.get("jira_key")
         new_linked_notes = body.get("linked_notes")
 
@@ -707,6 +715,12 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
         if priority_val == "":
             priority_val = None
 
+        # recurrence: None=keep, ""=remove, "weekly"=set
+        recurrence_val = None  # means keep existing
+        if new_recurrence is not None:
+            from src.tm_logic import normalize_recurrence_input
+            recurrence_val = normalize_recurrence_input(new_recurrence) if new_recurrence.strip() else ""
+
         # jira_key: None=keep, ""=remove, "KEY-123"=set
         jira_key_val = None  # means keep existing
         if new_jira_key is not None:
@@ -720,11 +734,12 @@ def api_edit_task(handler: "TTMRequestHandler", params: dict) -> None:
             else:
                 notes_val = str(new_linked_notes)
 
-        if due_obj != task.due_date or priority_val != task.priority or jira_key_val is not None or notes_val is not None:
+        if due_obj != task.due_date or priority_val != task.priority or recurrence_val is not None or jira_key_val is not None or notes_val is not None:
             update_task_metadata_in_file(
                 _state.journal_path, task,
                 due_date=due_obj,
                 priority=priority_val,
+                recurrence=recurrence_val,
                 jira_key=jira_key_val,
                 notes=notes_val,
             )

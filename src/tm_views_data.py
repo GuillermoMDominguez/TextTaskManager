@@ -25,6 +25,7 @@ class TaskViewItem:
     tags: List[str] = field(default_factory=list)
     subtasks: List["SubtaskViewItem"] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
+    recurrence: Optional[str] = None
     time_spent: Optional[str] = None
     jira_key: Optional[str] = None
     linked_notes: List[str] = field(default_factory=list)
@@ -154,6 +155,7 @@ def _task_to_view_item(task: Task) -> TaskViewItem:
             for st in task.subtasks
         ],
         notes=task.comments,
+        recurrence=task.recurrence,
         time_spent=getattr(task, "time_spent", None),
         jira_key=getattr(task, "jira_key", None),
         linked_notes=getattr(task, "linked_notes", []),
