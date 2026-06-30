@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .tm_journal import parse_journal, update_task_metadata_in_file, update_subtask_metadata_in_file
+from .tm_journal import _notify_post_write, parse_journal, update_task_metadata_in_file, update_subtask_metadata_in_file
 from .tm_log import log as tm_log
 from .tm_models import Task, Subtask
 from .tm_ui import Colors
@@ -126,6 +126,7 @@ def write_note(journal_path: str, note_path_str: str, content: str) -> bool:
     resolved = resolve_or_create_note_path(journal_path, note_path_str)
     try:
         resolved.write_text(content, "utf-8")
+        _notify_post_write()
         return True
     except OSError:
         return False
@@ -166,6 +167,7 @@ def delete_note(journal_path: str, note_path_str: str) -> bool:
     try:
         resolved.unlink()
         _remove_empty_parents(resolved.parent, _notes_dir(journal_path))
+        _notify_post_write()
         return True
     except OSError:
         return False
@@ -195,6 +197,7 @@ def move_note(journal_path: str, from_path_str: str, to_path_str: str) -> bool:
     try:
         src.rename(dst)
         _remove_empty_parents(src.parent, nd)
+        _notify_post_write()
         return True
     except OSError:
         return False

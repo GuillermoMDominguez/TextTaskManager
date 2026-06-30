@@ -5,7 +5,7 @@
 Javier_Journal.txt
 .task_manager_history
 .last_journal
-journals/*.txt
+journals/*
 journals/.git
 __pycache__/
 src/__pycache__/

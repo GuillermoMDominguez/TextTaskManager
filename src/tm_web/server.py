@@ -1091,7 +1091,8 @@ def api_delete_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
                 break
         if target_line is not None:
             del lines[target_line]
-            _write_lines_to_file(_state.journal_path, lines)
+            from src.tm_journal import write_journal
+            write_journal(_state.journal_path, "".join(lines))
             _state.refresh()
             _json_response(handler, {"ok": True})
         else:
@@ -1150,7 +1151,8 @@ def api_edit_subtask_note(handler: "TTMRequestHandler", params: dict) -> None:
                 else:
                     break
             lines[target_line] = f"{indent}: {new_note}\n"
-            _write_lines_to_file(_state.journal_path, lines)
+            from src.tm_journal import write_journal
+            write_journal(_state.journal_path, "".join(lines))
             _state.refresh()
             _json_response(handler, {"ok": True})
         else:
@@ -2109,6 +2111,22 @@ def start_server_background(journal_path: str, script_dir: Path, port: int = 808
 
     _server_instance, _server_port = bound
     _state = WebState(journal_path, script_dir)
+
+    # Initialize git sync (same logic as task_manager.py)
+    from src.tm_settings import load_settings
+    from src.tm_sync import init_sync, sync_push_async, sync_pull
+    from src.tm_sync import shutdown as sync_shutdown
+    from src.tm_journal import register_post_write_hook
+    import atexit
+
+    settings = load_settings(script_dir)
+    journals_dir = Path(journal_path).parent
+    sync_active = init_sync(journals_dir, settings, script_dir)
+    if sync_active:
+        register_post_write_hook(sync_push_async)
+        atexit.register(sync_shutdown)
+        sync_pull(interactive=False)
+
     _server_thread = threading.Thread(target=_server_instance.serve_forever, daemon=True)
     _server_thread.start()
 
@@ -2145,6 +2163,22 @@ def start_server(journal_path: str, script_dir: Path, port: int = 8080, open_bro
 
     server, _server_port = bound
     _state = WebState(journal_path, script_dir)
+
+    # Initialize git sync (same logic as task_manager.py)
+    from src.tm_settings import load_settings
+    from src.tm_sync import init_sync, sync_push_async, sync_pull
+    from src.tm_sync import shutdown as sync_shutdown
+    from src.tm_journal import register_post_write_hook
+    import atexit
+
+    settings = load_settings(script_dir)
+    journals_dir = Path(journal_path).parent
+    sync_active = init_sync(journals_dir, settings, script_dir)
+    if sync_active:
+        register_post_write_hook(sync_push_async)
+        atexit.register(sync_shutdown)
+        sync_pull(interactive=False)
+
     url = get_url()
 
     print(f"\n  Web UI running at: \033[1m\033[96m{url}\033[0m")
