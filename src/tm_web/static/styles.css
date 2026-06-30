@@ -234,9 +234,9 @@ main {
 
 .task-row {
   display: grid;
-  grid-template-columns: 40px auto 1fr minmax(60px, auto) auto auto;
+  grid-template-columns: 40px minmax(80px, 130px) 1fr minmax(60px, auto) auto auto;
   align-items: start;
-  gap: 8px;
+  gap: 6px;
 }
 
 .task-id { color: var(--text-dim); font-size: 11px; padding-top: 3px; }
@@ -261,11 +261,14 @@ main {
 
 .task-subtask .sub-state {
   font-size: 9px;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 2px;
   font-weight: 600;
   text-align: center;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
   box-sizing: border-box;
 }
 .task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -285,7 +288,7 @@ main {
 
 .state-badge {
   display: inline-block;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 3px;
   font-size: 10px;
   font-weight: 600;
@@ -293,6 +296,9 @@ main {
   cursor: pointer;
   position: relative;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
   text-align: center;
   margin-top: 1px;
 }
