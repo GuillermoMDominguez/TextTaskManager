@@ -22,8 +22,8 @@ class TestRouteTable(unittest.TestCase):
                 )
 
     def test_route_count(self):
-        """We expect exactly 52 routes."""
-        self.assertEqual(len(self.routes), 52)
+        """We expect exactly 56 routes."""
+        self.assertEqual(len(self.routes), 56)
 
     def test_get_routes_exist(self):
         """All expected GET routes must be present."""
@@ -34,6 +34,8 @@ class TestRouteTable(unittest.TestCase):
             "/api/jira/transitions", "/api/search", "/api/config", "/api/log",
             "/api/status", "/api/journals", "/api/sync/status",
             "/api/gantt",
+            "/api/parse-date",
+            "/api/templates",
             "/api/notes", "/api/notes/folders", "/api/notes/read",
         ]
         for path in expected_get:
@@ -55,6 +57,7 @@ class TestRouteTable(unittest.TestCase):
             "/api/sync/pull", "/api/sync/push", "/api/sync/settings",
             "/api/notes", "/api/notes/delete", "/api/notes/move",
             "/api/tasks/notes/link", "/api/tasks/notes/unlink",
+            "/api/templates/save", "/api/templates/apply",
         ]
         for path in expected_post:
             with self.subTest(route=f"POST {path}"):

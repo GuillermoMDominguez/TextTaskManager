@@ -2232,12 +2232,8 @@ function openEditModal(taskId) {
   priEl.innerHTML = '<option value="">None</option>' + PRIORITIES.map(p => `<option value="${p}" ${p === task.priority ? 'selected' : ''}>${p}</option>`).join('');
 
   const dueEl = document.getElementById('edit-due');
-  if (task.due_date) {
-    const parts = task.due_date.split('/');
-    if (parts.length === 3) dueEl.value = `${parts[2]}-${parts[1]}-${parts[0]}`;
-  } else {
-    dueEl.value = '';
-  }
+  dueEl.value = task.due_date || '';
+  dueEl.dispatchEvent(new Event('input'));
 
   const recEl = document.getElementById('edit-recurrence');
   recEl.value = task.recurrence || '';
@@ -2333,136 +2329,122 @@ async function loadAllTags() {
   return {};
 }
 
-async function showTagSuggestions() {
-  const suggestionsEl = document.getElementById('edit-tag-suggestions');
-  const inputEl = document.getElementById('edit-tags');
-  
-  // Load tags if not cached
-  if (!cachedAllTags) {
-    await loadAllTags();
-  }
-  
+function _renderTagSuggestions(suggestionsEl, inputEl, addFn) {
   const tags = cachedAllTags || {};
-  const tagEntries = Object.entries(tags).sort((a, b) => b[1] - a[1]); // Sort by count desc
-  
+  let tagEntries = Object.entries(tags).sort((a, b) => b[1] - a[1]);
+  // Filter by last typed word
+  const parts = inputEl.value.split(',');
+  const lastWord = (parts[parts.length - 1] || '').trim().toLowerCase();
+  if (lastWord) {
+    tagEntries = tagEntries.filter(([tag]) => tag.toLowerCase().includes(lastWord));
+  }
+  const currentTags = inputEl.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
   if (tagEntries.length === 0) {
-    suggestionsEl.innerHTML = '<div class="tag-suggestions-header">No existing tags</div>';
+    suggestionsEl.innerHTML = '<div class="tag-suggestions-header">No matching tags</div>';
   } else {
-    const currentTags = inputEl.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-    
     suggestionsEl.innerHTML = `
-      <div class="tag-suggestions-header">Click to add existing tags</div>
+      <div class="tag-suggestions-header">${lastWord ? 'Filtering by "' + h(lastWord) + '"' : 'Click to add existing tags'}</div>
       ${tagEntries.map(([tag, count]) => {
         const isAlreadyAdded = currentTags.includes(tag.toLowerCase());
         return `
           <div class="tag-suggestion-item ${isAlreadyAdded ? 'already-added' : ''}" 
-               onclick="addTagSuggestion('${tag.replace(/'/g, "\\'")}')">
-            <span class="tag-name">#${tag}</span>
+               onclick="${addFn}('${tag.replace(/'/g, "\\'")}')">
+            <span class="tag-name">${_highlightTag(tag, lastWord)}</span>
             <span class="tag-count">${count} task${count !== 1 ? 's' : ''}</span>
           </div>
         `;
       }).join('')}
     `;
   }
-  
   suggestionsEl.classList.add('open');
+}
+
+function _highlightTag(tag, filter) {
+  if (!filter) return '#' + tag;
+  const idx = tag.toLowerCase().indexOf(filter);
+  if (idx === -1) return '#' + tag;
+  return '#' + tag.slice(0, idx) + '<strong>' + tag.slice(idx, idx + filter.length) + '</strong>' + tag.slice(idx + filter.length);
+}
+
+async function showTagSuggestions() {
+  if (!cachedAllTags) await loadAllTags();
+  _renderTagSuggestions(
+    document.getElementById('edit-tag-suggestions'),
+    document.getElementById('edit-tags'),
+    'addTagSuggestion'
+  );
 }
 
 function addTagSuggestion(tag) {
   const inputEl = document.getElementById('edit-tags');
-  const currentTags = inputEl.value.split(',').map(t => t.trim()).filter(Boolean);
-  
-  // Check if tag already exists (case insensitive)
-  if (!currentTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
-    if (currentTags.length > 0) {
-      inputEl.value = currentTags.join(', ') + ', ' + tag;
-    } else {
-      inputEl.value = tag;
-    }
-  }
-  
-  // Update suggestions to reflect new state
+  const parts = inputEl.value.split(',');
+  parts[parts.length - 1] = tag;
+  inputEl.value = parts.join(', ') + ', ';
   showTagSuggestions();
   inputEl.focus();
 }
 
 function hideTagSuggestions() {
-  const suggestionsEl = document.getElementById('edit-tag-suggestions');
-  suggestionsEl.classList.remove('open');
+  const el = document.getElementById('edit-tag-suggestions');
+  if (el) el.classList.remove('open');
 }
 
 // ─── New Task Tag Suggestions ─────────────────────────
 async function showNewTagSuggestions() {
-  const suggestionsEl = document.getElementById('new-tag-suggestions');
-  const inputEl = document.getElementById('new-tags');
-  
-  // Load tags if not cached
-  if (!cachedAllTags) {
-    await loadAllTags();
-  }
-  
-  const tags = cachedAllTags || {};
-  const tagEntries = Object.entries(tags).sort((a, b) => b[1] - a[1]); // Sort by count desc
-  
-  if (tagEntries.length === 0) {
-    suggestionsEl.innerHTML = '<div class="tag-suggestions-header">No existing tags</div>';
-  } else {
-    const currentTags = inputEl.value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-    
-    suggestionsEl.innerHTML = `
-      <div class="tag-suggestions-header">Click to add existing tags</div>
-      ${tagEntries.map(([tag, count]) => {
-        const isAlreadyAdded = currentTags.includes(tag.toLowerCase());
-        return `
-          <div class="tag-suggestion-item ${isAlreadyAdded ? 'already-added' : ''}" 
-               onclick="addNewTagSuggestion('${tag.replace(/'/g, "\\'")}')">
-            <span class="tag-name">#${tag}</span>
-            <span class="tag-count">${count} task${count !== 1 ? 's' : ''}</span>
-          </div>
-        `;
-      }).join('')}
-    `;
-  }
-  
-  suggestionsEl.classList.add('open');
+  if (!cachedAllTags) await loadAllTags();
+  _renderTagSuggestions(
+    document.getElementById('new-tag-suggestions'),
+    document.getElementById('new-tags'),
+    'addNewTagSuggestion'
+  );
 }
 
 function addNewTagSuggestion(tag) {
   const inputEl = document.getElementById('new-tags');
-  const currentTags = inputEl.value.split(',').map(t => t.trim()).filter(Boolean);
-  
-  // Check if tag already exists (case insensitive)
-  if (!currentTags.some(t => t.toLowerCase() === tag.toLowerCase())) {
-    if (currentTags.length > 0) {
-      inputEl.value = currentTags.join(', ') + ', ' + tag;
-    } else {
-      inputEl.value = tag;
-    }
-  }
-  
-  // Update suggestions to reflect new state
+  const parts = inputEl.value.split(',');
+  parts[parts.length - 1] = tag;
+  inputEl.value = parts.join(', ') + ', ';
   showNewTagSuggestions();
   inputEl.focus();
 }
 
 function hideNewTagSuggestions() {
-  const suggestionsEl = document.getElementById('new-tag-suggestions');
-  if (suggestionsEl) suggestionsEl.classList.remove('open');
+  const el = document.getElementById('new-tag-suggestions');
+  if (el) el.classList.remove('open');
+}
+
+// ─── Subtask Tag Suggestions ─────────────────────────
+async function showSubtaskTagSuggestions() {
+  if (!cachedAllTags) await loadAllTags();
+  _renderTagSuggestions(
+    document.getElementById('subtask-tag-suggestions'),
+    document.getElementById('subtask-edit-tags'),
+    'addSubtaskTagSuggestion'
+  );
+}
+
+function addSubtaskTagSuggestion(tag) {
+  const inputEl = document.getElementById('subtask-edit-tags');
+  const parts = inputEl.value.split(',');
+  parts[parts.length - 1] = tag;
+  inputEl.value = parts.join(', ') + ', ';
+  showSubtaskTagSuggestions();
+  inputEl.focus();
+}
+
+function hideSubtaskTagSuggestions() {
+  const el = document.getElementById('subtask-tag-suggestions');
+  if (el) el.classList.remove('open');
 }
 
 // Close suggestions when clicking outside
 document.addEventListener('click', function(e) {
-  const container = document.querySelector('.tag-input-container');
-  const suggestionsEl = document.getElementById('edit-tag-suggestions');
-  if (container && suggestionsEl && !container.contains(e.target)) {
-    hideTagSuggestions();
-  }
-  // Also hide new task tag suggestions
-  const newTagContainer = document.querySelector('#modal-new .tag-input-container');
-  const newSuggestionsEl = document.getElementById('new-tag-suggestions');
-  if (newTagContainer && newSuggestionsEl && !newTagContainer.contains(e.target)) {
-    hideNewTagSuggestions();
-  }
+  const allContainers = document.querySelectorAll('.tag-input-container');
+  allContainers.forEach(container => {
+    if (container.contains(e.target)) return;
+    const suggest = container.querySelector('.tag-suggestions');
+    if (suggest) suggest.classList.remove('open');
+  });
 });
 
 // Refresh tag cache when modal is opened
@@ -2575,11 +2557,7 @@ async function saveTask() {
   const dueRaw = document.getElementById('edit-due').value;
   const tags = document.getElementById('edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
-  let due_date = '';
-  if (dueRaw) {
-    const parts = dueRaw.split('-');
-    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
+  const due_date = await parseDateText(dueRaw);
 
   const linkedNotes = (window._editLinkedNotes || []).filter(Boolean);
   await api('POST', `/api/tasks/${taskId}/edit`, { title, state, priority, recurrence: recurrence || undefined, due_date, tags, linked_notes: linkedNotes });
@@ -2604,12 +2582,8 @@ function openSubtaskModal(subtaskId) {
   document.getElementById('subtask-edit-id').value = subtaskId;
   document.getElementById('subtask-edit-title').value = stripTags(st.title);
   const stDueEl = document.getElementById('subtask-edit-due');
-  if (st.due_date) {
-    const parts = st.due_date.split('/');
-    stDueEl.value = parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : st.due_date;
-  } else {
-    stDueEl.value = '';
-  }
+  stDueEl.value = st.due_date || '';
+  stDueEl.dispatchEvent(new Event('input'));
   document.getElementById('subtask-edit-tags').value = (st.tags || []).join(', ');
 
   const stateEl = document.getElementById('subtask-edit-state');
@@ -2761,11 +2735,7 @@ async function saveSubtask() {
   const priority = document.getElementById('subtask-edit-priority').value || '';
   const tags = document.getElementById('subtask-edit-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
-  let due_date = '';
-  if (dueRaw) {
-    const parts = dueRaw.split('-');
-    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
+  const due_date = await parseDateText(dueRaw);
 
   if (!title) return;
   const linkedNotes = (window._stLinkedNotes || []).filter(Boolean);
@@ -2787,6 +2757,8 @@ async function deleteSubtask() {
 async function openNewTaskModal() {
   document.getElementById('new-title').value = '';
   document.getElementById('new-due').value = '';
+  document.getElementById('new-date-preview').textContent = '';
+  document.getElementById('new-date-preview').className = 'date-preview';
   document.getElementById('new-recurrence').value = '';
   document.getElementById('new-tags').value = '';
 
@@ -2799,6 +2771,9 @@ async function openNewTaskModal() {
   // Refresh tag cache
   cachedAllTags = null;
   await loadAllTags();
+
+  // Load templates
+  await loadTemplateSelect();
 
   document.getElementById('modal-new').classList.add('open');
   setTimeout(() => document.getElementById('new-title').focus(), 100);
@@ -2814,15 +2789,76 @@ async function createTask() {
   const dueRaw = document.getElementById('new-due').value;
   const tags = document.getElementById('new-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
-  let due_date = '';
-  if (dueRaw) {
-    const parts = dueRaw.split('-');
-    due_date = `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
+  const due_date = await parseDateText(dueRaw);
 
   await api('POST', '/api/tasks', { title, state, priority: priority || undefined, recurrence: recurrence || undefined, due_date: due_date || undefined, tags: tags.length ? tags : undefined });
   closeModal('modal-new');
   loadView(currentView);
+}
+
+// ─── Templates ────────────────────────────────────
+let cachedTemplates = null;
+
+async function loadTemplateSelect() {
+  const data = await api('GET', '/api/templates');
+  cachedTemplates = data.templates || [];
+  const sel = document.getElementById('new-template');
+  sel.innerHTML = '<option value="">— None —</option>' + cachedTemplates.map(t =>
+    `<option value="${h(t.name)}">${h(t.name)}</option>`
+  ).join('');
+}
+
+async function applyTemplate(name) {
+  if (!name) return;
+  const data = await api('POST', '/api/templates/apply', { name });
+  if (data.ok) {
+    closeModal('modal-new');
+    loadView(currentView);
+  }
+}
+
+async function saveAsTemplate() {
+  const title = document.getElementById('edit-title').value.trim();
+  if (!title) { alert('Enter a title first'); return; }
+  const name = prompt('Template name:');
+  if (!name) return;
+  const state = document.getElementById('edit-state').value;
+  const priority = document.getElementById('edit-priority').value;
+  const recurrence = document.getElementById('edit-recurrence').value;
+  // Collect subtask titles
+  const subtaskEls = document.querySelectorAll('#edit-subtasks-list .subtask-row .st-title');
+  const subtasks = Array.from(subtaskEls).map(el => el.textContent.trim()).filter(Boolean);
+  const data = await api('POST', '/api/templates/save', { name, title, state, priority, recurrence, subtasks });
+  if (data.ok) alert('Template "' + name + '" saved');
+}
+
+// ─── Natural Language Date Parsing ────────────────
+let datePreviewTimeout = null;
+async function previewDate(raw, previewId) {
+  const el = document.getElementById(previewId);
+  if (!el) return;
+  const q = raw.trim();
+  if (!q) { el.textContent = ''; el.className = 'date-preview'; return; }
+  clearTimeout(datePreviewTimeout);
+  datePreviewTimeout = setTimeout(async () => {
+    const data = await api('GET', `/api/parse-date?q=${encodeURIComponent(q)}`);
+    if (data.parsed) {
+      el.textContent = '✓ ' + data.parsed;
+      el.className = 'date-preview valid';
+    } else {
+      el.textContent = '? could not parse';
+      el.className = 'date-preview invalid';
+    }
+  }, 300);
+}
+
+async function parseDateText(raw) {
+  const q = (raw || '').trim();
+  if (!q) return '';
+  // Already in dd/mm/yyyy format
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(q)) return q;
+  const data = await api('GET', `/api/parse-date?q=${encodeURIComponent(q)}`);
+  return data.parsed || '';
 }
 
 // ─── Search ─────────────────────────────────────
@@ -2923,7 +2959,8 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('open');
   // Reset form fields so reopening doesn't show stale data
   const modal = document.getElementById(id);
-  modal.querySelectorAll('input[type="text"], input[type="date"], input[type="hidden"]').forEach(el => el.value = '');
+  modal.querySelectorAll('input[type="text"], input[type="hidden"]').forEach(el => el.value = '');
+  modal.querySelectorAll('.date-preview').forEach(el => { el.textContent = ''; el.className = 'date-preview'; });
   modal.querySelectorAll('textarea').forEach(el => el.value = '');
   modal.querySelectorAll('select').forEach(el => el.selectedIndex = 0);
   modal.querySelectorAll('.notes-list, .subtasks-section').forEach(el => el.innerHTML = '');

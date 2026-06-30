@@ -16,6 +16,7 @@ from .handlers.tasks import (
     api_edit_task,
 )
 from .handlers.views import (
+    api_apply_template,
     api_get_agenda,
     api_get_blockers,
     api_get_burndown,
@@ -26,8 +27,11 @@ from .handlers.views import (
     api_get_tag_tasks,
     api_get_tags,
     api_get_tasks,
+    api_get_templates,
     api_get_time_tracking,
     api_get_weekly_report,
+    api_parse_date,
+    api_save_template,
     api_search_tasks,
 )
 from .handlers.notes import (
@@ -81,6 +85,10 @@ API_ROUTES = {
     ("GET", "/api/jira"): api_get_jira,
     ("GET", "/api/jira/transitions"): api_get_jira_transitions,
     ("GET", "/api/search"): api_search_tasks,
+    ("GET", "/api/parse-date"): api_parse_date,
+    ("GET", "/api/templates"): api_get_templates,
+    ("POST", "/api/templates/save"): api_save_template,
+    ("POST", "/api/templates/apply"): api_apply_template,
     ("GET", "/api/config"): api_get_config,
     ("GET", "/api/log"): api_get_log,
     ("GET", "/api/status"): api_get_status,

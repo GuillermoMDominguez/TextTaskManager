@@ -2174,7 +2174,8 @@ main {
         </div>
         <div class="form-group">
           <label>Due Date</label>
-          <input type="date" id="edit-due">
+          <input type="text" id="edit-due" placeholder="dd/mm/yyyy or tomorrow, +3d, monday..." autocomplete="off" oninput="previewDate(this.value, 'edit-date-preview')">
+          <span id="edit-date-preview" class="date-preview"></span>
         </div>
         <div class="form-group">
           <label>Recurrence</label>
@@ -2191,7 +2192,7 @@ main {
       <div class="form-group">
         <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated, click for suggestions)</span></label>
         <div class="tag-input-container">
-          <input type="text" id="edit-tags" placeholder="e.g. frontend, urgent" onfocus="showTagSuggestions()" autocomplete="off">
+          <input type="text" id="edit-tags" placeholder="e.g. frontend, urgent" onfocus="showTagSuggestions()" oninput="showTagSuggestions()" autocomplete="off">
           <div class="tag-suggestions" id="edit-tag-suggestions"></div>
         </div>
       </div>
@@ -2226,6 +2227,7 @@ main {
     <div class="modal-footer">
       <button class="btn btn-danger" onclick="deleteCurrentTask()">Delete</button>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="saveAsTemplate()">Save as Template</button>
         <button class="btn" onclick="closeModal('modal-edit')">Cancel</button>
         <button class="btn btn-primary" onclick="saveTask()">Save</button>
       </div>
@@ -2255,7 +2257,8 @@ main {
       </div>
       <div class="form-group">
         <label>Due Date</label>
-        <input type="date" id="new-due">
+        <input type="text" id="new-due" placeholder="dd/mm/yyyy or tomorrow, +3d, monday..." autocomplete="off" oninput="previewDate(this.value, 'new-date-preview')">
+        <span id="new-date-preview" class="date-preview"></span>
       </div>
       <div class="form-group">
         <label>Recurrence</label>
@@ -2271,9 +2274,15 @@ main {
       <div class="form-group">
         <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated, click for suggestions)</span></label>
         <div class="tag-input-container">
-          <input type="text" id="new-tags" placeholder="e.g. frontend, urgent" onfocus="showNewTagSuggestions()" autocomplete="off">
+          <input type="text" id="new-tags" placeholder="e.g. frontend, urgent" onfocus="showNewTagSuggestions()" oninput="showNewTagSuggestions()" autocomplete="off">
           <div class="tag-suggestions" id="new-tag-suggestions"></div>
         </div>
+      </div>
+      <div class="form-group">
+        <label>From Template</label>
+        <select id="new-template" onchange="applyTemplate(this.value)" style="font-size:11px">
+          <option value="">— None —</option>
+        </select>
       </div>
     </div>
     <div class="modal-footer">
@@ -2318,7 +2327,8 @@ main {
         </div>
         <div class="form-group">
           <label>Due Date</label>
-          <input type="date" id="subtask-edit-due">
+          <input type="text" id="subtask-edit-due" placeholder="dd/mm/yyyy or tomorrow, +3d, monday..." autocomplete="off" oninput="previewDate(this.value, 'subtask-date-preview')">
+          <span id="subtask-date-preview" class="date-preview"></span>
         </div>
         <div class="form-group">
           <label>Priority</label>
@@ -2333,7 +2343,10 @@ main {
       </div>
       <div class="form-group">
         <label>Tags <span style="font-size:10px;color:var(--text-dim)">(comma-separated)</span></label>
-        <input type="text" id="subtask-edit-tags" placeholder="e.g. frontend, urgent">
+        <div class="tag-input-container">
+          <input type="text" id="subtask-edit-tags" placeholder="e.g. frontend, urgent" onfocus="showSubtaskTagSuggestions()" oninput="showSubtaskTagSuggestions()" autocomplete="off">
+          <div class="tag-suggestions" id="subtask-tag-suggestions"></div>
+        </div>
       </div>
       <div class="form-group">
         <label>Notes</label>

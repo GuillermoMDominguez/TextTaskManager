@@ -1127,6 +1127,11 @@ main {
 .tag-suggestion-item.already-added { opacity: 0.5; }
 .tag-suggestion-item.already-added .tag-name::after { content: ' ✓'; color: var(--green); }
 
+/* ─── Date Preview ─────────────────────────── */
+.date-preview { display:block; font-size:10px; color:var(--text-dim); margin-top:2px; min-height:14px; }
+.date-preview.valid { color:var(--green); }
+.date-preview.invalid { color:var(--red); }
+
 /* ─── Empty State ──────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
 
