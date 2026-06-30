@@ -1,0 +1,223 @@
+"""Data retrieval API handlers — views, stats, search, etc."""
+
+from src.tm_config import VALID_PRIORITIES, VALID_STATES
+from src.tm_logic import get_id_width
+from src.tm_views_data import (
+    get_agenda_data,
+    get_all_tags_data,
+    get_all_tasks_flat,
+    get_blockers_data,
+    get_burndown_data,
+    get_calendar_data,
+    get_kanban_data,
+    get_pending_tasks,
+    get_stats_data,
+    get_tag_view_data,
+    get_time_tracking_data,
+    get_weekly_report_data,
+)
+
+from ..serializers import error_response, json_response, serialize_task
+from ..state import _state_proxy as _state
+
+
+def api_get_tasks(handler, params) -> None:
+    """GET /api/tasks — list all tasks."""
+    _state.refresh()
+    view = params.get("view", ["pending"])[0]
+
+    if view == "all":
+        items = get_all_tasks_flat(_state.tasks_by_date)
+    else:
+        items = get_pending_tasks(_state.tasks_by_date)
+
+    json_response(handler, {
+        "tasks": [serialize_task(item) for item in items],
+        "id_width": get_id_width(_state.tasks_by_date),
+        "states": VALID_STATES,
+        "priorities": VALID_PRIORITIES,
+    })
+
+
+def api_get_agenda(handler, params) -> None:
+    """GET /api/agenda — agenda view data."""
+    _state.refresh()
+    days = int(params.get("days", ["7"])[0])
+    data = get_agenda_data(_state.tasks_by_date, days)
+
+    json_response(handler, {
+        "overdue": [serialize_task(t) for t in data.overdue],
+        "due_today": [serialize_task(t) for t in data.due_today],
+        "due_soon": [serialize_task(t) for t in data.due_soon],
+        "days_ahead": data.days_ahead,
+    })
+
+
+def api_get_calendar(handler, params) -> None:
+    """GET /api/calendar — calendar view data."""
+    _state.refresh()
+
+    view = params.get("view", ["month"])[0]
+    year = int(params.get("year", [0])[0]) or None
+    month = int(params.get("month", [0])[0]) or None
+    day = int(params.get("day", [0])[0]) or None
+
+    data = get_calendar_data(_state.tasks_by_date, view=view, year=year, month=month, day=day)
+
+    days_serialized = {}
+    for date_str, tasks in data.days.items():
+        days_serialized[date_str] = [serialize_task(t) for t in tasks]
+
+    json_response(handler, {
+        "view": data.view,
+        "year": data.year,
+        "month": data.month,
+        "start_date": data.start_date,
+        "end_date": data.end_date,
+        "days": days_serialized,
+    })
+
+
+def api_get_kanban(handler, params) -> None:
+    """GET /api/kanban?tag=<tag> — kanban board data with optional tag filter."""
+    _state.refresh()
+    tag_filter = params.get("tag", [None])[0]
+    data = get_kanban_data(_state.tasks_by_date, tag_filter=tag_filter)
+
+    columns = {}
+    for col in data.columns:
+        columns[col] = [serialize_task(t) for t in data.column_tasks[col]]
+
+    json_response(handler, {"columns": data.columns, "tasks": columns, "tag": tag_filter})
+
+
+def api_get_stats(handler, params) -> None:
+    """GET /api/stats — statistics."""
+    _state.refresh()
+    data = get_stats_data(_state.tasks_by_date)
+
+    json_response(handler, {
+        "total": data.total,
+        "by_state": data.by_state,
+        "by_priority": data.by_priority,
+        "overdue": data.overdue_count,
+        "due_today": data.due_today_count,
+        "due_this_week": data.due_this_week_count,
+    })
+
+
+def api_get_weekly_report(handler, params) -> None:
+    """GET /api/weekly — weekly report data."""
+    _state.refresh()
+    days = int(params.get("days", ["7"])[0])
+    data = get_weekly_report_data(_state.tasks_by_date, days)
+
+    json_response(handler, {
+        "days": data.days,
+        "period_start": data.period_start,
+        "period_end": data.period_end,
+        "completed": [serialize_task(t) for t in data.completed],
+        "in_progress": [serialize_task(t) for t in data.in_progress],
+        "upcoming": [serialize_task(t) for t in data.upcoming],
+        "total": data.total,
+        "total_done": data.total_done,
+        "total_pending": data.total_pending,
+    })
+
+
+def api_get_burndown(handler, params) -> None:
+    """GET /api/burndown — burndown chart data."""
+    _state.refresh()
+    sprint_days = int(params.get("days", ["14"])[0])
+    data = get_burndown_data(_state.tasks_by_date, sprint_days)
+
+    json_response(handler, {
+        "sprint_days": data.sprint_days,
+        "total_tasks": data.total_tasks,
+        "current_remaining": data.current_remaining,
+        "ideal_per_day": data.ideal_per_day,
+        "velocity": data.velocity,
+        "points": [{"date": p.date, "remaining": p.remaining} for p in data.points],
+    })
+
+
+def api_get_tags(handler, params) -> None:
+    """GET /api/tags — all tags with counts."""
+    _state.refresh()
+    tags = get_all_tags_data(_state.tasks_by_date)
+    json_response(handler, {"tags": tags})
+
+
+def api_get_tag_tasks(handler, params) -> None:
+    """GET /api/tags/<tag> — tasks for a specific tag."""
+    _state.refresh()
+    tag = params.get("tag", [None])[0]
+    if not tag:
+        error_response(handler, "tag parameter required")
+        return
+
+    data = get_tag_view_data(_state.tasks_by_date, tag)
+    json_response(handler, {
+        "tag": data.tag,
+        "tasks": [serialize_task(t) for t in data.tasks],
+    })
+
+
+def api_get_blockers(handler, params) -> None:
+    """GET /api/blockers — tasks with blocker relationships."""
+    _state.refresh()
+    data = get_blockers_data(_state.tasks_by_date)
+
+    json_response(handler, {
+        "blockers": [
+            {
+                "task": serialize_task(b.task),
+                "blocked_by": b.blocked_by,
+                "blocks": b.blocks,
+                "is_blocked": b.is_blocked,
+            }
+            for b in data
+        ],
+    })
+
+
+def api_get_time_tracking(handler, params) -> None:
+    """GET /api/time — time tracking data."""
+    _state.refresh()
+    data = get_time_tracking_data(_state.tasks_by_date)
+
+    from src.tm_features import format_time_spent, get_total_time_spent
+    total_minutes = get_total_time_spent(_state.tasks_by_date)
+
+    json_response(handler, {
+        "tasks": [
+            {
+                "task": serialize_task(item.task),
+                "minutes": item.minutes_spent,
+                "formatted": item.formatted,
+            }
+            for item in data
+        ],
+        "total_minutes": total_minutes,
+        "total_formatted": format_time_spent(total_minutes) if total_minutes > 0 else "0m",
+    })
+
+
+def api_search_tasks(handler, params) -> None:
+    """GET /api/search?q=... — search tasks by title/tag."""
+    _state.refresh()
+    query = params.get("q", [""])[0].strip().lower()
+
+    if not query:
+        json_response(handler, {"tasks": []})
+        return
+
+    items = get_all_tasks_flat(_state.tasks_by_date)
+    results = []
+    for item in items:
+        if (query in item.title.lower()
+                or any(query in tag.lower() for tag in item.tags)
+                or any(query in n.lower() for n in item.notes)):
+            results.append(serialize_task(item))
+
+    json_response(handler, {"tasks": results, "query": query})

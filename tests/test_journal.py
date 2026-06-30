@@ -11,8 +11,21 @@ from src.tm_journal import (
     parse_subtask_line, parse_journal, write_journal, add_task_to_file,
     update_task_state_in_file, add_note_to_task_in_file, edit_task_title_in_file,
     delete_task_in_file, update_task_metadata_in_file, register_post_write_hook,
-    JournalFileNotFoundError, JournalReadError,
+    JournalError, JournalFileNotFoundError, JournalReadError,
     _write_lines, _read_lines, _post_write_hooks,
+    _parse_priority_value, _parse_due_value, _parse_recurrence_value,
+    _apply_task_metadata, _apply_subtask_metadata,
+    _render_task_line, _render_subtask_line,
+    _task_line_indent, _find_task_block_bounds, _find_parent_task_start,
+    _find_note_line_index, _render_task_block, _insert_task_block,
+    add_subtask_to_file, add_subtask_to_task,
+    edit_subtask_title_in_file, delete_subtask_in_file,
+    update_subtask_metadata_in_file, add_note_to_subtask_in_file,
+    delete_note_in_file, edit_note_in_file,
+    move_task_to_date_in_file, duplicate_task_in_file,
+    mark_all_subtasks_done_in_file, archive_finished_tasks_in_file,
+    read_journal_snapshot, restore_journal_snapshot, lint_journal,
+    update_dependency_references,
 )
 from src.tm_models import Task, Subtask
 
@@ -1157,6 +1170,1082 @@ class TestJiraKeyMetadata(unittest.TestCase):
             self.assertNotIn("Old title", content)
         finally:
             os.unlink(path)
+
+
+# ─── Error Classes ──────────────────────────────────────────────────────────
+
+
+class TestJournalErrors(unittest.TestCase):
+    """Test journal error hierarchy."""
+
+    def test_journal_error_is_exception(self):
+        self.assertTrue(issubclass(JournalError, Exception))
+
+    def test_file_not_found_error(self):
+        self.assertTrue(issubclass(JournalFileNotFoundError, JournalError))
+
+    def test_read_error(self):
+        self.assertTrue(issubclass(JournalReadError, JournalError))
+
+    def test_file_not_found_message(self):
+        err = JournalFileNotFoundError("test message")
+        self.assertEqual(str(err), "test message")
+
+
+# ─── Private Helpers: _parse_priority_value ────────────────────────────────
+
+
+class TestParsePriorityValue(unittest.TestCase):
+    def test_valid_priority(self):
+        self.assertEqual(_parse_priority_value("HIGH"), "HIGH")
+        self.assertEqual(_parse_priority_value("MEDIUM"), "MEDIUM")
+        self.assertEqual(_parse_priority_value("LOW"), "LOW")
+        self.assertEqual(_parse_priority_value("URGENT"), "URGENT")
+
+    def test_case_insensitive(self):
+        self.assertEqual(_parse_priority_value("high"), "HIGH")
+        self.assertEqual(_parse_priority_value("Medium"), "MEDIUM")
+
+    def test_alias_h(self):
+        self.assertEqual(_parse_priority_value("H"), "HIGH")
+
+    def test_alias_m(self):
+        self.assertEqual(_parse_priority_value("M"), "MEDIUM")
+
+    def test_alias_l(self):
+        self.assertEqual(_parse_priority_value("L"), "LOW")
+
+    def test_invalid_returns_none(self):
+        self.assertIsNone(_parse_priority_value("INVALID"))
+        self.assertIsNone(_parse_priority_value(""))
+        self.assertIsNone(_parse_priority_value("  "))
+
+
+# ─── Private Helpers: _parse_due_value ──────────────────────────────────────
+
+
+class TestParseDueValue(unittest.TestCase):
+    def test_valid_full_year(self):
+        result = _parse_due_value("25/12/2024")
+        self.assertEqual(result, datetime(2024, 12, 25))
+
+    def test_valid_two_digit_year(self):
+        result = _parse_due_value("01/01/26")
+        self.assertEqual(result, datetime(2026, 1, 1))
+
+    def test_invalid_format(self):
+        self.assertIsNone(_parse_due_value("25-12-2024"))
+
+    def test_invalid_date(self):
+        self.assertIsNone(_parse_due_value("32/01/2024"))
+
+    def test_empty_string(self):
+        self.assertIsNone(_parse_due_value(""))
+
+
+# ─── Private Helpers: _parse_recurrence_value ────────────────────────────────
+
+
+class TestParseRecurrenceValue(unittest.TestCase):
+    def test_valid_recurrence(self):
+        self.assertEqual(_parse_recurrence_value("daily"), "daily")
+        self.assertEqual(_parse_recurrence_value("weekly"), "weekly")
+        self.assertEqual(_parse_recurrence_value("monthly"), "monthly")
+        self.assertEqual(_parse_recurrence_value("yearly"), "yearly")
+
+    def test_case_insensitive(self):
+        self.assertEqual(_parse_recurrence_value("WEEKLY"), "weekly")
+        self.assertEqual(_parse_recurrence_value("Monthly"), "monthly")
+
+    def test_alias_d(self):
+        self.assertEqual(_parse_recurrence_value("D"), "daily")
+
+    def test_alias_w(self):
+        self.assertEqual(_parse_recurrence_value("W"), "weekly")
+
+    def test_alias_m(self):
+        self.assertEqual(_parse_recurrence_value("M"), "monthly")
+
+    def test_alias_y(self):
+        self.assertEqual(_parse_recurrence_value("Y"), "yearly")
+
+    def test_invalid_returns_none(self):
+        self.assertIsNone(_parse_recurrence_value("INVALID"))
+        self.assertIsNone(_parse_recurrence_value(""))
+
+
+# ─── Private Helpers: _apply_task_metadata ──────────────────────────────────
+
+
+class TestApplyTaskMetadata(unittest.TestCase):
+    def _make_task(self):
+        return Task(title="T", state="BACKLOG")
+
+    def test_due_date(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "due:25/12/2024")
+        self.assertTrue(result)
+        self.assertEqual(task.due_date, datetime(2024, 12, 25))
+
+    def test_due_short(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "d:01/01/2025")
+        self.assertTrue(result)
+        self.assertEqual(task.due_date, datetime(2025, 1, 1))
+
+    def test_priority(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "priority:HIGH")
+        self.assertTrue(result)
+        self.assertEqual(task.priority, "HIGH")
+
+    def test_priority_short(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "p:LOW")
+        self.assertTrue(result)
+        self.assertEqual(task.priority, "LOW")
+
+    def test_recurrence(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "recur:weekly")
+        self.assertTrue(result)
+        self.assertEqual(task.recurrence, "weekly")
+
+    def test_recurrence_short(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "r:daily")
+        self.assertTrue(result)
+        self.assertEqual(task.recurrence, "daily")
+
+    def test_time_spent(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "spent:30m")
+        self.assertTrue(result)
+        self.assertEqual(task.time_spent, 30)
+
+    def test_time_spent_accumulates(self):
+        task = self._make_task()
+        task.time_spent = 60
+        result = _apply_task_metadata(task, "spent:30m")
+        self.assertTrue(result)
+        self.assertEqual(task.time_spent, 90)
+
+    def test_blockedby(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "blockedby:Other Task")
+        self.assertTrue(result)
+        self.assertIn("Other Task", task.blocked_by)
+
+    def test_blocks(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "blocks:Dependent Task")
+        self.assertTrue(result)
+        self.assertIn("Dependent Task", task.blocks)
+
+    def test_jira_key(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "jira:PROJ-123")
+        self.assertTrue(result)
+        self.assertEqual(task.jira_key, "PROJ-123")
+
+    def test_notes(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "notes:note1.md,note2.md")
+        self.assertTrue(result)
+        self.assertEqual(task.linked_notes, ["note1.md", "note2.md"])
+
+    def test_unknown_chunk_returns_false(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "unknown:value")
+        self.assertFalse(result)
+
+    def test_invalid_due_returns_false(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "due:invalid")
+        self.assertFalse(result)
+
+    def test_invalid_priority_returns_false(self):
+        task = self._make_task()
+        result = _apply_task_metadata(task, "priority:INVALID")
+        self.assertFalse(result)
+
+
+# ─── Private Helpers: _apply_subtask_metadata ────────────────────────────────
+
+
+class TestApplySubtaskMetadata(unittest.TestCase):
+    def _make_subtask(self):
+        return Subtask(title="S", state="BACKLOG")
+
+    def test_due_date(self):
+        sub = self._make_subtask()
+        result = _apply_subtask_metadata(sub, "due:25/12/2024")
+        self.assertTrue(result)
+        self.assertEqual(sub.due_date, datetime(2024, 12, 25))
+
+    def test_priority(self):
+        sub = self._make_subtask()
+        result = _apply_subtask_metadata(sub, "priority:HIGH")
+        self.assertTrue(result)
+        self.assertEqual(sub.priority, "HIGH")
+
+    def test_notes(self):
+        sub = self._make_subtask()
+        result = _apply_subtask_metadata(sub, "notes:note1.md")
+        self.assertTrue(result)
+        self.assertEqual(sub.linked_notes, ["note1.md"])
+
+    def test_unknown_returns_false(self):
+        sub = self._make_subtask()
+        result = _apply_subtask_metadata(sub, "unknown:x")
+        self.assertFalse(result)
+
+
+# ─── Private Helpers: _render_task_line ──────────────────────────────────────
+
+
+class TestRenderTaskLine(unittest.TestCase):
+    def test_basic(self):
+        result = _render_task_line("Task", "BACKLOG", None, None)
+        self.assertEqual(result.strip(), "- Task -- BACKLOG")
+
+    def test_with_due_and_priority(self):
+        result = _render_task_line("Task", "BACKLOG", datetime(2025, 1, 1), "HIGH")
+        self.assertIn("due:01/01/2025", result)
+        self.assertIn("priority:HIGH", result)
+
+    def test_with_recurrence(self):
+        result = _render_task_line("Task", "BACKLOG", None, None, recurrence="weekly")
+        self.assertIn("recur:weekly", result)
+
+    def test_with_jira_key(self):
+        result = _render_task_line("Task", "DONE", None, None, jira_key="PROJ-1")
+        self.assertIn("jira:PROJ-1", result)
+
+    def test_with_linked_notes(self):
+        result = _render_task_line("Task", "BACKLOG", None, None, linked_notes=["a.md", "b.md"])
+        self.assertIn("notes:a.md,b.md", result)
+
+    def test_with_indent(self):
+        result = _render_task_line("Task", "BACKLOG", None, None, indent="    ")
+        self.assertTrue(result.startswith("    -"))
+
+    def test_ends_with_newline(self):
+        result = _render_task_line("T", "DONE", None, None)
+        self.assertTrue(result.endswith("\n"))
+
+
+# ─── Private Helpers: _render_subtask_line ───────────────────────────────────
+
+
+class TestRenderSubtaskLine(unittest.TestCase):
+    def test_basic(self):
+        result = _render_subtask_line("Sub", "BACKLOG")
+        self.assertEqual(result.strip(), "+ Sub -- BACKLOG")
+
+    def test_with_due(self):
+        result = _render_subtask_line("Sub", "BACKLOG", due_date=datetime(2025, 6, 1))
+        self.assertIn("due:01/06/2025", result)
+
+    def test_with_priority(self):
+        result = _render_subtask_line("Sub", "DONE", priority="HIGH")
+        self.assertIn("priority:HIGH", result)
+
+    def test_with_indent(self):
+        result = _render_subtask_line("Sub", "BACKLOG", indent="        ")
+        self.assertTrue(result.startswith("        +"))
+
+    def test_ends_with_newline(self):
+        result = _render_subtask_line("S", "DONE")
+        self.assertTrue(result.endswith("\n"))
+
+
+# ─── Private Helpers: _task_line_indent ──────────────────────────────────────
+
+
+class TestTaskLineIndent(unittest.TestCase):
+    def test_no_indent(self):
+        self.assertEqual(_task_line_indent("- Task -- DONE", "-"), "")
+
+    def test_four_spaces(self):
+        self.assertEqual(_task_line_indent("    - Task -- DONE", "-"), "    ")
+
+    def test_tab_indent(self):
+        self.assertEqual(_task_line_indent("\t- Task", "-"), "\t")
+
+    def test_subtask_indent(self):
+        self.assertEqual(_task_line_indent("    + Sub -- DONE", "+"), "    ")
+
+
+# ─── Private Helpers: _find_task_block_bounds ────────────────────────────────
+
+
+class TestFindTaskBlockBounds(unittest.TestCase):
+    def test_simple_task_block(self):
+        lines = [
+            "## 01/01/2025\n",
+            "- Task A -- DONE\n",
+            "- Task B -- BACKLOG\n",
+        ]
+        task = Task(title="Task A", state="DONE", source_line=2)
+        result = _find_task_block_bounds(lines, task)
+        self.assertEqual(result, (1, 2))
+
+    def test_task_with_children(self):
+        lines = [
+            "## 01/01/2025\n",
+            "- Parent -- IN PROGRESS\n",
+            "+ Child -- DONE\n",
+            ": A note\n",
+            "- Next task -- BACKLOG\n",
+        ]
+        task = Task(title="Parent", state="IN PROGRESS", source_line=2)
+        result = _find_task_block_bounds(lines, task)
+        self.assertEqual(result, (1, 4))
+
+    def test_no_source_line(self):
+        task = Task(title="T", state="BACKLOG", source_line=None)
+        self.assertIsNone(_find_task_block_bounds([], task))
+
+    def test_out_of_bounds(self):
+        task = Task(title="T", state="BACKLOG", source_line=10)
+        self.assertIsNone(_find_task_block_bounds(["line\n"], task))
+
+    def test_task_until_date_header(self):
+        lines = [
+            "- Task A -- DONE\n",
+            "## 02/01/2025\n",
+        ]
+        task = Task(title="Task A", state="DONE", source_line=1)
+        result = _find_task_block_bounds(lines, task)
+        self.assertEqual(result, (0, 1))
+
+
+# ─── Private Helpers: _find_parent_task_start ────────────────────────────────
+
+
+class TestFindParentTaskStart(unittest.TestCase):
+    def test_finds_parent_above_subtask(self):
+        lines = [
+            "- Parent -- BACKLOG\n",
+            "    + Child -- DONE\n",
+        ]
+        sub = Subtask(title="Child", state="DONE", source_line=2)
+        result = _find_parent_task_start(lines, sub)
+        self.assertEqual(result, 0)
+
+    def test_no_source_line(self):
+        sub = Subtask(title="S", state="BACKLOG", source_line=None)
+        self.assertIsNone(_find_parent_task_start([], sub))
+
+    def test_no_parent_above(self):
+        lines = [
+            "## 01/01/2025\n",
+            "    + Child -- DONE\n",
+        ]
+        sub = Subtask(title="Child", state="DONE", source_line=2)
+        result = _find_parent_task_start(lines, sub)
+        self.assertIsNone(result)
+
+
+# ─── Private Helpers: _find_note_line_index ──────────────────────────────────
+
+
+class TestFindNoteLineIndex(unittest.TestCase):
+    def test_finds_first_note(self):
+        lines = [
+            "- Task -- BACKLOG\n",
+            ": First note\n",
+            ": Second note\n",
+        ]
+        task = Task(title="Task", state="BACKLOG", source_line=1)
+        result = _find_note_line_index(lines, task, 0)
+        self.assertEqual(result, 1)
+
+    def test_finds_second_note(self):
+        lines = [
+            "- Task -- BACKLOG\n",
+            ": First note\n",
+            ": Second note\n",
+        ]
+        task = Task(title="Task", state="BACKLOG", source_line=1)
+        result = _find_note_line_index(lines, task, 1)
+        self.assertEqual(result, 2)
+
+    def test_note_index_out_of_range(self):
+        lines = [
+            "- Task -- BACKLOG\n",
+            ": First note\n",
+        ]
+        task = Task(title="Task", state="BACKLOG", source_line=1)
+        self.assertIsNone(_find_note_line_index(lines, task, 5))
+
+
+# ─── Private Helpers: _render_task_block ─────────────────────────────────────
+
+
+class TestRenderTaskBlock(unittest.TestCase):
+    def test_simple_task(self):
+        task = Task(title="Task", state="BACKLOG", source_line=1)
+        result = _render_task_block(task)
+        self.assertEqual(len(result), 1)
+        self.assertIn("- Task -- BACKLOG", result[0])
+
+    def test_with_notes(self):
+        task = Task(title="Task", state="DONE", source_line=1)
+        task.comments = ["First note", "Second note"]
+        result = _render_task_block(task)
+        self.assertEqual(len(result), 3)
+        self.assertIn(": First note", result[1])
+        self.assertIn(": Second note", result[2])
+
+    def test_with_subtasks(self):
+        task = Task(title="Parent", state="BACKLOG", source_line=1)
+        st = Subtask(title="Child", state="DONE")
+        task.subtasks = [st]
+        result = _render_task_block(task)
+        self.assertEqual(len(result), 2)
+        self.assertIn("+ Child -- DONE", result[1])
+
+    def test_state_override(self):
+        task = Task(title="Task", state="BACKLOG", source_line=1)
+        result = _render_task_block(task, state_override="DONE")
+        self.assertIn("DONE", result[0])
+        self.assertNotIn("BACKLOG", result[0])
+
+
+# ─── Private Helpers: _insert_task_block ─────────────────────────────────────
+
+
+class TestInsertTaskBlock(unittest.TestCase):
+    def test_insert_into_existing_section(self):
+        lines = ["## 01/01/2025\n", "- Existing -- DONE\n"]
+        block = ["- New -- BACKLOG\n"]
+        result = _insert_task_block(lines, block, datetime(2025, 1, 1))
+        self.assertIn("- New -- BACKLOG\n", result)
+        self.assertEqual(result.index("- New -- BACKLOG\n"), 2)
+
+    def test_creates_new_section(self):
+        lines = ["## 01/01/2025\n"]
+        block = ["- New -- BACKLOG\n"]
+        result = _insert_task_block(lines, block, datetime(2025, 6, 15))
+        self.assertTrue(any("## 15/06/2025" in l for l in result))
+        self.assertTrue(any("New -- BACKLOG" in l for l in result))
+
+    def test_insert_before_first_date(self):
+        lines = ["## 01/01/2025\n"]
+        block = ["- Orphan -- BACKLOG\n"]
+        result = _insert_task_block(lines, block, None)
+        self.assertEqual(result[0], "- Orphan -- BACKLOG\n")
+
+
+# ─── CRUD: add_subtask_to_file ───────────────────────────────────────────────
+
+
+class TestAddSubtaskToFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_add_subtask_after_parent(self):
+        path = self._setup("## 01/01/2025\n- Parent -- BACKLOG\n")
+        try:
+            result = add_subtask_to_file(path, "Parent", "Child", "DONE")
+            self.assertTrue(result)
+            content = open(path).read()
+            self.assertIn("+ Child -- DONE", content)
+        finally:
+            os.unlink(path)
+
+    def test_parent_not_found(self):
+        path = self._setup("## 01/01/2025\n- Other -- BACKLOG\n")
+        try:
+            result = add_subtask_to_file(path, "Nonexistent", "Child", "DONE")
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+    def test_add_subtask_after_existing_children(self):
+        path = self._setup("## 01/01/2025\n- Parent -- BACKLOG\n+ Existing -- DONE\n")
+        try:
+            result = add_subtask_to_file(path, "Parent", "New child", "BACKLOG")
+            self.assertTrue(result)
+            lines = open(path).read().strip().split("\n")
+            # New child should come after existing
+            existing_idx = next(i for i, l in enumerate(lines) if "Existing" in l)
+            new_idx = next(i for i, l in enumerate(lines) if "New child" in l)
+            self.assertGreater(new_idx, existing_idx)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: add_subtask_to_task ───────────────────────────────────────────────
+
+
+class TestAddSubtaskToTask(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_add_subtask(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = add_subtask_to_task(path, task, "Child", "DONE")
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("+ Child -- DONE", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_no_source_line_fails(self):
+        task = Task(title="T", state="BACKLOG", source_line=None)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            path = f.name
+        try:
+            result = add_subtask_to_task(path, task, "Child", "DONE")
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: edit_subtask_title_in_file ────────────────────────────────────────
+
+
+class TestEditSubtaskTitleInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_renames_subtask(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Old name -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            sub = task.subtasks[0]
+            result = edit_subtask_title_in_file(path, sub, "New name")
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("New name", new_content)
+            self.assertNotIn("Old name", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_empty_title_fails(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Sub -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            sub = parsed[datetime(2025, 1, 1)][0].subtasks[0]
+            result = edit_subtask_title_in_file(path, sub, "  ")
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+    def test_no_source_line_fails(self):
+        sub = Subtask(title="S", state="DONE", source_line=None)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            path = f.name
+        try:
+            result = edit_subtask_title_in_file(path, sub, "X")
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: delete_subtask_in_file ────────────────────────────────────────────
+
+
+class TestDeleteSubtaskInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_deletes_subtask(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Child -- DONE\n+ Other -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            child = task.subtasks[0]
+            result = delete_subtask_in_file(path, child)
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertNotIn("Child", new_content)
+            self.assertIn("Other", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_no_source_line_fails(self):
+        sub = Subtask(title="S", state="DONE", source_line=None)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            path = f.name
+        try:
+            result = delete_subtask_in_file(path, sub)
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: update_subtask_metadata_in_file ───────────────────────────────────
+
+
+class TestUpdateSubtaskMetadataInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_set_due_date(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Sub -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            sub = parsed[datetime(2025, 1, 1)][0].subtasks[0]
+            result = update_subtask_metadata_in_file(path, sub, due_date=datetime(2025, 3, 15))
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("due:15/03/2025", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_set_priority(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Sub -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            sub = parsed[datetime(2025, 1, 1)][0].subtasks[0]
+            result = update_subtask_metadata_in_file(path, sub, priority="HIGH")
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("priority:HIGH", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_clear_due(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Sub -- BACKLOG -- due:01/06/2025\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            sub = parsed[datetime(2025, 1, 1)][0].subtasks[0]
+            result = update_subtask_metadata_in_file(path, sub, clear_due=True)
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertNotIn("due:", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_no_source_line_fails(self):
+        sub = Subtask(title="S", state="BACKLOG", source_line=None)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            path = f.name
+        try:
+            result = update_subtask_metadata_in_file(path, sub)
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: add_note_to_subtask_in_file ───────────────────────────────────────
+
+
+class TestAddNoteToSubtaskInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_add_note_to_subtask(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Sub -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            sub = parsed[datetime(2025, 1, 1)][0].subtasks[0]
+            result = add_note_to_subtask_in_file(path, sub, "Note text")
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn(": Note text", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_empty_note_fails(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ Sub -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            sub = parsed[datetime(2025, 1, 1)][0].subtasks[0]
+            result = add_note_to_subtask_in_file(path, sub, "  ")
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: delete_note_in_file ───────────────────────────────────────────────
+
+
+class TestDeleteNoteInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_deletes_note(self):
+        content = "## 01/01/2025\n- Task -- DONE\n: Note 1\n: Note 2\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = delete_note_in_file(path, task, 0)
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertNotIn("Note 1", new_content)
+            self.assertIn("Note 2", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_invalid_index_fails(self):
+        content = "## 01/01/2025\n- Task -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = delete_note_in_file(path, task, 0)
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: edit_note_in_file ─────────────────────────────────────────────────
+
+
+class TestEditNoteInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_edits_note(self):
+        content = "## 01/01/2025\n- Task -- DONE\n: Old text\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = edit_note_in_file(path, task, 0, "New text")
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("New text", new_content)
+            self.assertNotIn("Old text", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_empty_note_fails(self):
+        content = "## 01/01/2025\n- Task -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = edit_note_in_file(path, task, 0, "  ")
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: move_task_to_date_in_file ─────────────────────────────────────────
+
+
+class TestMoveTaskToDateInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_moves_task_with_children(self):
+        content = "## 01/01/2025\n- Task -- DONE\n+ Sub -- DONE\n## 02/01/2025\n- Other -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = move_task_to_date_in_file(path, task, datetime(2025, 6, 1))
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("## 01/06/2025\n- Task -- DONE", new_content)
+            self.assertIn("+ Sub -- DONE", new_content)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: duplicate_task_in_file ────────────────────────────────────────────
+
+
+class TestDuplicateTaskInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_duplicates_task(self):
+        content = "## 01/01/2025\n- Task -- DONE\n: Note\n+ Sub -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = duplicate_task_in_file(path, task, datetime(2025, 6, 1))
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("## 01/06/2025", new_content)
+            self.assertIn("+ Sub -- DONE", new_content)
+        finally:
+            os.unlink(path)
+
+
+# ─── CRUD: mark_all_subtasks_done_in_file ────────────────────────────────────
+
+
+class TestMarkAllSubtasksDoneInFile(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_marks_all_subtasks_done(self):
+        content = "## 01/01/2025\n- Parent -- IN PROGRESS\n+ Child 1 -- BACKLOG\n+ Child 2 -- WAITING\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = mark_all_subtasks_done_in_file(path, task)
+            self.assertTrue(result)
+            new_content = open(path).read()
+            self.assertIn("+ Child 1 -- DONE", new_content)
+            self.assertIn("+ Child 2 -- DONE", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_no_subtasks_returns_false(self):
+        content = "## 01/01/2025\n- Task -- DONE\n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            task = parsed[datetime(2025, 1, 1)][0]
+            result = mark_all_subtasks_done_in_file(path, task)
+            self.assertFalse(result)
+        finally:
+            os.unlink(path)
+
+
+# ─── Snapshot: read/restore ──────────────────────────────────────────────────
+
+
+class TestJournalSnapshot(unittest.TestCase):
+    def test_read_snapshot(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("hello")
+            path = f.name
+        try:
+            result = read_journal_snapshot(path)
+            self.assertEqual(result, "hello")
+        finally:
+            os.unlink(path)
+
+    def test_read_nonexistent_returns_none(self):
+        result = read_journal_snapshot("/nonexistent/file.md")
+        self.assertIsNone(result)
+
+    def test_restore_snapshot(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("old")
+            path = f.name
+        try:
+            result = restore_journal_snapshot(path, "new content")
+            self.assertTrue(result)
+            self.assertEqual(open(path).read(), "new content")
+        finally:
+            os.unlink(path)
+
+
+# ─── Lint ────────────────────────────────────────────────────────────────────
+
+
+class TestLintJournal(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_clean_journal_no_findings(self):
+        content = "## 01/01/2025\n- Task -- DONE\n"
+        path = self._setup(content)
+        try:
+            result = lint_journal(path)
+            self.assertEqual(result, [])
+        finally:
+            os.unlink(path)
+
+    def test_invalid_date_header(self):
+        content = "## invalid\n- Task -- DONE\n"
+        path = self._setup(content)
+        try:
+            result = lint_journal(path)
+            self.assertTrue(any("invalid date header" in f for f in result))
+        finally:
+            os.unlink(path)
+
+    def test_note_without_parent(self):
+        content = ": orphan note\n"
+        path = self._setup(content)
+        try:
+            result = lint_journal(path)
+            self.assertTrue(any("note without parent" in f for f in result))
+        finally:
+            os.unlink(path)
+
+    def test_subtask_without_parent(self):
+        content = "## 01/01/2025\n+ orphan subtask -- DONE\n"
+        path = self._setup(content)
+        try:
+            result = lint_journal(path)
+            self.assertTrue(any("subtask without parent" in f for f in result))
+        finally:
+            os.unlink(path)
+
+    def test_invalid_task_format(self):
+        content = "## 01/01/2025\n-  \n"
+        path = self._setup(content)
+        try:
+            result = lint_journal(path)
+            self.assertTrue(any("invalid task format" in f for f in result))
+        finally:
+            os.unlink(path)
+
+    def test_invalid_subtask_format(self):
+        content = "## 01/01/2025\n- Parent -- BACKLOG\n+ \n"
+        path = self._setup(content)
+        try:
+            parsed = parse_journal(path)
+            result = lint_journal(path)
+            self.assertTrue(any("invalid subtask format" in f for f in result))
+        finally:
+            os.unlink(path)
+
+    def test_valid_state_no_finding(self):
+        content = "## 01/01/2025\n- Task -- DONE\n"
+        path = self._setup(content)
+        try:
+            result = lint_journal(path)
+            self.assertEqual(result, [])
+        finally:
+            os.unlink(path)
+
+    def test_unreadable_file(self):
+        result = lint_journal("/nonexistent/path.md")
+        self.assertTrue(any("Could not read journal" in f for f in result))
+
+
+# ─── update_dependency_references ────────────────────────────────────────────
+
+
+class TestUpdateDependencyReferences(unittest.TestCase):
+    def _setup(self, content):
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        f.write(content)
+        f.close()
+        return f.name
+
+    def test_updates_blockedby_reference(self):
+        content = "## 01/01/2025\n- Task -- BACKLOG -- blockedby:Old Name\n"
+        path = self._setup(content)
+        try:
+            update_dependency_references(path, "Old Name", "New Name")
+            new_content = open(path).read()
+            self.assertIn("blockedby:New Name", new_content)
+            self.assertNotIn("blockedby:Old Name", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_updates_blocks_reference(self):
+        content = "## 01/01/2025\n- Task -- BACKLOG -- blocks:Old Name\n"
+        path = self._setup(content)
+        try:
+            update_dependency_references(path, "Old Name", "New Name")
+            new_content = open(path).read()
+            self.assertIn("blocks:New Name", new_content)
+        finally:
+            os.unlink(path)
+
+    def test_no_change_if_titles_equal(self):
+        content = "## 01/01/2025\n- Task -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            # Should not crash or change anything
+            update_dependency_references(path, "Task", "Task")
+            self.assertEqual(open(path).read(), content)
+        finally:
+            os.unlink(path)
+
+    def test_empty_old_title_returns_early(self):
+        content = "## 01/01/2025\n- Task -- BACKLOG\n"
+        path = self._setup(content)
+        try:
+            update_dependency_references(path, "", "New")
+            self.assertEqual(open(path).read(), content)
+        finally:
+            os.unlink(path)
+
+
+# ─── archive_finished_tasks_in_file ──────────────────────────────────────────
+
+
+class TestArchiveFinishedTasks(unittest.TestCase):
+    def test_archives_finished_tasks(self):
+        journal_content = "## 01/01/2025\n- Done task -- DONE\n- Active task -- BACKLOG\n"
+        j = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        j.write(journal_content)
+        j.close()
+        archive = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        archive.close()
+        try:
+            result = archive_finished_tasks_in_file(j.name, archive.name)
+            self.assertEqual(result, 1)
+            journal_after = open(j.name).read()
+            self.assertNotIn("Done task", journal_after)
+            self.assertIn("Active task", journal_after)
+            archive_content = open(archive.name).read()
+            self.assertIn("Done task", archive_content)
+        finally:
+            os.unlink(j.name)
+            os.unlink(archive.name)
+
+    def test_no_finished_tasks_returns_zero(self):
+        j = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        j.write("## 01/01/2025\n- Active -- IN PROGRESS\n")
+        j.close()
+        archive = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+        archive.close()
+        try:
+            result = archive_finished_tasks_in_file(j.name, archive.name)
+            self.assertEqual(result, 0)
+        finally:
+            os.unlink(j.name)
+            os.unlink(archive.name)
 
 
 if __name__ == "__main__":

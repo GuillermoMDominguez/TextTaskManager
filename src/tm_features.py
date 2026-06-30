@@ -1,23 +1,54 @@
-"""Extended features: export/import, kanban, project view, weekly report, recurring tasks."""
+"""Extended features — re-exports from sub-modules plus recurrence and templates."""
 
-import csv
-import io
 import json
-import shutil
-import os
 import re
-from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
-from .tm_config import VALID_STATES, FINISHED_STATES, PROGRESS_STATES, DEFAULT_STATE, VALID_RECURRENCES
-from .tm_logic import get_id_width
-from .tm_models import Task, Subtask
+from .tm_config import VALID_RECURRENCES
 from .tm_settings import get_setting
 
-# Matches standalone hashtag tokens (#tag-name) for stripping in dependency lookups
-_TAG_RE = re.compile(r"(?<!\S)#[\w-]+(?!\S)")
+# Re-exports from sub-modules
+from .tm_blockers import (
+    add_blocker_metadata,
+    add_blocks_metadata,
+    extract_blockers_from_line,
+    extract_blocks_from_line,
+    find_task_by_title_match,
+    is_task_blocked,
+    remove_all_blocker_metadata,
+    remove_all_blocks_metadata,
+    remove_blocker_metadata,
+    remove_blocks_metadata,
+)
+from .tm_export_import import (
+    export_to_csv,
+    export_to_json,
+    export_to_markdown,
+    import_from_json,
+)
+from .tm_kanban import (
+    PRIORITY_ORDER,
+    STATE_ORDER,
+    SUBTASK_DUE_PATTERN,
+    extract_subtask_due_date,
+    generate_burndown,
+    generate_weekly_report,
+    get_all_tags,
+    get_tasks_by_tag,
+    render_kanban,
+    sort_tasks,
+    subtask_due_display,
+)
+from .tm_pomodoro import run_pomodoro
+from .tm_time_tracking import (
+    extract_time_spent_from_line,
+    format_time_spent,
+    get_total_time_spent,
+    parse_time_spent,
+    update_time_in_line,
+)
 
 
 # ─── Recurrence ────────────────────────────────────────────────────────────
@@ -57,416 +88,13 @@ def compute_next_recurrence_date(current_date: datetime, recurrence: str) -> dat
         try:
             return current_date.replace(year=current_date.year + 1)
         except ValueError:
-            # Feb 29 in a leap year → Feb 28 in non-leap year
             return current_date.replace(year=current_date.year + 1, day=28)
     return current_date + timedelta(weeks=1)
 
 
-def generate_recurring_task_line(task: Task, recurrence: str, next_date: datetime) -> Tuple[str, datetime]:
+def generate_recurring_task_line(task: object, recurrence: str, next_date: datetime) -> Tuple[str, datetime]:
     """Generate the text line for the next recurring instance and its target date."""
     return task.title, next_date
-
-
-# ─── Sorting ───────────────────────────────────────────────────────────────
-
-PRIORITY_ORDER = {"URGENT": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-STATE_ORDER = {state: idx for idx, state in enumerate(VALID_STATES)}
-
-
-def sort_tasks(tasks: List[Task], sort_by: str = "none", direction: str = "asc") -> List[Task]:
-    """Sort a list of tasks by the given criterion."""
-    if sort_by == "none" or not tasks:
-        return tasks
-
-    reverse = direction.lower() == "desc"
-
-    if sort_by == "priority":
-        return sorted(
-            tasks,
-            key=lambda t: PRIORITY_ORDER.get(t.priority or "LOW", 3),
-            reverse=reverse,
-        )
-    elif sort_by == "due_date":
-        no_due = datetime.max if not reverse else datetime.min
-        return sorted(
-            tasks,
-            key=lambda t: t.due_date or no_due,
-            reverse=reverse,
-        )
-    elif sort_by == "state":
-        return sorted(
-            tasks,
-            key=lambda t: STATE_ORDER.get(t.state, 99),
-            reverse=reverse,
-        )
-    return tasks
-
-
-# ─── Project/Tag View ──────────────────────────────────────────────────────
-
-def get_tasks_by_tag(tasks_by_date: dict, tag: str) -> List[Task]:
-    """Return all tasks (across all dates) that contain the given tag."""
-    tag_lower = tag.lstrip("#").lower()
-    results: List[Task] = []
-    for tasks in tasks_by_date.values():
-        for task in tasks:
-            all_tags = task.get_tags()
-            for subtask in task.subtasks:
-                all_tags.extend(subtask.get_tags())
-            if tag_lower in all_tags:
-                results.append(task)
-    return results
-
-
-def get_all_tags(tasks_by_date: dict) -> dict:
-    """Return dict of tag -> count across all tasks."""
-    tag_counts: dict = {}
-    for tasks in tasks_by_date.values():
-        for task in tasks:
-            for tag in task.get_tags():
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
-            for subtask in task.subtasks:
-                for tag in subtask.get_tags():
-                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
-    return tag_counts
-
-
-# ─── Kanban View ───────────────────────────────────────────────────────────
-
-def _task_has_tag(task: Task, tag: str) -> bool:
-    """Return whether a task or one of its subtasks contains tag."""
-    tag_lower = tag.lstrip("#").lower()
-    task_tags = [t.lower() for t in task.get_tags()]
-    subtask_tags = [t.lower() for subtask in task.subtasks for t in subtask.get_tags()]
-    return tag_lower in task_tags or tag_lower in subtask_tags
-
-
-def render_kanban(
-    tasks_by_date: dict,
-    columns: Optional[List[str]] = None,
-    tag_filter: Optional[str] = None,
-    search_query: Optional[str] = None,
-) -> str:
-    """Render a kanban board as a string for terminal output.
-    
-    Args:
-        tasks_by_date: Dictionary of tasks by date
-        columns: Optional list of column names
-        tag_filter: Optional tag to filter tasks by (without # prefix) - legacy, use search_query
-        search_query: Optional search query (supports #tag, priority:X, due:X, free text)
-    """
-    from .tm_ui import Colors, get_state_color
-    from .tm_logic import task_matches_search
-
-    if columns is None:
-        columns = get_setting("kanban_columns", ["BACKLOG", "IN PROGRESS", "TESTING", "DONE"])
-
-    # Collect all tasks into columns
-    column_tasks: dict = {col: [] for col in columns}
-    for tasks in tasks_by_date.values():
-        for task in tasks:
-            # Apply tag filter if specified (legacy support)
-            if tag_filter and not _task_has_tag(task, tag_filter):
-                continue
-            
-            # Apply search query filter (supports priority:, due:, #tag, text)
-            if search_query and not task_matches_search(task, search_query):
-                continue
-            
-            if task.state in column_tasks:
-                column_tasks[task.state].append(task)
-
-    # Calculate column width based on terminal
-    try:
-        term_width = os.get_terminal_size().columns
-    except OSError:
-        term_width = 120
-
-    num_cols = len(columns)
-    col_width = max(20, (term_width - (num_cols + 1)) // num_cols)
-    reset = Colors.RESET
-    id_width = get_id_width(tasks_by_date)
-
-    lines: List[str] = []
-
-    # Header with colored state names
-    header_cells = []
-    for col in columns:
-        color = get_state_color(col)
-        padded = col.center(col_width)
-        header_cells.append(f"{color}{padded}{reset}")
-    lines.append("┌" + "┬".join("─" * col_width for _ in columns) + "┐")
-    lines.append("│" + "│".join(header_cells) + "│")
-    lines.append("├" + "┼".join("─" * col_width for _ in columns) + "┤")
-
-    # Find max rows needed
-    max_rows = max(len(tasks) for tasks in column_tasks.values()) if column_tasks else 0
-
-    for row_idx in range(max_rows):
-        cells = []
-        for col in columns:
-            tasks = column_tasks[col]
-            color = get_state_color(col)
-            if row_idx < len(tasks):
-                task = tasks[row_idx]
-                task_id = task.task_id or "?"
-                title = task.title
-                priority_badge = f"[{task.priority[0]}]" if task.priority else ""
-                id_value = task_id.zfill(id_width) if task_id.isdigit() else task_id
-                cell_content = f"[{id_value}]{priority_badge} {title}"
-                if len(cell_content) > col_width - 2:
-                    cell_content = cell_content[: col_width - 3] + "~"
-                cells.append(f" {color}{cell_content.ljust(col_width - 1)}{reset}")
-            else:
-                cells.append(" " * col_width)
-        lines.append("│" + "│".join(cells) + "│")
-
-    lines.append("└" + "┴".join("─" * col_width for _ in columns) + "┘")
-
-    # Summary with colors
-    for col in columns:
-        count = len(column_tasks[col])
-        color = get_state_color(col)
-        lines.append(f"  {color}{col}{reset}: {count} task(s)")
-
-    return "\n".join(lines)
-
-
-# ─── Export ────────────────────────────────────────────────────────────────
-
-def export_to_json(tasks_by_date: dict) -> str:
-    """Export all tasks to JSON format."""
-    data = []
-    for date, tasks in tasks_by_date.items():
-        for task in tasks:
-            task_dict = {
-                "title": task.title,
-                "state": task.state,
-                "date": date.strftime("%d/%m/%Y") if date else None,
-                "due_date": task.due_date.strftime("%d/%m/%Y") if task.due_date else None,
-                "priority": task.priority,
-                "tags": task.get_tags(),
-                "notes": task.comments,
-                "subtasks": [
-                    {
-                        "title": st.title,
-                        "state": st.state,
-                        "tags": st.get_tags(),
-                    }
-                    for st in task.subtasks
-                ],
-            }
-            data.append(task_dict)
-    return json.dumps(data, indent=2, ensure_ascii=False)
-
-
-def export_to_csv(tasks_by_date: dict) -> str:
-    """Export all tasks to CSV format."""
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "Title", "State", "Date", "Due Date", "Priority", "Tags", "Notes", "Subtasks"])
-
-    for date, tasks in tasks_by_date.items():
-        for task in tasks:
-            date_str = date.strftime("%d/%m/%Y") if date else ""
-            due_str = task.due_date.strftime("%d/%m/%Y") if task.due_date else ""
-            tags = ", ".join(f"#{t}" for t in task.get_tags())
-            notes = " | ".join(task.comments)
-            subtasks = " | ".join(f"{st.title} [{st.state}]" for st in task.subtasks)
-            writer.writerow([
-                task.task_id or "",
-                task.title,
-                task.state,
-                date_str,
-                due_str,
-                task.priority or "",
-                tags,
-                notes,
-                subtasks,
-            ])
-
-    return output.getvalue()
-
-
-def export_to_markdown(tasks_by_date: dict) -> str:
-    """Export all tasks to Markdown format."""
-    lines: List[str] = ["# Task Report", ""]
-    lines.append(f"*Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')}*")
-    lines.append("")
-
-    sorted_dates = sorted([d for d in tasks_by_date.keys() if d is not None], reverse=True)
-    if None in tasks_by_date:
-        sorted_dates.append(None)
-
-    for date in sorted_dates:
-        tasks = tasks_by_date[date]
-        if not tasks:
-            continue
-
-        date_str = date.strftime("%A, %d/%m/%Y") if date else "No Date"
-        lines.append(f"## {date_str}")
-        lines.append("")
-
-        for task in tasks:
-            priority_badge = f" `{task.priority}`" if task.priority else ""
-            due_badge = f" (due: {task.due_date.strftime('%d/%m/%Y')})" if task.due_date else ""
-            checkbox = "x" if task.is_finished() else " "
-            lines.append(f"- [{checkbox}] **{task.title}** — {task.state}{priority_badge}{due_badge}")
-
-            for comment in task.comments:
-                lines.append(f"  - 📝 {comment}")
-
-            for subtask in task.subtasks:
-                st_checkbox = "x" if subtask.is_finished() else " "
-                lines.append(f"  - [{st_checkbox}] {subtask.title} — {subtask.state}")
-
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-def import_from_json(json_text: str) -> List[str]:
-    """Convert JSON task data into journal lines for appending."""
-    try:
-        data = json.loads(json_text)
-    except json.JSONDecodeError:
-        return []
-
-    lines: List[str] = []
-    grouped: OrderedDict = OrderedDict()
-
-    for item in data:
-        date_str = item.get("date")
-        date_key = date_str or "today"
-        grouped.setdefault(date_key, []).append(item)
-
-    for date_key, items in grouped.items():
-        if date_key == "today":
-            lines.append(f"## {datetime.now().strftime('%d/%m/%Y')}\n")
-        else:
-            lines.append(f"## {date_key}\n")
-
-        for item in items:
-            title = item.get("title", "Untitled")
-            state = item.get("state", DEFAULT_STATE)
-            parts = [f"- {title} -- {state}"]
-            if item.get("due_date"):
-                parts.append(f"due:{item['due_date']}")
-            if item.get("priority"):
-                parts.append(f"priority:{item['priority']}")
-            lines.append(" -- ".join(parts) + "\n")
-
-            for note in item.get("notes", []):
-                lines.append(f": {note}\n")
-
-            for st in item.get("subtasks", []):
-                st_title = st.get("title", "")
-                st_state = st.get("state", DEFAULT_STATE)
-                lines.append(f"+ {st_title} -- {st_state}\n")
-
-    return lines
-
-
-# ─── Weekly Report ─────────────────────────────────────────────────────────
-
-def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
-    """Generate a weekly summary of completed tasks and current status."""
-    from .tm_ui import Colors, get_state_color
-
-    today = datetime.now().date()
-    period_start = today - timedelta(days=days)
-
-    completed: List[Task] = []
-    in_progress: List[Task] = []
-    upcoming: List[Task] = []
-
-    for date, tasks in tasks_by_date.items():
-        for task in tasks:
-            if task.is_finished():
-                if date and period_start <= date.date() <= today:
-                    completed.append(task)
-            elif task.state in PROGRESS_STATES:
-                in_progress.append(task)
-            elif task.due_date and task.due_date.date() <= today + timedelta(days=7):
-                upcoming.append(task)
-
-    tw = shutil.get_terminal_size((80, 24)).columns
-    r = Colors.RESET
-    lines: List[str] = []
-
-    title = f" Weekly Report ({period_start.strftime('%d/%m/%Y')} – {today.strftime('%d/%m/%Y')}) "
-    lines.append(f"{Colors.BOLD}{'─' * 3}{title}{'─' * max(0, tw - len(title) - 3)}{r}")
-
-    # Completed
-    done_color = get_state_color(FINISHED_STATES[0])
-    lines.append(f"\n  {done_color}{Colors.BOLD}✓ COMPLETED ({len(completed)}){r}")
-    lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
-    if completed:
-        for task in completed:
-            priority = f" [{task.priority}]" if task.priority else ""
-            lines.append(f"    {done_color}•{r} {task.title}{Colors.DIM}{priority}{r}")
-    else:
-        lines.append(f"    {Colors.DIM}(none){r}")
-
-    # In Progress
-    ip_color = get_state_color(PROGRESS_STATES[0])
-    lines.append(f"\n  {ip_color}{Colors.BOLD}⚡ IN PROGRESS ({len(in_progress)}){r}")
-    lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
-    if in_progress:
-        for task in in_progress:
-            due = f" [DUE:{task.due_date.strftime('%d/%m/%Y')}]" if task.due_date else ""
-            lines.append(f"    {ip_color}•{r} {task.title}{Colors.DIM}{due}{r}")
-    else:
-        lines.append(f"    {Colors.DIM}(none){r}")
-
-    # Upcoming
-    lines.append(f"\n  {Colors.DATE}{Colors.BOLD}📅 UPCOMING DUE ({len(upcoming)}){r}")
-    lines.append(f"  {Colors.DIM}{'─' * (tw - 4)}{r}")
-    if upcoming:
-        upcoming_sorted = sorted(upcoming, key=lambda t: t.due_date or datetime.max)
-        for task in upcoming_sorted:
-            due = task.due_date.strftime('%d/%m/%Y') if task.due_date else ""
-            state_color = get_state_color(task.state)
-            lines.append(f"    • {task.title} {state_color}{task.state}{r}{Colors.DIM} [DUE:{due}]{r}")
-    else:
-        lines.append(f"    {Colors.DIM}(none){r}")
-
-    # Stats summary
-    total = sum(len(tasks) for tasks in tasks_by_date.values())
-    total_done = sum(1 for tasks in tasks_by_date.values() for t in tasks if t.is_finished())
-    total_pending = total - total_done
-    lines.append(f"\n  {Colors.DIM}{'─' * (tw - 4)}{r}")
-    lines.append(f"  Summary: {total} total │ {done_color}{total_done} done{r} │ {total_pending} pending")
-
-    return "\n".join(lines)
-
-
-# ─── Subtask due date helpers ──────────────────────────────────────────────
-
-SUBTASK_DUE_PATTERN = re.compile(r"\[due=(\d{1,2}/\d{1,2}/\d{2,4})\]", re.IGNORECASE)
-
-
-def extract_subtask_due_date(title: str) -> Optional[datetime]:
-    """Extract inline due date from subtask title like [due=10/06/2026] or [due=10/06/26]."""
-    match = SUBTASK_DUE_PATTERN.search(title)
-    if match:
-        try:
-            return datetime.strptime(match.group(1), "%d/%m/%Y")
-        except ValueError:
-            pass
-        try:
-            return datetime.strptime(match.group(1), "%d/%m/%y")
-        except ValueError:
-            pass
-    return None
-
-
-def subtask_due_display(subtask: Subtask) -> Optional[str]:
-    """Return due date string if subtask has one embedded in title."""
-    due = extract_subtask_due_date(subtask.title)
-    if due:
-        return due.strftime("%d/%m/%Y")
-    return None
 
 
 # ─── Templates ─────────────────────────────────────────────────────────────
@@ -487,16 +115,15 @@ def get_template(name: str) -> Optional[dict]:
 
 def save_template(name: str, template_data: dict) -> bool:
     """Save a template to config."""
-    from .tm_settings import load_settings, save_settings, _settings_path
+    from .tm_settings import load_settings, _settings_path
     settings = load_settings()
     if "templates" not in settings:
         settings["templates"] = {}
     settings["templates"][name] = template_data
     target = _settings_path or Path(__file__).parent / ".ttm_config"
     try:
-        import json as _json
         with open(target, "w", encoding="utf-8") as f:
-            _json.dump(settings, f, indent=2)
+            json.dump(settings, f, indent=2)
         return True
     except OSError:
         return False
@@ -507,7 +134,6 @@ def delete_template(name: str) -> bool:
     from .tm_settings import load_settings, _settings_path
     settings = load_settings()
     templates = settings.get("templates", {})
-    # Case-insensitive find
     key_to_delete = None
     for key in templates:
         if key.lower() == name.lower():
@@ -519,285 +145,8 @@ def delete_template(name: str) -> bool:
     settings["templates"] = templates
     target = _settings_path or Path(__file__).parent / ".ttm_config"
     try:
-        import json as _json
         with open(target, "w", encoding="utf-8") as f:
-            _json.dump(settings, f, indent=2)
+            json.dump(settings, f, indent=2)
         return True
     except OSError:
         return False
-
-
-# ─── Time Tracking ─────────────────────────────────────────────────────────
-
-# Time metadata stored as: -- spent:2h30m
-# Format: Xh, Xm, XhYm (hours and minutes)
-
-_TIME_PATTERN = re.compile(r"(\d+)h(?:(\d+)m)?|(\d+)m")
-
-
-def parse_time_spent(raw: str) -> Optional[int]:
-    """Parse time string like '2h', '30m', '1h30m' into total minutes."""
-    raw = raw.strip().lower()
-    match = re.fullmatch(r"(\d+)h(\d+)m", raw)
-    if match:
-        return int(match.group(1)) * 60 + int(match.group(2))
-    match = re.fullmatch(r"(\d+)h", raw)
-    if match:
-        return int(match.group(1)) * 60
-    match = re.fullmatch(r"(\d+)m", raw)
-    if match:
-        return int(match.group(1))
-    return None
-
-
-def format_time_spent(minutes: int) -> str:
-    """Format total minutes as XhYm string."""
-    if minutes <= 0:
-        return "0m"
-    h = minutes // 60
-    m = minutes % 60
-    if h and m:
-        return f"{h}h{m}m"
-    elif h:
-        return f"{h}h"
-    return f"{m}m"
-
-
-def extract_time_spent_from_line(line: str) -> Optional[int]:
-    """Extract spent:XhYm from a task line, return minutes or None."""
-    match = re.search(r"--\s*(?:spent|time)\s*[:=]\s*(\S+)", line, re.IGNORECASE)
-    if match:
-        return parse_time_spent(match.group(1))
-    return None
-
-
-def update_time_in_line(line: str, total_minutes: int) -> str:
-    """Update or insert spent:XhYm metadata in a task line."""
-    time_str = format_time_spent(total_minutes)
-    # Replace existing
-    new_line, count = re.subn(
-        r"--\s*(?:spent|time)\s*[:=]\s*\S+",
-        f"-- spent:{time_str}",
-        line,
-        count=1,
-        flags=re.IGNORECASE,
-    )
-    if count:
-        return new_line
-    # Append
-    return line.rstrip() + f" -- spent:{time_str}"
-
-
-def get_total_time_spent(tasks_by_date: dict) -> int:
-    """Sum all time spent across all tasks in minutes."""
-    total = 0
-    for tasks in tasks_by_date.values():
-        for task in tasks:
-            if getattr(task, "time_spent", None):
-                total += task.time_spent
-    return total
-
-
-# ─── Task Dependencies / Blockers ──────────────────────────────────────────
-
-# Stored as: -- blockedby:Task Title or -- blocks:Task Title
-# Uses the full task title for human readability in the .txt file.
-
-def extract_blockers_from_line(line: str) -> List[str]:
-    """Extract blockedby: values (task titles) from a task line."""
-    return re.findall(r"--\s*blockedby\s*[:=]\s*(.+?)(?:\s+--|$)", line, re.IGNORECASE)
-
-
-def extract_blocks_from_line(line: str) -> List[str]:
-    """Extract blocks: values (task titles) from a task line."""
-    return re.findall(r"--\s*blocks\s*[:=]\s*(.+?)(?:\s+--|$)", line, re.IGNORECASE)
-
-
-def add_blocker_metadata(line: str, blocker_title: str) -> str:
-    """Add blockedby:Title to a task line."""
-    return line.rstrip() + f" -- blockedby:{blocker_title.strip()}"
-
-
-def add_blocks_metadata(line: str, blocked_title: str) -> str:
-    """Add blocks:Title to a task line."""
-    return line.rstrip() + f" -- blocks:{blocked_title.strip()}"
-
-
-def remove_blocker_metadata(line: str, blocker_title: str) -> str:
-    """Remove a specific blockedby:Title from a task line."""
-    # Remove the specific -- blockedby:Title segment
-    pattern = r"\s*--\s*blockedby\s*[:=]\s*" + re.escape(blocker_title.strip())
-    return re.sub(pattern, "", line, count=1, flags=re.IGNORECASE).rstrip()
-
-
-def remove_all_blocker_metadata(line: str) -> str:
-    """Remove all blockedby: entries from a task line."""
-    return re.sub(r"\s*--\s*blockedby\s*[:=]\s*.+?(?=\s+--|$)", "", line, flags=re.IGNORECASE).rstrip()
-
-
-def remove_blocks_metadata(line: str, blocked_title: str) -> str:
-    """Remove a specific blocks:Title from a task line."""
-    pattern = r"\s*--\s*blocks\s*[:=]\s*" + re.escape(blocked_title.strip())
-    return re.sub(pattern, "", line, count=1, flags=re.IGNORECASE).rstrip()
-
-
-def remove_all_blocks_metadata(line: str) -> str:
-    """Remove all blocks: entries from a task line."""
-    return re.sub(r"\s*--\s*blocks\s*[:=]\s*.+?(?=\s+--|$)", "", line, flags=re.IGNORECASE).rstrip()
-
-
-def find_task_by_title_match(tasks_by_date: dict, title: str) -> Optional[Task]:
-    """Find a task whose title matches (case-insensitive).
-
-    Compares against both the full title and the tag-stripped title,
-    since blockedby/blocks metadata stores tag-stripped titles.
-    """
-    lower = title.strip().lower()
-    for tasks in tasks_by_date.values():
-        for task in tasks:
-            if task.title.strip().lower() == lower:
-                return task
-            stripped = " ".join(_TAG_RE.sub("", task.title).split()).lower()
-            if stripped == lower:
-                return task
-    return None
-
-
-def is_task_blocked(task: Task, tasks_by_date: dict) -> bool:
-    """Check if a task has unresolved blockers."""
-    if not task.blocked_by:
-        return False
-    for blocker_title in task.blocked_by:
-        blocker = find_task_by_title_match(tasks_by_date, blocker_title)
-        if blocker and not blocker.is_finished():
-            return True
-    return False
-
-
-# ─── Pomodoro Timer ────────────────────────────────────────────────────────
-
-import sys
-import time
-import threading
-
-
-def run_pomodoro(minutes: int = 25, task_title: str = "") -> int:
-    """Run a pomodoro countdown in the terminal. Returns elapsed minutes.
-
-    Can be interrupted with Enter or Ctrl+C (counts partial time).
-    Cross-platform (works on Windows, Linux, macOS).
-    """
-    total_seconds = minutes * 60
-    label = f" [{task_title[:30]}]" if task_title else ""
-    print(f"\n  Pomodoro started: {minutes}min{label}")
-    print(f"  Press Enter to stop early.\n")
-
-    stop_event = threading.Event()
-
-    def _wait_for_enter():
-        """Background thread that waits for Enter key."""
-        try:
-            sys.stdin.readline()
-            stop_event.set()
-        except Exception:
-            pass
-
-    listener = threading.Thread(target=_wait_for_enter, daemon=True)
-    listener.start()
-
-    start = time.time()
-    try:
-        while not stop_event.is_set():
-            elapsed = time.time() - start
-            remaining = total_seconds - int(elapsed)
-            if remaining <= 0:
-                break
-            mins, secs = divmod(remaining, 60)
-            sys.stdout.write(f"\r  ⏱  {mins:02d}:{secs:02d} remaining  ")
-            sys.stdout.flush()
-            stop_event.wait(timeout=1.0)
-    except KeyboardInterrupt:
-        pass
-
-    elapsed_minutes = max(1, int((time.time() - start) / 60 + 0.5))
-    sys.stdout.write(f"\r  ✓  Pomodoro done! ({elapsed_minutes}min logged)        \n")
-    sys.stdout.flush()
-    return elapsed_minutes
-
-
-# ─── Burndown Chart ────────────────────────────────────────────────────────
-
-def generate_burndown(tasks_by_date: dict, sprint_days: int = 14) -> str:
-    """Generate an ASCII burndown chart showing tasks completed vs remaining over time."""
-    today = datetime.now().date()
-    start_date = today - timedelta(days=sprint_days - 1)
-
-    # Count tasks created on or before each day, and completed on each day
-    all_tasks: List[Task] = []
-    for tasks in tasks_by_date.values():
-        all_tasks.extend(tasks)
-
-    total_tasks = len(all_tasks)
-    if total_tasks == 0:
-        return "No tasks to chart."
-
-    # Build daily remaining count
-    # We approximate: tasks in DONE/CANCELLED with a date <= day are "done by that day"
-    daily_remaining: List[Tuple[str, int]] = []
-
-    for day_offset in range(sprint_days):
-        current_date = start_date + timedelta(days=day_offset)
-        done_by_date = 0
-        for task in all_tasks:
-            if task.is_finished():
-                task_date = task.date.date() if task.date else today
-                if task_date <= current_date:
-                    done_by_date += 1
-        remaining = total_tasks - done_by_date
-        label = current_date.strftime("%d/%m")
-        daily_remaining.append((label, remaining))
-
-    # Render ASCII chart
-    tw = shutil.get_terminal_size((80, 24)).columns
-    chart_width = min(tw - 12, sprint_days * 4, 60)
-    max_val = total_tasks
-    lines: List[str] = []
-
-    lines.append(f"Burndown ({sprint_days} days) — {total_tasks} total tasks")
-    lines.append("─" * (chart_width + 10))
-
-    # Chart rows (top to bottom: max_val down to 0)
-    chart_height = min(15, max_val)
-    if chart_height == 0:
-        chart_height = 1
-
-    for row in range(chart_height, -1, -1):
-        threshold = (row / chart_height) * max_val
-        label = f"{int(threshold):>3} │"
-        bar = ""
-        for _, remaining in daily_remaining:
-            if remaining >= threshold:
-                bar += "█"
-            else:
-                bar += " "
-        lines.append(f"{label}{bar}")
-
-    # X-axis
-    lines.append(f"    └{'─' * len(daily_remaining)}")
-    # Date labels (show first, middle, last)
-    if daily_remaining:
-        first = daily_remaining[0][0]
-        last = daily_remaining[-1][0]
-        mid_idx = len(daily_remaining) // 2
-        mid = daily_remaining[mid_idx][0]
-        axis = f"     {first}" + " " * max(0, mid_idx - len(first) - 1) + mid
-        axis += " " * max(0, len(daily_remaining) - len(axis) + 5 - len(last)) + last
-        lines.append(axis)
-
-    # Ideal burndown line info
-    lines.append("")
-    ideal_per_day = total_tasks / max(sprint_days - 1, 1)
-    current_remaining = daily_remaining[-1][1] if daily_remaining else total_tasks
-    lines.append(f"  Ideal: -{ideal_per_day:.1f}/day | Current remaining: {current_remaining} | Velocity: {total_tasks - current_remaining} done")
-
-    return "\n".join(lines)

@@ -26,5 +26,5 @@ RECURRENCE_ALIASES = {
     "M": "monthly",
     "Y": "yearly",
 }
-APP_VERSION = "1.2"
+APP_VERSION = "2.0"
 BANNER_INNER_WIDTH = 46
