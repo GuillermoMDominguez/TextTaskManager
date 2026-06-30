@@ -1,0 +1,10 @@
+{
+  "name": "TextTaskManager",
+  "short_name": "TTM",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1b26",
+  "theme_color": "#7aa2f7",
+  "description": "Task management with journal files",
+  "icons": []
+}

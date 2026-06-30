@@ -185,6 +185,106 @@ function toggleFilter(type, value) {
   renderFilteredTasks();
 }
 
+// ─── Archive ─────────────────────────────────────
+async function archiveFinished() {
+  if (!confirm('Archive all finished tasks?')) return;
+  const data = await api('POST', '/api/tasks/archive', {});
+  if (data.ok) alert(`Archived ${data.archived} task(s)`);
+  loadView(currentView);
+}
+
+// ─── Batch Operations ────────────────────────────
+function toggleSelect(id) {
+  if (SELECTED_TASKS.has(id)) SELECTED_TASKS.delete(id);
+  else SELECTED_TASKS.add(id);
+  updateBatchBar();
+}
+
+function clearSelection() {
+  SELECTED_TASKS.clear();
+  updateBatchBar();
+  renderFilteredTasks();
+}
+
+function updateBatchBar() {
+  const bar = document.getElementById('batch-bar');
+  const count = SELECTED_TASKS.size;
+  if (count === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  document.getElementById('batch-count').textContent = count + ' selected';
+  const stateSel = document.getElementById('batch-state');
+  if (!stateSel.dataset.populated) {
+    stateSel.innerHTML = '<option value="">State…</option>' + STATES.map(s => `<option value="${s}">${s}</option>`).join('');
+    stateSel.dataset.populated = '1';
+  }
+  const prioSel = document.getElementById('batch-priority');
+  if (!prioSel.dataset.populated) {
+    prioSel.innerHTML = '<option value="">Priority…</option>' + PRIORITIES.map(p => `<option value="${p}">${p}</option>`).join('');
+    prioSel.dataset.populated = '1';
+  }
+}
+
+async function batchSetState(state) {
+  if (!state) return;
+  const ids = Array.from(SELECTED_TASKS);
+  await api('POST', '/api/tasks/batch/state', { task_ids: ids, state });
+  document.getElementById('batch-state').value = '';
+  clearSelection();
+  loadView(currentView);
+}
+
+async function batchSetPriority(priority) {
+  if (!priority) return;
+  const ids = Array.from(SELECTED_TASKS);
+  await api('POST', '/api/tasks/batch/priority', { task_ids: ids, priority });
+  document.getElementById('batch-priority').value = '';
+  clearSelection();
+  loadView(currentView);
+}
+
+async function batchAddTag(tag) {
+  const t = (tag || '').trim();
+  if (!t) return;
+  const ids = Array.from(SELECTED_TASKS);
+  await api('POST', '/api/tasks/batch/tags', { task_ids: ids, add_tags: [t] });
+  document.getElementById('batch-add-tag').value = '';
+  loadView(currentView);
+}
+
+async function batchRemoveTag(tag) {
+  const t = (tag || '').trim();
+  if (!t) return;
+  const ids = Array.from(SELECTED_TASKS);
+  await api('POST', '/api/tasks/batch/tags', { task_ids: ids, remove_tags: [t] });
+  document.getElementById('batch-remove-tag').value = '';
+  loadView(currentView);
+}
+
+async function batchDelete() {
+  const ids = Array.from(SELECTED_TASKS);
+  if (!confirm(`Delete ${ids.length} task(s)?`)) return;
+  await api('POST', '/api/tasks/batch/delete', { task_ids: ids });
+  clearSelection();
+  loadView(currentView);
+}
+
+// ─── Import ──────────────────────────────────────
+async function importTasks() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const text = await file.text();
+    try { JSON.parse(text); } catch(e) { alert('Invalid JSON file'); return; }
+    const data = await api('POST', '/api/tasks/import', { json: text });
+    if (data.ok) alert(`Imported ${data.imported} task(s)`);
+    loadView(currentView);
+  };
+  input.click();
+}
+
 function clearFilters() {
   activeFilters = { state: null, priority: null, tag: null, text: '' };
   buildFilterBar(allTasks);
@@ -270,14 +370,18 @@ function toggleTagsMore(btn, containerId) {
   }
 }
 
+const SELECTED_TASKS = new Set();
+
 function renderTaskItem(t, showStateDropdown = true) {
   const hasTags = t.tags && t.tags.length;
   const hasSubtasks = t.subtasks && t.subtasks.length;
   const hasNotes = t.notes && t.notes.length;
   const hasExtra = hasTags || hasSubtasks || hasNotes;
+  const checked = SELECTED_TASKS.has(t.id) ? 'checked' : '';
   return `
-    <li class="task-item" data-id="${t.id}" onclick="openEditModal('${t.id}')">
-      <div class="task-row">
+    <li class="task-item" data-id="${t.id}">
+      <div class="task-row" onclick="openEditModal('${t.id}')">
+        <input type="checkbox" class="task-checkbox" ${checked} onclick="event.stopPropagation();toggleSelect('${t.id}')">
         <span class="task-id">#${t.id}</span>
         <span class="state-badge state-${t.state.replace(/ /g, '_')}"${showStateDropdown ? ` onclick="event.stopPropagation();toggleStateDropdown(this, '${t.id}', '${t.state}')"` : ''}>${t.state}</span>
         <div class="task-title-col">

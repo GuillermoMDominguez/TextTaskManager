@@ -4,6 +4,11 @@ from .handlers.tasks import (
     api_add_note,
     api_add_subtask,
     api_add_subtask_note,
+    api_archive_tasks,
+    api_batch_delete,
+    api_batch_priority,
+    api_batch_state,
+    api_batch_tags,
     api_change_state,
     api_create_task,
     api_delete_note,
@@ -14,6 +19,7 @@ from .handlers.tasks import (
     api_edit_subtask,
     api_edit_subtask_note,
     api_edit_task,
+    api_import_tasks,
 )
 from .handlers.views import (
     api_apply_template,
@@ -122,6 +128,13 @@ API_ROUTES = {
     ("POST", "/api/sync/pull"): api_post_sync_pull,
     ("POST", "/api/sync/push"): api_post_sync_push,
     ("POST", "/api/sync/settings"): api_post_sync_settings,
+    # Batch / Archive / Import
+    ("POST", "/api/tasks/archive"): api_archive_tasks,
+    ("POST", "/api/tasks/batch/state"): api_batch_state,
+    ("POST", "/api/tasks/batch/tags"): api_batch_tags,
+    ("POST", "/api/tasks/batch/priority"): api_batch_priority,
+    ("POST", "/api/tasks/batch/delete"): api_batch_delete,
+    ("POST", "/api/tasks/import"): api_import_tasks,
     # Notes
     ("POST", "/api/notes"): api_create_note,
     ("POST", "/api/notes/delete"): api_delete_note_route,

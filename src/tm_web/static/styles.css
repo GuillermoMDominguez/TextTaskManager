@@ -1457,6 +1457,20 @@ main {
 }
 .jira-move-option:hover { background: var(--bg-hover); }
 
+/* ─── State Filter Bar ────────────────────────── */
+.state-filter-bar { display:flex; gap:4px; margin-bottom:8px; flex-wrap:wrap; }
+.state-filter-bar .sf-btn { padding:2px 8px; font-size:10px; border-radius:var(--radius); border:1px solid var(--border); background:var(--bg-surface); color:var(--text-dim); cursor:pointer; }
+.state-filter-bar .sf-btn:hover { border-color:var(--accent); color:var(--text); }
+.state-filter-bar .sf-btn.active { border-color:var(--accent); color:var(--accent); background:var(--bg-hover); }
+
+/* ─── Batch Action Bar ────────────────────────── */
+.batch-bar { display:flex; gap:6px; align-items:center; padding:6px 10px; background:var(--bg-hover); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:8px; flex-wrap:wrap; }
+.batch-bar select, .batch-bar input { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); }
+.batch-bar select:focus, .batch-bar input:focus { border-color:var(--accent); outline:none; }
+
+/* ─── Task Checkbox ───────────────────────────── */
+.task-item .task-checkbox { margin-right:6px; cursor:pointer; accent-color:var(--accent); }
+
 /* ─── Config View ─────────────────────────────── */
 .config-section { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
 .config-section h3 { font-size: 13px; color: var(--accent); margin-bottom: 12px; }

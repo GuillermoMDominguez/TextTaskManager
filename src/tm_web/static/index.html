@@ -1628,6 +1628,14 @@ main {
 #pomo-display.pomo-break { color: var(--green, #4caf50); }
 #pomo-display.pomo-work { color: var(--text); }
 </style>
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+}
+</script>
 </head>
 <body>
 <div class="app">
@@ -1701,10 +1709,21 @@ main {
     <div id="view-tasks" class="view active">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h2 class="view-title">Tasks</h2>
-        <div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-sm" id="btn-archive" onclick="archiveFinished()" title="Archive finished tasks">Archive</button>
+          <button class="btn btn-sm" onclick="importTasks()">Import</button>
           <button class="btn btn-sm" id="btn-view-pending" onclick="loadTasks('pending')">Pending</button>
           <button class="btn btn-sm" id="btn-view-all" onclick="loadTasks('all')">All</button>
         </div>
+      </div>
+      <div id="batch-bar" class="batch-bar" style="display:none">
+        <span id="batch-count" style="font-size:11px;color:var(--text-dim)">0 selected</span>
+        <select id="batch-state" style="font-size:11px;padding:2px 6px" onchange="batchSetState(this.value)"><option value="">State…</option></select>
+        <select id="batch-priority" style="font-size:11px;padding:2px 6px" onchange="batchSetPriority(this.value)"><option value="">Priority…</option></select>
+        <input type="text" id="batch-add-tag" placeholder="+tag" style="width:60px;font-size:11px;padding:2px 6px" onkeydown="if(event.key==='Enter')batchAddTag(this.value)">
+        <input type="text" id="batch-remove-tag" placeholder="-tag" style="width:60px;font-size:11px;padding:2px 6px" onkeydown="if(event.key==='Enter')batchRemoveTag(this.value)">
+        <button class="btn btn-sm" onclick="batchDelete()" style="color:var(--red)">Delete</button>
+        <button class="btn btn-sm" onclick="clearSelection()">Clear</button>
       </div>
       <div class="filter-bar" id="filter-bar"></div>
       <div class="task-table-wrap">

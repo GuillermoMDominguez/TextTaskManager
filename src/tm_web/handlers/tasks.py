@@ -616,3 +616,144 @@ def api_edit_subtask_note(handler, params) -> None:
             error_response(handler, "Note line not found in file", 404)
     except Exception as e:
         error_response(handler, str(e), 500)
+
+
+def api_archive_tasks(handler, params) -> None:
+    """POST /api/tasks/archive — archive finished tasks (optionally before a date)."""
+    from src.tm_journal import archive_finished_tasks_in_file, read_journal_snapshot
+    from src.tm_cmd_common import _try_parse_date, _default_archive_path
+    body = read_body(handler)
+    before_date = body.get("before_date", "").strip()
+    parsed = _try_parse_date(before_date) if before_date else None
+    snapshot = read_journal_snapshot(_state.journal_path)
+    archive_path = _default_archive_path(_state.journal_path)
+    moved = archive_finished_tasks_in_file(_state.journal_path, archive_path, parsed)
+    _state.refresh()
+    json_response(handler, {"ok": True, "archived": moved, "archive_path": str(archive_path)})
+
+
+def api_batch_state(handler, params) -> None:
+    """POST /api/tasks/batch/state — change state for multiple task IDs."""
+    body = read_body(handler)
+    task_ids = body.get("task_ids", [])
+    new_state = body.get("state", "").strip()
+    if not task_ids or not new_state:
+        error_response(handler, "task_ids and state are required")
+        return
+    from src.tm_journal import update_task_state_in_file
+    success = 0
+    for tid in task_ids:
+        task = find_task_by_id(_state.tasks_by_date, tid)
+        if task and not isinstance(task, Subtask):
+            if update_task_state_in_file(_state.journal_path, task, new_state):
+                success += 1
+    _state.refresh()
+    json_response(handler, {"ok": True, "updated": success})
+
+
+def api_batch_tags(handler, params) -> None:
+    """POST /api/tasks/batch/tags — add/remove tags for multiple task IDs."""
+    body = read_body(handler)
+    task_ids = body.get("task_ids", [])
+    add_tags = body.get("add_tags", [])
+    remove_tags = body.get("remove_tags", [])
+    if not task_ids or (not add_tags and not remove_tags):
+        error_response(handler, "task_ids and at least one tag operation required")
+        return
+    from src.tm_journal import read_journal_snapshot, write_journal
+    from src.tm_views_data import get_all_tasks_flat
+    snapshot = read_journal_snapshot(_state.journal_path)
+    lines = Path(_state.journal_path).read_text(encoding="utf-8").split("\n")
+    all_tasks = get_all_tasks_flat(_state.tasks_by_date)
+    updated = 0
+    for tid in task_ids:
+        task = find_task_by_id(_state.tasks_by_date, tid)
+        if not task or isinstance(task, Subtask) or not task.source_line:
+            continue
+        idx = task.source_line - 1
+        if idx < 0 or idx >= len(lines):
+            continue
+        line = lines[idx]
+        tag_set = set(re.findall(r"#([\w-]+)", line))
+        changed = False
+        for t in add_tags:
+            if t not in tag_set:
+                line = line.rstrip("\n") + f" #{t}\n"
+                changed = True
+                tag_set.add(t)
+        if remove_tags:
+            for t in remove_tags:
+                if t in tag_set:
+                    line = re.sub(rf" #{re.escape(t)}\b", "", line)
+                    changed = True
+        if changed:
+            lines[idx] = line
+            updated += 1
+    write_journal(_state.journal_path, "\n".join(lines))
+    _state.refresh()
+    json_response(handler, {"ok": True, "updated": updated})
+
+
+def api_batch_priority(handler, params) -> None:
+    """POST /api/tasks/batch/priority — change priority for multiple task IDs."""
+    body = read_body(handler)
+    task_ids = body.get("task_ids", [])
+    priority = body.get("priority", "").strip()
+    if not task_ids or not priority:
+        error_response(handler, "task_ids and priority are required")
+        return
+    from src.tm_config import VALID_PRIORITIES
+    if priority.upper() not in VALID_PRIORITIES:
+        error_response(handler, f"Invalid priority: {priority}")
+        return
+    from src.tm_journal import update_task_metadata_in_file
+    success = 0
+    for tid in task_ids:
+        task = find_task_by_id(_state.tasks_by_date, tid)
+        if task and not isinstance(task, Subtask):
+            if update_task_metadata_in_file(_state.journal_path, task, task.due_date, priority):
+                success += 1
+    _state.refresh()
+    json_response(handler, {"ok": True, "updated": success})
+
+
+def api_batch_delete(handler, params) -> None:
+    """POST /api/tasks/batch/delete — delete multiple tasks by ID."""
+    body = read_body(handler)
+    task_ids = body.get("task_ids", [])
+    if not task_ids:
+        error_response(handler, "task_ids is required")
+        return
+    from src.tm_journal import delete_task_in_file, read_journal_snapshot
+    snapshot = read_journal_snapshot(_state.journal_path)
+    success = 0
+    for tid in task_ids:
+        task = find_task_by_id(_state.tasks_by_date, tid)
+        if task and not isinstance(task, Subtask):
+            if delete_task_in_file(_state.journal_path, task):
+                success += 1
+    _state.refresh()
+    json_response(handler, {"ok": True, "deleted": success})
+
+
+def api_import_tasks(handler, params) -> None:
+    """POST /api/tasks/import — import tasks from uploaded JSON."""
+    body = read_body(handler)
+    json_text = body.get("json", "")
+    if not json_text:
+        error_response(handler, "json field is required")
+        return
+    from src.tm_features import import_from_json
+    from src.tm_journal import read_journal_snapshot, write_journal
+    new_lines = import_from_json(json_text)
+    if not new_lines:
+        error_response(handler, "Could not parse JSON or empty content")
+        return
+    snapshot = read_journal_snapshot(_state.journal_path)
+    from src.tm_journal import file_lock
+    with file_lock:
+        existing = _state.journal_path.read_text(encoding="utf-8")
+        write_journal(_state.journal_path, existing + "".join(new_lines))
+    _state.refresh()
+    task_count = sum(1 for line in new_lines if line.strip().startswith("-"))
+    json_response(handler, {"ok": True, "imported": task_count})
