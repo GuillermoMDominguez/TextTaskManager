@@ -275,6 +275,8 @@ main {
   text-align: center;
   min-width: 85px;
   box-sizing: border-box;
+  cursor: pointer;
+  position: relative;
 }
 .task-subtask .sub-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-subtask .sub-due { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
@@ -1135,6 +1137,18 @@ main {
 .tag-suggestion-item.already-added { opacity: 0.5; }
 .tag-suggestion-item.already-added .tag-name::after { content: ' ✓'; color: var(--green); }
 
+/* ─── Calendar Trigger ─────────────────────── */
+.date-input-wrapper { display:flex; align-items:center; gap:4px; }
+.date-input-wrapper input[type="text"] { flex:1; }
+.cal-trigger {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:28px; height:28px; padding:0; border:1px solid var(--border);
+  background:var(--bg); color:var(--text-dim); border-radius:var(--radius);
+  cursor:pointer; flex-shrink:0;
+}
+.cal-trigger:hover { background:var(--bg-hover); color:var(--accent); }
+.cal-trigger svg { width:16px; height:16px; }
+
 /* ─── Empty State ──────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
 
@@ -1385,6 +1399,8 @@ main {
   border-radius: 2px;
   font-weight: 600;
   flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
 }
 .subtask-row .st-title { flex: 1; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subtask-row .st-edit { color: var(--accent); cursor: pointer; font-size: 11px; opacity: 0.7; flex-shrink: 0; }

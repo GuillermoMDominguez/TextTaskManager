@@ -396,7 +396,7 @@ function renderTaskItem(t, showStateDropdown = true) {
                 ${t.subtasks.map((st, idx) => `
                   <div class="subtask-block">
                     <div class="task-subtask" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">
-                      <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
+                      <span class="sub-state state-badge state-${st.state.replace(/ /g, '_')}" onclick="event.stopPropagation();toggleSubtaskStateDropdown(this, '${st.id}', '${st.state}')">${st.state}</span>
                       <span class="sub-title">${h(stripTags(st.title))}</span>
                       <span class="sub-tags">${renderTagsWithLimit(st.tags, 3, `st-tags-${t.id}-${idx}`)}</span>
                       <span class="sub-priority priority-badge ${st.priority ? 'priority-' + st.priority : ''}">${st.priority || ''}</span>
@@ -1930,20 +1930,24 @@ async function markJiraRead(id) {
 }
 
 // ─── State Dropdown ─────────────────────────────
-function toggleStateDropdown(el, taskId, currentState) {
+function _showStateDropdown(el, taskId, currentState, isSubtask) {
   document.querySelectorAll('.state-dropdown').forEach(d => d.remove());
 
+  const rect = el.getBoundingClientRect();
   const dd = document.createElement('div');
   dd.className = 'state-dropdown open';
+  const fn = isSubtask ? 'changeSubtaskState' : 'changeState';
   dd.innerHTML = STATES.map(s => `
     <div class="option${s === currentState ? ' current' : ''}"
-         onclick="event.stopPropagation();changeState('${taskId}','${s}');this.parentElement.remove()">
+         onclick="event.stopPropagation();${fn}('${taskId}','${s}');this.parentElement.remove()">
       ${s}
     </div>
   `).join('');
-
-  el.style.position = 'relative';
-  el.appendChild(dd);
+  dd.style.position = 'fixed';
+  dd.style.top = (rect.bottom + 2) + 'px';
+  dd.style.left = rect.left + 'px';
+  dd.style.zIndex = 10000;
+  document.body.appendChild(dd);
 
   setTimeout(() => {
     document.addEventListener('click', function handler() {
@@ -1953,8 +1957,21 @@ function toggleStateDropdown(el, taskId, currentState) {
   }, 0);
 }
 
+function toggleStateDropdown(el, taskId, currentState) {
+  _showStateDropdown(el, taskId, currentState, false);
+}
+
 async function changeState(taskId, state) {
   await api('POST', `/api/tasks/${taskId}/state`, { state });
+  loadView(currentView);
+}
+
+function toggleSubtaskStateDropdown(el, subtaskId, currentState) {
+  _showStateDropdown(el, subtaskId, currentState, true);
+}
+
+async function changeSubtaskState(subtaskId, state) {
+  await api('POST', `/api/subtasks/edit?subtask_id=${subtaskId}`, { state });
   loadView(currentView);
 }
 
@@ -2379,7 +2396,7 @@ function renderSubtasksInModal(subtasks) {
   }
   el.innerHTML = subtasks.map(st => `
     <div class="subtask-row">
-      <span class="st-state state-badge state-${st.state.replace(/ /g, '_')}">${st.state}</span>
+      <span class="st-state state-badge state-${st.state.replace(/ /g, '_')}" onclick="event.stopPropagation();toggleSubtaskStateDropdown(this, '${st.id}', '${st.state}')">${st.state}</span>
       <span class="st-title">${h(st.title)}</span>
       <span class="st-edit" onclick="event.stopPropagation();openSubtaskModal('${st.id}')">edit</span>
       <span class="st-del" onclick="event.stopPropagation();deleteSubtaskFromModal('${st.id}')">x</span>
@@ -3701,6 +3718,45 @@ async function checkNotifications() {
   } catch(e) { /* ignore polling errors */ }
 }
 
+// ─── Date Picker ──────────────────────────────────
+function initDatePickers() {
+  addPickerToInput('edit-due');
+  addPickerToInput('new-due');
+  addPickerToInput('subtask-edit-due');
+}
+
+function addPickerToInput(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  const nativeInput = document.createElement('input');
+  nativeInput.type = 'date';
+  nativeInput.id = inputId + '-native';
+  nativeInput.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;z-index:-1;';
+  nativeInput.addEventListener('change', function() {
+    if (this.value) {
+      const [y, m, d] = this.value.split('-');
+      input.value = `${d}/${m}/${y}`;
+      input.dispatchEvent(new Event('input'));
+    }
+  });
+  input.parentElement.insertBefore(nativeInput, input.nextSibling);
+
+  input.addEventListener('click', function(e) {
+    const rect = this.getBoundingClientRect();
+    nativeInput.style.top = rect.top + 'px';
+    nativeInput.style.left = rect.left + 'px';
+    nativeInput.style.width = rect.width + 'px';
+    nativeInput.style.height = rect.height + 'px';
+    const match = this.value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (match) {
+      nativeInput.value = `${match[3]}-${match[2]}-${match[1]}`;
+    }
+    nativeInput.showPicker();
+  });
+}
+
 // ─── Init ───────────────────────────────────────
 loadTasks('pending');
 initNotifications();
+initDatePickers();
