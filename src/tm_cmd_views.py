@@ -354,6 +354,10 @@ def _print_calendar(tasks_by_date: dict, view: str = "month", target_date: datet
     # Get sorted dates
     dates = sorted(data.days.keys(), key=lambda x: datetime.strptime(x, "%d/%m/%Y"))
 
+    if not dates:
+        print(f"  No tasks in this period.\n")
+        return
+
     if view == "month":
         # Pad start of month to align with weekday
         first_date = datetime.strptime(dates[0], "%d/%m/%Y")

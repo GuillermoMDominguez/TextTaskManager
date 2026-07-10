@@ -2,6 +2,7 @@
 blockers, pomodoro, burndown, kanban, project/tag views, export, import, weekly report,
 sort, and email."""
 
+import json
 import re
 import shutil
 import time
@@ -175,6 +176,12 @@ def handle_template(
         if subtasks:
             template_data["subtasks"] = subtasks
 
+        existing_tpl = get_template(tpl_name)
+        if existing_tpl:
+            clear_screen()
+            _render(refreshed, view_state)
+            _log("warning", f"Template '{tpl_name}' already exists. Use 'tpl save {tpl_name}' again to overwrite.")
+            return CommandOutcome(refreshed, view_state, skip_redraw=True)
         if save_template(tpl_name, template_data):
             clear_screen()
             _render(refreshed, view_state)
@@ -303,11 +310,18 @@ def handle_time_tracking(
         _log("error", f"Task {task_id} not found (must be parent task).")
         return CommandOutcome(refreshed, view_state)
 
+    _timer_file = Path(context.journal_path).parent / ".ttm_timer.json"
+
     if time_arg == "start":
-        # Store start timestamp in memory (session only)
         if not hasattr(context, '_time_tracking'):
             context._time_tracking = {}
-        context._time_tracking[task_id] = time.time()
+        now = time.time()
+        context._time_tracking[task_id] = now
+        # Persist to disk so timer survives app restart
+        try:
+            _timer_file.write_text(json.dumps({task_id: now}), encoding="utf-8")
+        except OSError:
+            pass
         _log("info", f"Timer started for task {task_id}.")
         return CommandOutcome(refreshed, view_state)
 
@@ -316,6 +330,11 @@ def handle_time_tracking(
             _log("error", f"No timer running for task {task_id}. Use 'tt {task_id} start' first.")
             return CommandOutcome(refreshed, view_state)
         elapsed = time.time() - context._time_tracking.pop(task_id)
+        # Clear persisted timer
+        try:
+            _timer_file.write_text("{}", encoding="utf-8")
+        except OSError:
+            pass
         elapsed_minutes = max(1, int(elapsed / 60 + 0.5))
         time_arg = format_time_spent(elapsed_minutes)
         _log("info", f"Timer stopped: {time_arg} elapsed.")
@@ -885,14 +904,28 @@ def handle_weekly_report(
     view_state: ViewState,
     context: CommandContext,
 ) -> Optional[CommandOutcome]:
-    """Handle 'wr|weekly' command."""
+    """Handle 'wr|weekly' command.
+
+    Usage:
+        wr                           — last 7 days ending today
+        wr 14                        — last 14 days ending today
+        wr 10/07/2026                — last 7 days ending on that date
+        wr 14 10/07/2026             — last 14 days ending on that date
+    """
     if not re.match(r"^\s*(?:wr|weekly)\b", raw_command, re.IGNORECASE):
         return None
 
     refreshed = context.refresh_tasks()
-    match = re.match(r"^\s*(?:wr|weekly)(?:\s+(\d+))?\s*$", raw_command, re.IGNORECASE)
+    match = re.match(
+        r"^\s*(?:wr|weekly)(?:\s+(\d+))?(?:\s+(\d{1,2}/\d{1,2}/\d{2,4}))?\s*$",
+        raw_command, re.IGNORECASE,
+    )
     days = int(match.group(1)) if match and match.group(1) else int(get_setting("weekly_report_days", 7))
-    report = generate_weekly_report(refreshed, days)
+    end_date = None
+    if match and match.group(2):
+        from src.tm_logic import parse_date_input
+        end_date = parse_date_input(match.group(2))
+    report = generate_weekly_report(refreshed, days, end_date)
     print(f"\n{report}")
     return CommandOutcome(refreshed, view_state, skip_redraw=True)
 

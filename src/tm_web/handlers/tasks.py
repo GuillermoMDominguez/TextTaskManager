@@ -1,5 +1,6 @@
 """Task CRUD API handlers — create, edit, delete tasks, subtasks, notes."""
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -43,6 +44,8 @@ def api_create_task(handler, params) -> None:
     jira_key = body.get("jira_key")
     recurrence = body.get("recurrence")
     tags = body.get("tags", [])
+    if isinstance(tags, str):
+        tags = [tags]
 
     if not title:
         error_response(handler, "title is required")
@@ -107,7 +110,10 @@ def api_change_state(handler, params) -> None:
     try:
         has_recurrence = not isinstance(task, Subtask) and getattr(task, "recurrence", None)
 
-        update_task_state_in_file(_state.journal_path, task, normalized)
+        if isinstance(task, Subtask):
+            update_subtask_state_in_file(_state.journal_path, task, normalized)
+        else:
+            update_task_state_in_file(_state.journal_path, task, normalized)
 
         if has_recurrence and normalized in FINISHED_STATES:
             base_date = task.due_date or task.date or datetime.now()
@@ -148,8 +154,18 @@ def api_edit_task(handler, params) -> None:
         return
 
     try:
+        # Capture pre-edit values for recurrence before any mutations
+        _has_rec = not isinstance(task, Subtask) and getattr(task, "recurrence", None)
+        _rec_title = task.title if _has_rec else None
+        _rec_base = task.due_date or task.date if _has_rec else None
+        _rec_due = task.due_date if _has_rec else None
+        _rec_pri = task.priority if _has_rec else None
+        _rec_val = task.recurrence if _has_rec else None
+
         new_title = body.get("title", "").strip()
         new_tags = body.get("tags") if "tags" in body else None
+        if isinstance(new_tags, str):
+            new_tags = [new_tags]
 
         if new_tags is not None:
             from src.tm_cmd_common import _apply_tags_to_text, _strip_inline_tags
@@ -171,27 +187,19 @@ def api_edit_task(handler, params) -> None:
         if new_state and new_state != task.state:
             normalized = normalize_state_input(new_state)
             if normalized:
-                has_recurrence = not isinstance(task, Subtask) and getattr(task, "recurrence", None)
-                # Capture recurrence values before state change/refresh
-                recur_title = task.title if has_recurrence else None
-                recur_base_date = task.due_date or task.date if has_recurrence else None
-                recur_next_due = task.due_date if has_recurrence else None
-                recur_priority = task.priority if has_recurrence else None
-                recur_value = task.recurrence if has_recurrence else None
-
                 update_task_state_in_file(_state.journal_path, task, normalized)
 
-                if has_recurrence and normalized in FINISHED_STATES:
-                    next_date = compute_next_recurrence_date(recur_base_date or datetime.now(), recur_value)
-                    next_due = compute_next_recurrence_date(recur_next_due, recur_value) if recur_next_due else None
+                if _has_rec and normalized in FINISHED_STATES:
+                    next_date = compute_next_recurrence_date(_rec_base or datetime.now(), _rec_val)
+                    next_due = compute_next_recurrence_date(_rec_due, _rec_val) if _rec_due else None
                     add_task_to_file(
                         _state.journal_path,
-                        recur_title,
+                        _rec_title,
                         DEFAULT_STATE,
                         next_date,
                         next_due,
-                        recur_priority,
-                        recur_value,
+                        _rec_pri,
+                        _rec_val,
                     )
 
                 _state.refresh()
@@ -423,6 +431,8 @@ def api_edit_subtask(handler, params) -> None:
         priority_str = body.get("priority", "").strip() if body.get("priority") is not None else None
         note_to_add = body.get("add_note", "").strip() if body.get("add_note") else ""
         new_tags = body.get("tags") if "tags" in body else None
+        if isinstance(new_tags, str):
+            new_tags = [new_tags]
 
         if new_tags is not None and new_title:
             from src.tm_cmd_common import _apply_tags_to_text
@@ -681,6 +691,10 @@ def api_batch_state(handler, params) -> None:
     if not task_ids or not new_state:
         error_response(handler, "task_ids and state are required")
         return
+    normalized = normalize_state_input(new_state)
+    if not normalized:
+        error_response(handler, f"Invalid state: {new_state}")
+        return
     from src.tm_journal import update_task_state_in_file
     success = 0
     for tid in task_ids:
@@ -693,10 +707,10 @@ def api_batch_state(handler, params) -> None:
             recur_priority = task.priority if has_recurrence else None
             recur_value = task.recurrence if has_recurrence else None
 
-            if update_task_state_in_file(_state.journal_path, task, new_state):
+            if update_task_state_in_file(_state.journal_path, task, normalized):
                 success += 1
 
-            if has_recurrence and new_state in FINISHED_STATES:
+            if has_recurrence and normalized in FINISHED_STATES:
                 next_date = compute_next_recurrence_date(recur_base_date or datetime.now(), recur_value)
                 next_due = compute_next_recurrence_date(recur_next_due, recur_value) if recur_next_due else None
                 add_task_to_file(
@@ -805,12 +819,11 @@ def api_import_tasks(handler, params) -> None:
         error_response(handler, "json field is required")
         return
     from src.tm_features import import_from_json
-    from src.tm_journal import read_journal_snapshot, write_journal
+    from src.tm_journal import write_journal
     new_lines = import_from_json(json_text)
     if not new_lines:
         error_response(handler, "Could not parse JSON or empty content")
         return
-    snapshot = read_journal_snapshot(_state.journal_path)
     from src.tm_journal import file_lock
     with file_lock:
         existing = _state.journal_path.read_text(encoding="utf-8")

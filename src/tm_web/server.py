@@ -44,73 +44,80 @@ class TTMRequestHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(_STATIC_DIR), **kwargs)
 
-    def do_GET(self):
+    def _call_api(self, method: str, path: str, params: dict) -> bool:
+        """Look up and invoke an API handler, returning True if found."""
+        route_key = (method, path)
+        if route_key in API_ROUTES:
+            try:
+                API_ROUTES[route_key](self, params)
+            except Exception as e:
+                error_response(self, str(e), 500)
+            return True
+        return False
+
+    def _route_api(self, method: str) -> bool:
+        """Parse URL and dispatch to API handler. Returns True if a handler was invoked."""
         parsed = urlparse(self.path)
         params = parse_qs(parsed.query)
+        path = parsed.path
 
-        route_key = ("GET", parsed.path)
-        if route_key in API_ROUTES:
-            API_ROUTES[route_key](self, params)
+        # Direct route match
+        if self._call_api(method, path, params):
+            return True
+
+        # Pattern: /api/tasks/<id>/<action>
+        if path.startswith("/api/tasks/"):
+            parts = path.split("/")
+            if len(parts) == 5:
+                task_id, action = parts[3], parts[4]
+                params["task_id"] = [task_id]
+                if self._call_api(method, f"/api/tasks/{action}", params):
+                    return True
+            if len(parts) == 6:
+                task_id, sub, action = parts[3], parts[4], parts[5]
+                params["task_id"] = [task_id]
+                if self._call_api(method, f"/api/tasks/{sub}/{action}", params):
+                    return True
+
+        # Pattern: /api/subtasks/<id>/<action>
+        if path.startswith("/api/subtasks/"):
+            parts = path.split("/")
+            if len(parts) == 5:
+                subtask_id, action = parts[3], parts[4]
+                params["subtask_id"] = [subtask_id]
+                if self._call_api(method, f"/api/subtasks/{action}", params):
+                    return True
+            elif len(parts) == 6:
+                subtask_id = parts[3]
+                action = f"{parts[4]}/{parts[5]}"
+                params["subtask_id"] = [subtask_id]
+                if self._call_api(method, f"/api/subtasks/{action}", params):
+                    return True
+
+        return False
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+
+        if self._route_api("GET"):
             return
 
         if parsed.path == "/" or parsed.path == "":
             self.path = "/index.html"
 
-        super().do_GET()
+        try:
+            super().do_GET()
+        except Exception:
+            self.send_error(500)
 
     def do_POST(self):
-        parsed = urlparse(self.path)
-        params = parse_qs(parsed.query)
-
-        if parsed.path.startswith("/api/tasks/"):
-            parts = parsed.path.split("/")
-            if len(parts) == 5:
-                task_id = parts[3]
-                action = parts[4]
-                params["task_id"] = [task_id]
-                route_key = ("POST", f"/api/tasks/{action}")
-                if route_key in API_ROUTES:
-                    API_ROUTES[route_key](self, params)
-                    return
-
-            if len(parts) == 6:
-                task_id = parts[3]
-                sub = parts[4]
-                action = parts[5]
-                params["task_id"] = [task_id]
-                route_key = ("POST", f"/api/tasks/{sub}/{action}")
-                if route_key in API_ROUTES:
-                    API_ROUTES[route_key](self, params)
-                    return
-
-        if parsed.path.startswith("/api/subtasks/"):
-            parts = parsed.path.split("/")
-            if len(parts) == 5:
-                subtask_id = parts[3]
-                action = parts[4]
-                params["subtask_id"] = [subtask_id]
-                route_key = ("POST", f"/api/subtasks/{action}")
-                if route_key in API_ROUTES:
-                    API_ROUTES[route_key](self, params)
-                    return
-            elif len(parts) == 6:
-                subtask_id = parts[3]
-                action = f"{parts[4]}/{parts[5]}"
-                params["subtask_id"] = [subtask_id]
-                route_key = ("POST", f"/api/subtasks/{action}")
-                if route_key in API_ROUTES:
-                    API_ROUTES[route_key](self, params)
-                    return
-
-        route_key = ("POST", parsed.path)
-        if route_key in API_ROUTES:
-            API_ROUTES[route_key](self, params)
-            return
-
-        error_response(self, "Not found", 404)
+        if not self._route_api("POST"):
+            error_response(self, "Not found", 404)
 
     def do_DELETE(self):
-        self.do_POST()
+        if not self._route_api("DELETE"):
+            if not self._route_api("POST"):
+                error_response(self, "Not found", 404)
 
     def do_OPTIONS(self):
         self.send_response(204)

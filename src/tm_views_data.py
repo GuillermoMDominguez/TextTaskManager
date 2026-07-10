@@ -27,6 +27,7 @@ class TaskViewItem:
     subtasks: List["SubtaskViewItem"] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
     recurrence: Optional[str] = None
+    done_date: Optional[datetime] = None
     time_spent: Optional[str] = None
     jira_key: Optional[str] = None
     linked_notes: List[str] = field(default_factory=list)
@@ -160,6 +161,7 @@ def _task_to_view_item(task: Task) -> TaskViewItem:
         ],
         notes=task.comments,
         recurrence=task.recurrence,
+        done_date=task.done_date,
         time_spent=getattr(task, "time_spent", None),
         jira_key=getattr(task, "jira_key", None),
         linked_notes=getattr(task, "linked_notes", []),
@@ -311,11 +313,17 @@ def get_pending_tasks(tasks_by_date: dict) -> List[TaskViewItem]:
     return items
 
 
-def get_weekly_report_data(tasks_by_date: dict, days: int = 7) -> WeeklyReportData:
-    """Compute weekly report data: completed, in-progress, upcoming tasks."""
+def get_weekly_report_data(tasks_by_date: dict, days: int = 7, end_date: Optional[datetime] = None) -> WeeklyReportData:
+    """Compute weekly report data: completed, in-progress, upcoming tasks.
+
+    Args:
+        tasks_by_date: all tasks grouped by date
+        days: number of days to look back from end_date (default 7)
+        end_date: end of the report period (defaults to today)
+    """
     from .tm_config import FINISHED_STATES, PROGRESS_STATES
 
-    today = datetime.now().date()
+    today = (end_date or datetime.now()).date()
     period_start = today - timedelta(days=days)
 
     completed: List[TaskViewItem] = []
@@ -325,7 +333,8 @@ def get_weekly_report_data(tasks_by_date: dict, days: int = 7) -> WeeklyReportDa
     for date_key, tasks in tasks_by_date.items():
         for task in tasks:
             if task.is_finished():
-                if date_key and period_start <= date_key.date() <= today:
+                done_date = task.done_date.date() if task.done_date else (date_key.date() if date_key else None)
+                if done_date and period_start <= done_date <= today:
                     completed.append(_task_to_view_item(task))
             elif task.state in PROGRESS_STATES:
                 in_progress.append(_task_to_view_item(task))

@@ -58,7 +58,9 @@ def parse_date_input(date_input: str) -> Optional[datetime]:
             month = today.month + n
             year = today.year + (month - 1) // 12
             month = (month - 1) % 12 + 1
-            day = min(today.day, 28)
+            import calendar
+            max_day = calendar.monthrange(year, month)[1]
+            day = min(today.day, max_day)
             return today.replace(year=year, month=month, day=day)
 
     # Keywords

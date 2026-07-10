@@ -169,11 +169,17 @@ def render_kanban(
 
 # ─── Weekly Report ─────────────────────────────────────────────────────────
 
-def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
-    """Generate a weekly summary of completed tasks and current status."""
+def generate_weekly_report(tasks_by_date: dict, days: int = 7, end_date: Optional[datetime] = None) -> str:
+    """Generate a weekly summary of completed tasks and current status.
+
+    Args:
+        tasks_by_date: all tasks grouped by date
+        days: number of days to look back from end_date (default 7)
+        end_date: end of the report period (defaults to today)
+    """
     from .tm_ui import Colors, get_state_color
 
-    today = datetime.now().date()
+    today = (end_date or datetime.now()).date()
     period_start = today - timedelta(days=days)
 
     completed: List[Task] = []
@@ -183,7 +189,8 @@ def generate_weekly_report(tasks_by_date: dict, days: int = 7) -> str:
     for date, tasks in tasks_by_date.items():
         for task in tasks:
             if task.is_finished():
-                if date and period_start <= date.date() <= today:
+                done_date = task.done_date.date() if task.done_date else (date.date() if date else None)
+                if done_date and period_start <= done_date <= today:
                     completed.append(task)
             elif task.state in PROGRESS_STATES:
                 in_progress.append(task)

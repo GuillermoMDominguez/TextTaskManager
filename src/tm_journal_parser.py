@@ -114,6 +114,14 @@ def _apply_task_metadata(task: Task, chunk: str) -> bool:
             task.linked_notes = [n.strip() for n in raw.split(",") if n.strip()]
         return True
 
+    done_match = re.match(r"^done\s*[:=]\s*(\d{1,2}/\d{1,2}/\d{4})$", chunk, re.IGNORECASE)
+    if done_match:
+        done_date = _parse_due_value(done_match.group(1))
+        if done_date is not None:
+            task.done_date = done_date
+            return True
+        return False
+
     return False
 
 
@@ -150,6 +158,7 @@ def _render_task_line(
     recurrence: Optional[str] = None,
     jira_key: Optional[str] = None,
     linked_notes: Optional[list] = None,
+    done_date: Optional[datetime] = None,
 ) -> str:
     parts = [f"{indent}- {title} -- {state}"]
     if due_date is not None:
@@ -162,6 +171,8 @@ def _render_task_line(
         parts.append(f"jira:{jira_key}")
     if linked_notes:
         parts.append(f"notes:{','.join(linked_notes)}")
+    if done_date is not None:
+        parts.append(f"done:{done_date.strftime('%d/%m/%Y')}")
     return " -- ".join(parts) + "\n"
 
 
@@ -431,6 +442,11 @@ def parse_journal(filepath: str) -> dict:
     except Exception as exc:
         raise JournalReadError(f"Error reading file: {exc}") from exc
 
+    for date, tasks in tasks_by_date.items():
+        for task in tasks:
+            if task.is_finished() and task.done_date is None:
+                task.done_date = date
+
     return tasks_by_date
 
 
@@ -502,6 +518,7 @@ def _render_task_block(task: Task, state_override: Optional[str] = None) -> List
             recurrence=task.recurrence,
             jira_key=task.jira_key,
             linked_notes=task.linked_notes,
+            done_date=task.done_date,
         )
     ]
     for comment in task.comments:

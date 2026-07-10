@@ -966,12 +966,33 @@ async function loadStats() {
   `;
 }
 
+let weeklyEndDate = '';
+let weeklyDays = 7;
+
 // ─── Weekly Report ──────────────────────────────
 async function loadWeekly() {
-  const data = await api('GET', '/api/weekly');
+  const params = new URLSearchParams(window.location.search);
+  weeklyEndDate = params.get('end_date') || weeklyEndDate;
+  if (params.has('days')) weeklyDays = parseInt(params.get('days')) || 7;
+
+  const qs = '?end_date=' + encodeURIComponent(weeklyEndDate) + '&days=' + weeklyDays;
+  const data = await api('GET', '/api/weekly' + qs);
+
+  const today = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const ymd = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
   const el = document.getElementById('weekly-content');
 
   el.innerHTML = `
+    <div class="weekly-controls">
+      <label>End date:</label>
+      <input type="date" id="weekly-end-date" value="${weeklyEndDate ? ymdFromDmy(weeklyEndDate) : ymd}">
+      <label>Days:</label>
+      <select id="weekly-days">
+        ${[3,7,14,30].map(d => `<option value="${d}"${weeklyDays===d?' selected':''}>${d}</option>`).join('')}
+      </select>
+      <button id="weekly-refresh" class="btn">Go</button>
+    </div>
     <div class="report-summary">
       <div class="item"><div class="value">${data.total}</div><div class="label">Total</div></div>
       <div class="item"><div class="value" style="color:var(--green)">${data.total_done}</div><div class="label">Done</div></div>
@@ -992,6 +1013,30 @@ async function loadWeekly() {
       ${data.upcoming.length ? taskListHtml(data.upcoming) : '<div class="empty">None</div>'}
     </div>
   `;
+
+  document.getElementById('weekly-refresh').addEventListener('click', () => {
+    const d = document.getElementById('weekly-end-date').value;
+    weeklyDays = parseInt(document.getElementById('weekly-days').value) || 7;
+    weeklyEndDate = d ? dmyFromYmd(d) : '';
+    const q = new URLSearchParams();
+    if (weeklyEndDate) q.set('end_date', weeklyEndDate);
+    if (weeklyDays !== 7) q.set('days', String(weeklyDays));
+    const qstr = q.toString();
+    history.replaceState(null, '', window.location.pathname + (qstr ? '?' + qstr : ''));
+    loadWeekly();
+  });
+}
+
+function ymdFromDmy(dmy) {
+  const m = dmy.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (!m) return '';
+  const yy = m[3].length === 2 ? '20' + m[3] : m[3];
+  return `${yy}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+}
+function dmyFromYmd(ymd) {
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return '';
+  return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
 // ─── Burndown Chart ─────────────────────────────
@@ -3171,7 +3216,7 @@ function toggleSidebar() {
   const app = document.querySelector('.app');
   const collapsed = app.classList.toggle('sidebar-collapsed');
   const btn = document.getElementById('btn-collapse');
-  btn.textContent = collapsed ? '☰' : '☰';
+  btn.textContent = collapsed ? '☰' : '✕';
   try { localStorage.setItem('sidebar-collapsed', collapsed ? '1' : ''); } catch (e) {}
 }
 // Restore sidebar state on load

@@ -55,6 +55,7 @@ def serialize_task(item) -> dict:
             for st in item.subtasks
         ],
         "recurrence": item.recurrence,
+        "done_date": item.done_date.strftime("%d/%m/%Y") if item.done_date else None,
         "time_spent": item.time_spent,
         "jira_key": item.jira_key,
         "linked_notes": item.linked_notes,

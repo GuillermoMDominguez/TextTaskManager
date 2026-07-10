@@ -2,7 +2,9 @@
 """Task Manager CLI entrypoint."""
 
 import argparse
+import json
 import sys
+import time
 import atexit
 from pathlib import Path
 from typing import List, Optional
@@ -562,6 +564,18 @@ def main() -> None:
 
         return (readline_colored, raw_colored, plain)
 
+    # ─── Check for abandoned timer on startup ─────────────────────────
+    try:
+        _timer_path = Path(journal_path).parent / ".ttm_timer.json"
+        if _timer_path.exists():
+            _timer_data = json.loads(_timer_path.read_text(encoding="utf-8"))
+            if _timer_data:
+                for tid, start_ts in _timer_data.items():
+                    _elapsed = int((time.time() - start_ts) / 60)
+                    print(f"{Colors.WARNING}⚠ Timer for task {tid} was running ({_elapsed}min ago). Use 'tt {tid} stop' to log it.{Colors.RESET}")
+    except Exception:
+        pass
+
     # ───────────────────────────────────────────────────────────────────
 
     while True:
@@ -619,6 +633,7 @@ def main() -> None:
                 if outcome.new_journal_path:
                     journal_path = outcome.new_journal_path
                     command_context.journal_path = journal_path
+                    command_context.undo_stack.clear()
                     save_cached_journal(cache_path, Path(journal_path).name)
                     tasks_cache = None
                     try:

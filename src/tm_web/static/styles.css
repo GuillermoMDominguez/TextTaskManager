@@ -1145,6 +1145,15 @@ main {
 .date-preview.valid { color:var(--green); }
 .date-preview.invalid { color:var(--red); }
 
+/* ─── Weekly Report Controls ──────────────── */
+.weekly-controls { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+.weekly-controls label { font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.3px; }
+.weekly-controls input[type="date"],
+.weekly-controls select { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:4px 8px; font-family:inherit; font-size:12px; }
+.weekly-controls input[type="date"]:focus,
+.weekly-controls select:focus { outline:none; border-color:var(--accent); }
+.weekly-controls select { min-width:64px; }
+
 /* ─── Calendar Trigger ─────────────────────── */
 .date-input-wrapper { display:flex; align-items:center; gap:4px; }
 .date-input-wrapper input[type="text"] { flex:1; }

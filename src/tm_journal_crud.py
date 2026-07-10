@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .tm_config import DEFAULT_STATE, STATE_ALIASES, VALID_STATES
+from .tm_config import DEFAULT_STATE, FINISHED_STATES, STATE_ALIASES, VALID_STATES
 from .tm_models import Subtask, Task
 from .tm_journal_hooks import _notify_post_write, file_lock
 from .tm_journal_parser import (
@@ -94,9 +94,17 @@ def update_task_state_in_file(filepath: str, task: Task, new_state: str) -> bool
         if continuation_tags:
             title_with_tags = raw_title + " " + " ".join(continuation_tags)
 
+        done_date = task.done_date
+        if new_state in FINISHED_STATES:
+            if done_date is None:
+                done_date = datetime.now()
+        else:
+            done_date = None
+
         new_line = _render_task_line(
             title_with_tags, new_state, task.due_date, task.priority, indent, task.recurrence,
             jira_key=task.jira_key, linked_notes=task.linked_notes,
+            done_date=done_date,
         )
 
         if task.time_spent:
@@ -292,7 +300,7 @@ def edit_task_title_in_file(filepath: str, task: Task, new_title: str) -> bool:
         if line_index < 0 or line_index >= len(lines):
             return False
         indent = _task_line_indent(lines[line_index], "-")
-        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence, jira_key=task.jira_key, linked_notes=task.linked_notes)
+        new_line = _render_task_line(clean_title, task.state, task.due_date, task.priority, indent, task.recurrence, jira_key=task.jira_key, linked_notes=task.linked_notes, done_date=task.done_date)
         if task.time_spent:
             from .tm_features import format_time_spent
             new_line = new_line.rstrip("\n") + f" -- spent:{format_time_spent(task.time_spent)}\n"
@@ -371,7 +379,7 @@ def update_task_metadata_in_file(
             return False
 
         indent = _task_line_indent(lines[line_index], "-")
-        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=effective_jira_key, linked_notes=effective_notes or None)
+        lines[line_index] = _render_task_line(task.title, task.state, due_date, priority, indent, effective_recurrence, jira_key=effective_jira_key, linked_notes=effective_notes or None, done_date=task.done_date)
         _write_lines(filepath, lines)
         return True
     except Exception:
