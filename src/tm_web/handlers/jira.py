@@ -141,29 +141,36 @@ def api_post_jira_transition(handler, params):
 def api_post_jira_mark_all(handler, params):
     """POST /api/jira/mark-all — mark all Jira notifications as read."""
     try:
-        from src import tm_jira
-        from src.tm_jira import mark_all_notifications_read
-
-        mark_all_notifications_read()
+        from src.tm_jira import _mark_all_read
+        _mark_all_read()
         json_response(handler, {"ok": True})
     except Exception as e:
         error_response(handler, str(e), 500)
 
 
 def api_post_jira_mark(handler, params):
-    """POST /api/jira/mark — mark a single Jira notification as read."""
+    """POST /api/jira/mark — mark one or more Jira notifications as read.
+
+    Accepts either:
+      { "ids": ["comment-id", ...] }   — from frontend
+      { "comment_id": "comment-id" }   — legacy
+    """
     from ..serializers import read_body
 
     body = read_body(handler)
-    comment_id = body.get("comment_id", "").strip()
-    if not comment_id:
-        error_response(handler, "comment_id is required")
+    ids = body.get("ids") or []
+    if isinstance(ids, str):
+        ids = [ids]
+    if not ids:
+        cid = (body.get("comment_id") or "").strip()
+        if cid:
+            ids = [cid]
+    if not ids:
+        error_response(handler, "comment_id or ids is required")
         return
     try:
-        from src import tm_jira
-        from src.tm_jira import mark_notification_read
-
-        mark_notification_read(comment_id)
+        from src.tm_jira import _mark_read_by_ids as mark_read
+        mark_read(ids)
         json_response(handler, {"ok": True})
     except Exception as e:
         error_response(handler, str(e), 500)
