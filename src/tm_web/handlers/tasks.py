@@ -19,6 +19,8 @@ from src.tm_journal import (
     update_task_state_in_file,
     write_journal,
 )
+from src.tm_config import DEFAULT_STATE, FINISHED_STATES
+from src.tm_features import compute_next_recurrence_date
 from src.tm_logic import (
     find_task_by_id,
     normalize_recurrence_input,
@@ -103,7 +105,24 @@ def api_change_state(handler, params) -> None:
         return
 
     try:
+        has_recurrence = not isinstance(task, Subtask) and getattr(task, "recurrence", None)
+
         update_task_state_in_file(_state.journal_path, task, normalized)
+
+        if has_recurrence and normalized in FINISHED_STATES:
+            base_date = task.due_date or task.date or datetime.now()
+            next_date = compute_next_recurrence_date(base_date, task.recurrence)
+            next_due = compute_next_recurrence_date(task.due_date, task.recurrence) if task.due_date else None
+            add_task_to_file(
+                _state.journal_path,
+                task.title,
+                DEFAULT_STATE,
+                next_date,
+                next_due,
+                task.priority,
+                task.recurrence,
+            )
+
         _state.refresh()
         updated = find_task_by_id(_state.tasks_by_date, task_id)
         if updated:
@@ -152,7 +171,29 @@ def api_edit_task(handler, params) -> None:
         if new_state and new_state != task.state:
             normalized = normalize_state_input(new_state)
             if normalized:
+                has_recurrence = not isinstance(task, Subtask) and getattr(task, "recurrence", None)
+                # Capture recurrence values before state change/refresh
+                recur_title = task.title if has_recurrence else None
+                recur_base_date = task.due_date or task.date if has_recurrence else None
+                recur_next_due = task.due_date if has_recurrence else None
+                recur_priority = task.priority if has_recurrence else None
+                recur_value = task.recurrence if has_recurrence else None
+
                 update_task_state_in_file(_state.journal_path, task, normalized)
+
+                if has_recurrence and normalized in FINISHED_STATES:
+                    next_date = compute_next_recurrence_date(recur_base_date or datetime.now(), recur_value)
+                    next_due = compute_next_recurrence_date(recur_next_due, recur_value) if recur_next_due else None
+                    add_task_to_file(
+                        _state.journal_path,
+                        recur_title,
+                        DEFAULT_STATE,
+                        next_date,
+                        next_due,
+                        recur_priority,
+                        recur_value,
+                    )
+
                 _state.refresh()
                 task = find_task_by_id(_state.tasks_by_date, task_id)
                 if not task:
@@ -645,8 +686,28 @@ def api_batch_state(handler, params) -> None:
     for tid in task_ids:
         task = find_task_by_id(_state.tasks_by_date, tid)
         if task and not isinstance(task, Subtask):
+            has_recurrence = getattr(task, "recurrence", None)
+            recur_title = task.title if has_recurrence else None
+            recur_base_date = task.due_date or task.date if has_recurrence else None
+            recur_next_due = task.due_date if has_recurrence else None
+            recur_priority = task.priority if has_recurrence else None
+            recur_value = task.recurrence if has_recurrence else None
+
             if update_task_state_in_file(_state.journal_path, task, new_state):
                 success += 1
+
+            if has_recurrence and new_state in FINISHED_STATES:
+                next_date = compute_next_recurrence_date(recur_base_date or datetime.now(), recur_value)
+                next_due = compute_next_recurrence_date(recur_next_due, recur_value) if recur_next_due else None
+                add_task_to_file(
+                    _state.journal_path,
+                    recur_title,
+                    DEFAULT_STATE,
+                    next_date,
+                    next_due,
+                    recur_priority,
+                    recur_value,
+                )
     _state.refresh()
     json_response(handler, {"ok": True, "updated": success})
 
