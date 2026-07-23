@@ -135,8 +135,17 @@ def _send_via_smtp(config: EmailConfig, recipient: str, subject: str, body: str)
 
 
 def _open_mailto_draft(recipient: str, subject: str, body: str) -> bool:
-    """Open default mail client with prefilled draft via mailto URI."""
-    uri = f"mailto:{quote(recipient)}?subject={quote(subject)}&body={quote(body)}"
+    """Open default mail client with prefilled draft via mailto URI.
+
+    Converts line endings to CRLF for better compatibility with Outlook
+    and other desktop clients on macOS.
+    """
+    body_crlf = body.replace("\r\n", "\n").replace("\n", "\r\n")
+    uri = (
+        f"mailto:{quote(recipient)}"
+        f"?subject={quote(subject)}"
+        f"&body={quote(body_crlf)}"
+    )
     return _open_uri(uri)
 
 
@@ -175,7 +184,7 @@ def _write_report_file(body: str) -> Optional[Path]:
 
 
 def send_email_report(recipient: str, subject: str, body: str, config: EmailConfig) -> EmailResult:
-    """Send pending task report using SMTP, or fallback to mailto draft."""
+    """Send or draft email report."""
     smtp_error = None
 
     if config.smtp_host and (config.smtp_sender or config.smtp_user):
@@ -185,42 +194,9 @@ def send_email_report(recipient: str, subject: str, body: str, config: EmailConf
         except Exception as exc:
             smtp_error = str(exc)
 
-    mailto_limit = 1700
-    draft_opened = False
-    used_body = True
-
-    # Some mail clients (including Outlook in some setups) fail silently with long mailto bodies.
-    if len(body) <= mailto_limit:
-        draft_opened = _open_mailto_draft(recipient, subject, body)
-    if not draft_opened:
-        draft_opened = _open_uri(f"mailto:{quote(recipient)}?subject={quote(subject)}")
-        used_body = False
-
-    if draft_opened:
+    if _open_mailto_draft(recipient, subject, body):
         if smtp_error:
-            if not used_body:
-                report_path = _write_report_file(body)
-                if report_path:
-                    return EmailResult(
-                        "draft",
-                        f"SMTP failed ({smtp_error}). Opened draft without body. Report saved at {report_path}.",
-                    )
-                return EmailResult(
-                    "draft",
-                    f"SMTP failed ({smtp_error}). Opened draft without body (client body-size limit).",
-                )
-            return EmailResult(
-                "draft",
-                f"SMTP failed ({smtp_error}). Opened draft in default mail app instead.",
-            )
-        if not used_body:
-            report_path = _write_report_file(body)
-            if report_path:
-                return EmailResult(
-                    "draft",
-                    f"Opened draft without body (client body-size limit). Report saved at {report_path}.",
-                )
-            return EmailResult("draft", "Opened draft without body (client body-size limit).")
+            return EmailResult("draft", f"SMTP failed ({smtp_error}). Opened draft in default mail app.")
         return EmailResult("draft", "Opened draft in default mail app.")
 
     if smtp_error:

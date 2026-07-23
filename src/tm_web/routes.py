@@ -39,6 +39,7 @@ from .handlers.views import (
     api_parse_date,
     api_save_template,
     api_search_tasks,
+    api_send_weekly_email,
 )
 from .handlers.notes import (
     api_create_note,
@@ -135,6 +136,8 @@ API_ROUTES = {
     ("POST", "/api/tasks/batch/priority"): api_batch_priority,
     ("POST", "/api/tasks/batch/delete"): api_batch_delete,
     ("POST", "/api/tasks/import"): api_import_tasks,
+    # Email
+    ("POST", "/api/weekly/email"): api_send_weekly_email,
     # Notes
     ("POST", "/api/notes"): api_create_note,
     ("POST", "/api/notes/delete"): api_delete_note_route,

@@ -355,6 +355,55 @@ def get_pending_tasks(tasks_by_date: dict) -> List[Task]:
     return pending
 
 
+def build_weekly_email_body(tasks_by_date: dict, days: int = 7, end_date: Optional[datetime] = None) -> str:
+    """Build an email-ready text report with completed tasks in a date range.
+
+    Shows only finished tasks whose done_date falls within the period,
+    plus a summary line. Uses plain ASCII for reliable mailto delivery.
+    """
+    today = (end_date or datetime.now()).date()
+    period_start = today - timedelta(days=days)
+
+    lines: List[str] = [
+        f"Weekly Report - Completed tasks",
+        f"{period_start.strftime('%d/%m/%Y')} - {today.strftime('%d/%m/%Y')}",
+        "",
+    ]
+
+    completed: List[Task] = []
+    for date, tasks in tasks_by_date.items():
+        for task in tasks:
+            if task.is_finished():
+                done_date = task.done_date.date() if task.done_date else (date.date() if date else None)
+                if done_date and period_start <= done_date <= today:
+                    completed.append(task)
+
+    header = f"COMPLETED ({len(completed)})"
+    lines.append(header)
+    lines.append("-" * 40)
+    if completed:
+        for idx, task in enumerate(completed, start=1):
+            done_str = task.done_date.strftime('%d/%m/%Y') if task.done_date else ""
+            priority = task.priority or ""
+            due_str = task.due_date.strftime('%d/%m/%Y') if task.due_date else ""
+            meta = f" | Priority: {priority}" if priority else ""
+            meta += f" | Due: {due_str}" if due_str else ""
+            meta += f" | Done: {done_str}" if done_str else ""
+            lines.append(f"  [{idx}] {task.title}{meta}")
+            for subtask in task.subtasks:
+                if subtask.is_finished():
+                    lines.append(f"       + {subtask.title}")
+    else:
+        lines.append("  (none)")
+    lines.append("")
+
+    total_all = sum(len(tasks) for tasks in tasks_by_date.values())
+    total_done = sum(1 for tasks in tasks_by_date.values() for t in tasks if t.is_finished())
+    lines.append(f"Summary: {total_all} total | {total_done} done | {total_all - total_done} pending")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def build_pending_email_body(tasks_by_date: dict) -> str:
     """Build an email-ready text report for pending tasks and subtasks."""
     lines: List[str] = ["Pending tasks report", ""]

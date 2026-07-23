@@ -376,6 +376,47 @@ def api_apply_template(handler, params) -> None:
         error_response(handler, "Could not create task from template")
 
 
+def api_send_weekly_email(handler, params) -> None:
+    """POST /api/weekly/email — email the weekly report.
+
+    Body params:
+        recipient (str): email recipient (optional, falls back to config)
+        days (int): number of days to look back (default 7)
+        end_date (str): end of report period in dd/mm/YYYY format (default today)
+    """
+    from ..serializers import read_body
+    from src.tm_email import load_email_config, send_email_report
+    from src.tm_logic import build_weekly_email_body
+    from pathlib import Path
+
+    _state.refresh()
+    body = read_body(handler)
+    recipient = body.get("recipient", "").strip()
+    days = int(body.get("days", 7))
+    end_date_raw = body.get("end_date", "").strip()
+
+    end_date = None
+    if end_date_raw:
+        try:
+            end_date = datetime.strptime(end_date_raw, "%d/%m/%Y")
+        except ValueError:
+            pass
+
+    config = load_email_config()
+    if not recipient:
+        recipient = config.default_recipient or ""
+
+    if not recipient:
+        json_response(handler, {"ok": False, "message": "No recipient configured. Set a default recipient or provide one."})
+        return
+
+    subject = f"{config.subject_prefix} Weekly report ({datetime.now().strftime('%d/%m/%Y')})"
+    email_body = build_weekly_email_body(_state.tasks_by_date, days, end_date)
+    result = send_email_report(recipient, subject, email_body, config)
+
+    json_response(handler, {"ok": result.success, "status": result.status, "message": result.message})
+
+
 def api_parse_date(handler, params) -> None:
     """GET /api/parse-date?q=tomorrow — parse natural language date."""
     from src.tm_logic import parse_date_input

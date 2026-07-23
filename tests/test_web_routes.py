@@ -22,8 +22,8 @@ class TestRouteTable(unittest.TestCase):
                 )
 
     def test_route_count(self):
-        """We expect exactly 62 routes."""
-        self.assertEqual(len(self.routes), 62)
+        """We expect exactly 63 routes."""
+        self.assertEqual(len(self.routes), 63)
 
     def test_get_routes_exist(self):
         """All expected GET routes must be present."""

@@ -1023,3 +1023,84 @@ def handle_email(
     else:
         _log("error", f"{result.message}")
     return CommandOutcome(refreshed, view_state)
+
+
+def handle_email_weekly(
+    raw_command: str,
+    tasks_by_date: dict,
+    view_state: ViewState,
+    context: CommandContext,
+) -> Optional[CommandOutcome]:
+    """Handle 'sewr|send-weekly|email-weekly' command (email weekly report).
+
+    Usage:
+        sewr                              — send weekly completed tasks to default recipient
+        sewr user@example.com             — send to specific address
+        sewr --days 14                    — last 14 days
+        sewr --end 10/07/2026             — last 7 days ending on that date
+        sewr --days 14 --end 10/07/2026   — last 14 days ending on that date
+    """
+    if not re.match(r"^\s*(?:sewr|send-weekly|email-weekly|sem)\b", raw_command, re.IGNORECASE):
+        return None
+
+    from .tm_email import send_email_report, EmailResult
+    from .tm_logic import build_weekly_email_body
+    from datetime import datetime as _dt
+
+    refreshed = context.refresh_tasks()
+
+    # Parse args: optional recipient, then --days / --end flags
+    import shlex as _shlex
+    try:
+        tokens = _shlex.split(raw_command)
+    except ValueError:
+        tokens = []
+
+    rest = tokens[1:] if len(tokens) > 0 else []
+
+    recipient = None
+    days = int(get_setting("weekly_report_days", 7))
+    end_date = None
+
+    i = 0
+    while i < len(rest):
+        token = rest[i]
+        if token == "--days" and i + 1 < len(rest):
+            try:
+                days = int(rest[i + 1])
+                i += 2
+            except ValueError:
+                i += 1
+        elif token == "--end" and i + 1 < len(rest):
+            from .tm_logic import parse_date_input
+            end_date = parse_date_input(rest[i + 1])
+            if end_date is None:
+                _log("error", f"Invalid end date: {rest[i + 1]}")
+                return CommandOutcome(refreshed, view_state)
+            i += 2
+        elif not recipient and not token.startswith("--"):
+            recipient = token
+            i += 1
+        else:
+            i += 1
+
+    if not recipient:
+        recipient = context.email_config.default_recipient
+    while not recipient:
+        try:
+            answer = input(f"{Colors.BOLD}Recipient email: {Colors.RESET}").strip()
+        except (EOFError, KeyboardInterrupt):
+            _log("info", "Cancelled.")
+            return CommandOutcome(refreshed, view_state)
+        if answer:
+            recipient = answer
+
+    config = context.email_config
+    subject = f"{config.subject_prefix} Weekly report ({_dt.now().strftime('%d/%m/%Y')})"
+    body = build_weekly_email_body(refreshed, days, end_date)
+    result: EmailResult = send_email_report(recipient, subject, body, config)
+    if result.success:
+        _log("info", f"{result.message}")
+    else:
+        _log("error", f"{result.message}")
+    return CommandOutcome(refreshed, view_state)

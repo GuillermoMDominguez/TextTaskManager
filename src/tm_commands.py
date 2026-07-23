@@ -81,6 +81,7 @@ from .tm_cmd_features import (
     handle_weekly_report,
     handle_sort,
     handle_email,
+    handle_email_weekly,
 )
 from .tm_cmd_system import (
     handle_sync,
@@ -209,6 +210,11 @@ COMMAND_HELP = {
         "syntax": "se [recipient]",
         "description": "Send pending tasks by email.",
         "examples": ["se", "se team@example.com"],
+    },
+    "sewr": {
+        "syntax": "sewr [recipient] [--days N] [--end dd/mm/yyyy]",
+        "description": "Send weekly report (completed tasks) by email.",
+        "examples": ["sewr", "sewr team@example.com", "sewr --days 14", "sewr team@example.com --days 14 --end 10/07/2026"],
     },
     "kb": {
         "syntax": "kb [#tag]",
@@ -342,6 +348,9 @@ ALIAS_TO_HELP_KEY = {
     "undo": "u",
     "find": "f",
     "send": "se",
+    "send-weekly": "sewr",
+    "email-weekly": "sewr",
+    "sem": "sewr",
     "kanban": "kb",
     "project": "pj",
     "weekly": "wr",
@@ -645,6 +654,10 @@ def execute_command(
 
     # ── Email ────────────────────────────────────────────────────────
     result = handle_email(raw_command, tasks_by_date, view_state, context)
+    if result:
+        return result
+
+    result = handle_email_weekly(raw_command, tasks_by_date, view_state, context)
     if result:
         return result
 

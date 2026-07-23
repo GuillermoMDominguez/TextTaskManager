@@ -992,6 +992,13 @@ async function loadWeekly() {
         ${[3,7,14,30].map(d => `<option value="${d}"${weeklyDays===d?' selected':''}>${d}</option>`).join('')}
       </select>
       <button id="weekly-refresh" class="btn">Go</button>
+      <button id="weekly-email-btn" class="btn" style="margin-left:auto">Send Email</button>
+    </div>
+    <div id="weekly-email-row" style="display:none;margin-bottom:12px;gap:8px;align-items:center;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--text-dim)">Recipient:</label>
+      <input type="email" id="weekly-email-recipient" placeholder="email@example.com" style="flex:1;min-width:200px;font-size:11px">
+      <button id="weekly-email-send" class="btn btn-primary btn-sm">Send</button>
+      <span id="weekly-email-status" style="font-size:11px;color:var(--text-dim)"></span>
     </div>
     <div class="report-summary">
       <div class="item"><div class="value">${data.total}</div><div class="label">Total</div></div>
@@ -1024,6 +1031,29 @@ async function loadWeekly() {
     const qstr = q.toString();
     history.replaceState(null, '', window.location.pathname + (qstr ? '?' + qstr : ''));
     loadWeekly();
+  });
+
+  document.getElementById('weekly-email-btn').addEventListener('click', () => {
+    const row = document.getElementById('weekly-email-row');
+    row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+  });
+
+  document.getElementById('weekly-email-send').addEventListener('click', async () => {
+    const recipient = document.getElementById('weekly-email-recipient').value.trim();
+    const statusEl = document.getElementById('weekly-email-status');
+    if (!recipient) { statusEl.textContent = 'Recipient required'; return; }
+    statusEl.textContent = 'Sending...';
+    try {
+      const endDate = weeklyEndDate || (document.getElementById('weekly-end-date').value
+        ? dmyFromYmd(document.getElementById('weekly-end-date').value) : '');
+      const days = parseInt(document.getElementById('weekly-days').value) || 7;
+      const res = await api('POST', '/api/weekly/email', { recipient, days, end_date: endDate });
+      statusEl.textContent = res.message || (res.ok ? 'Sent successfully' : 'Failed');
+      statusEl.style.color = res.ok ? 'var(--green)' : 'var(--red)';
+    } catch (e) {
+      statusEl.textContent = 'Error sending email';
+      statusEl.style.color = 'var(--red)';
+    }
   });
 }
 
